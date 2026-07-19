@@ -1,0 +1,287 @@
+// Prisma schema for Business Control MVP
+// Database: SQLite for MVP, designed to migrate to Postgres later
+// Simply change the provider and connection string to switch databases
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Authentication ────────────────────────────────────────────────────────────
+
+model User {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  password  String   // bcrypt hashed
+  fullName  String
+  role      String   @default("STAFF") // OWNER or STAFF
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── Settings ──────────────────────────────────────────────────────────────────
+
+model ExchangeRate {
+  id            Int      @id @default(autoincrement())
+  rmbToUsd      Float    // e.g. 0.14 means 1 RMB = 0.14 USD
+  effectiveDate DateTime
+  notes         String?
+  createdBy     String?
+  createdAt     DateTime @default(now())
+}
+
+// ─── Products & Stock ──────────────────────────────────────────────────────────
+
+model Product {
+  id               Int      @id @default(autoincrement())
+  itemNumber       String   @unique
+  productName      String
+  unitCostRmb      Float    @default(0)
+  unitCostUsd      Float    @default(0)
+  sellingPriceRmb  Float    @default(0)
+  sellingPriceUsd  Float    @default(0)
+  openingQuantity  Int      @default(0)
+  currentQuantity  Int      @default(0)
+  notes            String?
+  sourceImportId   Int?
+  sourceFilename   String?
+  sourceSheetName  String?
+  sourceRowNumber  Int?
+  createdBy        String?
+  updatedBy        String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  stockMovements StockMovement[]
+  saleItems      SaleItem[]
+}
+
+model StockMovement {
+  id             Int      @id @default(autoincrement())
+  productId      Int
+  movementDate   DateTime
+  movementType   String   // OPENING_BALANCE, SALE, PURCHASE, RETURN, ADJUSTMENT
+  quantity        Int      // positive for in, negative for out
+  openingBalance Int      @default(0)
+  closingBalance Int      @default(0)
+  referenceType  String?  // SALE, EXPENSE, IMPORT, MANUAL
+  referenceId    Int?
+  notes          String?
+  sourceImportId Int?
+  createdBy      String?
+  createdAt      DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id])
+}
+
+// ─── Sales ─────────────────────────────────────────────────────────────────────
+
+model Sale {
+  id            Int      @id @default(autoincrement())
+  saleDate      DateTime
+  paymentType   String   // CASH, CREDIT, MIXED
+  customerName  String?
+  customerPhone String?
+  totalAmount   Float    @default(0)
+  cashAmount    Float    @default(0)
+  creditAmount  Float    @default(0)
+  notes         String?
+  createdBy     String?
+  createdAt     DateTime @default(now())
+
+  items SaleItem[]
+}
+
+model SaleItem {
+  id          Int      @id @default(autoincrement())
+  saleId      Int
+  productId   Int
+  quantity    Int
+  unitPrice   Float
+  totalAmount Float
+  createdAt   DateTime @default(now())
+
+  sale    Sale    @relation(fields: [saleId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+}
+
+// ─── Expenses ──────────────────────────────────────────────────────────────────
+
+model Expense {
+  id            Int      @id @default(autoincrement())
+  expenseDate   DateTime
+  category      String
+  description   String
+  amount        Float
+  paymentMethod String   @default("CASH") // CASH, BANK, OTHER
+  paidTo        String?
+  notes         String?
+  createdBy     String?
+  createdAt     DateTime @default(now())
+}
+
+// ─── Cash Position ─────────────────────────────────────────────────────────────
+
+model CashPosition {
+  id                    Int      @id @default(autoincrement())
+  cashDate              DateTime @unique
+  openingCash           Float    @default(0)
+  cashSales             Float    @default(0)
+  debtorPaymentsReceived Float   @default(0)
+  otherCashIn           Float    @default(0)
+  expensesPaid          Float    @default(0)
+  creditorPaymentsMade  Float    @default(0)
+  expectedClosingCash   Float    @default(0)
+  actualCountedCash     Float?
+  variance              Float?
+  notes                 String?
+  createdBy             String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+// ─── Debtors (Credit Sales) ────────────────────────────────────────────────────
+
+model Debtor {
+  id                Int      @id @default(autoincrement())
+  customerName      String
+  phoneNumber       String?
+  totalCreditAmount Float    @default(0)
+  totalPaid         Float    @default(0)
+  outstandingBalance Float   @default(0)
+  status            String   @default("OPEN") // OPEN, PART_PAID, PAID
+  notes             String?
+  createdBy         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  transactions DebtorTransaction[]
+}
+
+model DebtorTransaction {
+  id              Int      @id @default(autoincrement())
+  debtorId        Int
+  transactionDate DateTime
+  transactionType String   // CREDIT_SALE, PAYMENT
+  amount          Float
+  referenceType   String?  // SALE, MANUAL
+  referenceId     Int?
+  notes           String?
+  createdBy       String?
+  createdAt       DateTime @default(now())
+
+  debtor Debtor @relation(fields: [debtorId], references: [id])
+}
+
+// ─── Creditors (Suppliers) ─────────────────────────────────────────────────────
+
+model Creditor {
+  id                Int      @id @default(autoincrement())
+  creditorName      String
+  phoneNumber       String?
+  description       String?
+  totalAmountOwed   Float    @default(0)
+  totalPaid         Float    @default(0)
+  outstandingBalance Float   @default(0)
+  dueDate           DateTime?
+  status            String   @default("OPEN") // OPEN, PART_PAID, PAID
+  notes             String?
+  createdBy         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  transactions CreditorTransaction[]
+}
+
+model CreditorTransaction {
+  id              Int      @id @default(autoincrement())
+  creditorId      Int
+  transactionDate DateTime
+  transactionType String   // PURCHASE, PAYMENT
+  amount          Float
+  referenceType   String?
+  referenceId     Int?
+  notes           String?
+  createdBy       String?
+  createdAt       DateTime @default(now())
+
+  creditor Creditor @relation(fields: [creditorId], references: [id])
+}
+
+// ─── Day Closing ───────────────────────────────────────────────────────────────
+
+model DayClosing {
+  id                    Int      @id @default(autoincrement())
+  closingDate           DateTime @unique
+  openingCash           Float    @default(0)
+  totalCashSales        Float    @default(0)
+  totalCreditSales      Float    @default(0)
+  totalExpenses         Float    @default(0)
+  debtorPaymentsReceived Float   @default(0)
+  creditorPaymentsMade  Float    @default(0)
+  expectedClosingCash   Float    @default(0)
+  actualCountedCash     Float?
+  cashVariance          Float?
+  totalItemsSold        Int      @default(0)
+  stockNotes            String?
+  signOffName           String?
+  closingNotes          String?
+  status                String   @default("DRAFT") // DRAFT, CLOSED
+  closedBy              String?
+  createdBy             String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+// ─── Import System ─────────────────────────────────────────────────────────────
+
+model ImportDocument {
+  id           Int       @id @default(autoincrement())
+  filename     String
+  documentType String    // PRODUCT_LIST, OPENING_STOCK, BUSINESS_CONTROL
+  status       String    @default("DRAFT") // DRAFT, COMPLETED, FAILED, CANCELLED
+  importedBy   String?
+  totalRows    Int       @default(0)
+  importedRows Int       @default(0)
+  skippedRows  Int       @default(0)
+  errorRows    Int       @default(0)
+  exchangeRateUsed Float?
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+
+  rows   ImportRow[]
+  errors ImportError[]
+}
+
+model ImportRow {
+  id                Int      @id @default(autoincrement())
+  importDocumentId  Int
+  sheetName         String?
+  rowNumber         Int
+  detectedRecordType String?
+  rawData           String?  // JSON string of raw row data
+  mappedData        String?  // JSON string of mapped data
+  status            String   @default("PENDING") // PENDING, READY, WARNING, ERROR, IMPORTED, SKIPPED
+  errorMessage      String?
+  createdAt         DateTime @default(now())
+
+  importDocument ImportDocument @relation(fields: [importDocumentId], references: [id])
+  errors         ImportError[]
+}
+
+model ImportError {
+  id               Int      @id @default(autoincrement())
+  importDocumentId Int
+  importRowId      Int?
+  errorType        String   // MISSING_FIELD, INVALID_NUMBER, DUPLICATE, VALIDATION
+  errorMessage     String
+  createdAt        DateTime @default(now())
+
+  importDocument ImportDocument @relation(fields: [importDocumentId], references: [id])
+  importRow      ImportRow?     @relation(fields: [importRowId], references: [id])
+}
