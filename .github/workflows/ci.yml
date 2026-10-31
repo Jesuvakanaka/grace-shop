@@ -1,0 +1,26 @@
+# CI for pull requests and feature-branch pushes (ZP-470).
+# The steps live in checks.yml so deploy-uat.yml runs exactly the same gate.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: checks
+    uses: ./.github/workflows/checks.yml
+    with:
+      # PR: lint what the PR changes relative to its base branch.
+      # Branch push / manual run: lint what the branch changes relative to master.
+      lint-base: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'origin/master' }}

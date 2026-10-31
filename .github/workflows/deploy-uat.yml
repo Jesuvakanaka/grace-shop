@@ -1,0 +1,247 @@
+# Grace Shop UAT deploy to Cloud Run (ZP-470).
+# Workload Identity Federation only: no service-account key files.
+# GCP resources come from ZP-467. Every Cloud Run service/job name MUST start
+# with `grace-shop-`: the deploy SA's run.admin role is conditioned on it.
+# Runbook: docs/deployment/deploy-uat.md
+name: deploy-uat
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      run_seed:
+        description: >-
+          Also run `npm run init` (grace-shop-uat-seed) after migrations.
+          One-time bootstrap only: it re-applies the spreadsheet product data
+          and would overwrite later price edits.
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+# One UAT environment: queue deploys, never cancel one half-way.
+concurrency:
+  group: deploy-uat
+  cancel-in-progress: false
+
+env:
+  GCP_PROJECT_ID: project-f4cd7300-6eb7-46cc-be3
+  GCP_REGION: africa-south1
+  WIF_PROVIDER: projects/266452509449/locations/global/workloadIdentityPools/grace-shop-uat/providers/github
+  WIF_SERVICE_ACCOUNT: grace-shop-uat-deploy@project-f4cd7300-6eb7-46cc-be3.iam.gserviceaccount.com
+  RUNTIME_SERVICE_ACCOUNT: grace-shop-uat-run@project-f4cd7300-6eb7-46cc-be3.iam.gserviceaccount.com
+  ARTIFACT_REGISTRY_HOST: africa-south1-docker.pkg.dev
+  ARTIFACT_REGISTRY: africa-south1-docker.pkg.dev/project-f4cd7300-6eb7-46cc-be3/grace-shop-uat-docker
+  IMAGE_NAME: grace-shop
+  # Shared with Fieldstream: read-only state check here, never start/modify it.
+  CLOUD_SQL_INSTANCE: fieldstream-uat-db
+  CLOUD_SQL_CONNECTION: project-f4cd7300-6eb7-46cc-be3:africa-south1:fieldstream-uat-db
+  CLOUD_RUN_SERVICE: grace-shop-uat
+  MIGRATE_JOB: grace-shop-uat-migrate
+  SEED_JOB: grace-shop-uat-seed
+  IMAGES_BUCKET: grace-shop-uat-images-266452509449
+  # Secret Manager references (names only, never values).
+  DB_SECRETS: DATABASE_URL=grace-shop-uat-database-url:latest,DIRECT_URL=grace-shop-uat-direct-url:latest
+
+jobs:
+  # Same gate as PR CI. A red test stops the deploy.
+  test:
+    name: test
+    permissions:
+      contents: read
+    uses: ./.github/workflows/checks.yml
+    with:
+      # Push: lint what this push changed. Manual run: master already passed CI.
+      lint-base: ${{ github.event_name == 'push' && github.event.before || '' }}
+
+  deploy:
+    name: deploy-uat
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # Built BEFORE auth so the action's credentials file (written into the
+      # workspace) can never end up in the Docker build context.
+      - name: Build image
+        run: |
+          set -euo pipefail
+          docker build -t "${ARTIFACT_REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}" .
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Configure Artifact Registry docker auth
+        run: gcloud auth configure-docker "${ARTIFACT_REGISTRY_HOST}" --quiet
+
+      - name: Push image, resolve immutable digest
+        id: image
+        run: |
+          set -euo pipefail
+          IMAGE="${ARTIFACT_REGISTRY}/${IMAGE_NAME}"
+          docker push "${IMAGE}:${GITHUB_SHA}"
+          DIGEST="$(gcloud artifacts docker images describe "${IMAGE}:${GITHUB_SHA}" \
+            --project="${GCP_PROJECT_ID}" --format='get(image_summary.digest)')"
+          if [[ -z "${DIGEST}" || "${DIGEST}" != sha256:* ]]; then
+            echo "::error::Failed to resolve image digest for ${IMAGE}:${GITHUB_SHA}" >&2
+            exit 1
+          fi
+          echo "image_ref=${IMAGE}@${DIGEST}" >> "${GITHUB_OUTPUT}"
+          echo "Deploying immutable image ${IMAGE}@${DIGEST}"
+
+      - name: Check Cloud SQL instance is RUNNABLE (read-only)
+        run: |
+          set -euo pipefail
+          STATE="$(gcloud sql instances describe "${CLOUD_SQL_INSTANCE}" \
+            --project="${GCP_PROJECT_ID}" --format='value(state)')"
+          if [[ "${STATE}" != "RUNNABLE" ]]; then
+            echo "::error::Cloud SQL instance ${CLOUD_SQL_INSTANCE} is not RUNNABLE (state=${STATE:-unknown}). It is shared with Fieldstream, so this pipeline will not start or modify it. Ask the owner to start it, then re-run this workflow." >&2
+            exit 1
+          fi
+          echo "Cloud SQL ${CLOUD_SQL_INSTANCE} is RUNNABLE."
+
+      - name: Deploy migrate job
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.image_ref }}
+        run: |
+          set -euo pipefail
+          gcloud run jobs deploy "${MIGRATE_JOB}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --image="${IMAGE_REF}" \
+            --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
+            --set-cloudsql-instances="${CLOUD_SQL_CONNECTION}" \
+            --set-secrets="${DB_SECRETS}" \
+            --set-env-vars=NODE_ENV=production \
+            --command=npm \
+            --args=run,migrate \
+            --tasks=1 \
+            --max-retries=0 \
+            --task-timeout=10m \
+            --memory=1Gi \
+            --cpu=1 \
+            --quiet
+
+      # prisma migrate deploy only. Never `db push` / `--force-reset` / `migrate reset`.
+      - name: Execute migrate job (npm run migrate)
+        run: |
+          set -euo pipefail
+          echo "Executing ${MIGRATE_JOB} (npm run migrate) against ${CLOUD_SQL_CONNECTION}"
+          gcloud run jobs execute "${MIGRATE_JOB}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --wait
+
+      # Manual, one-time bootstrap only (workflow_dispatch with run_seed=true).
+      # Never on push: `npm run init` re-applies spreadsheet product data.
+      - name: Deploy seed job
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_seed }}
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.image_ref }}
+        run: |
+          set -euo pipefail
+          gcloud run jobs deploy "${SEED_JOB}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --image="${IMAGE_REF}" \
+            --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
+            --set-cloudsql-instances="${CLOUD_SQL_CONNECTION}" \
+            --set-secrets="${DB_SECRETS},GRACE_OWNER_PASSWORD=grace-shop-uat-owner-password:latest,GRACE_STAFF_PASSWORD=grace-shop-uat-staff-password:latest" \
+            --set-env-vars=NODE_ENV=production \
+            --command=npm \
+            --args=run,init \
+            --tasks=1 \
+            --max-retries=0 \
+            --task-timeout=10m \
+            --memory=1Gi \
+            --cpu=1 \
+            --quiet
+
+      - name: Execute seed job (npm run init)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_seed }}
+        run: |
+          set -euo pipefail
+          echo "Executing ${SEED_JOB} (npm run init)"
+          gcloud run jobs execute "${SEED_JOB}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --wait
+
+      # --set-env-vars / --set-secrets replace the whole set on every deploy,
+      # so nothing (e.g. ALLOW_SETUP) can linger from a manual change.
+      - name: Deploy web service
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.image_ref }}
+        run: |
+          set -euo pipefail
+          gcloud run deploy "${CLOUD_RUN_SERVICE}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --image="${IMAGE_REF}" \
+            --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
+            --set-cloudsql-instances="${CLOUD_SQL_CONNECTION}" \
+            --set-secrets="${DB_SECRETS},JWT_SECRET=grace-shop-uat-jwt-secret:latest" \
+            --set-env-vars="NODE_ENV=production,GRACE_IMAGE_STORAGE=gcs,GRACE_IMAGE_BUCKET=${IMAGES_BUCKET}" \
+            --port=8080 \
+            --startup-probe=httpGet.path=/api/health,httpGet.port=8080,periodSeconds=5,timeoutSeconds=3,failureThreshold=24 \
+            --min-instances=0 \
+            --max-instances=2 \
+            --memory=512Mi \
+            --cpu=1 \
+            --allow-unauthenticated \
+            --quiet
+
+      - name: Smoke test
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.image_ref }}
+        run: |
+          set -euo pipefail
+          URL="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" \
+            --project="${GCP_PROJECT_ID}" --region="${GCP_REGION}" \
+            --format='value(status.url)')"
+          if [[ -z "${URL}" ]]; then
+            echo "::error::Could not resolve the ${CLOUD_RUN_SERVICE} URL" >&2
+            exit 1
+          fi
+          echo "Service URL: ${URL}"
+
+          HEALTH=""
+          for attempt in $(seq 1 10); do
+            HEALTH="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "${URL}/api/health" || true)"
+            [[ "${HEALTH}" == "200" ]] && break
+            echo "GET /api/health -> ${HEALTH} (attempt ${attempt}/10), retrying..."
+            sleep 6
+          done
+          if [[ "${HEALTH}" != "200" ]]; then
+            echo "::error::GET ${URL}/api/health returned ${HEALTH}, expected 200" >&2
+            exit 1
+          fi
+          echo "GET /api/health -> 200"
+
+          DASH="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "${URL}/api/dashboard")"
+          if [[ "${DASH}" != "401" ]]; then
+            echo "::error::GET ${URL}/api/dashboard without a cookie returned ${DASH}, expected 401" >&2
+            exit 1
+          fi
+          echo "GET /api/dashboard (no cookie) -> 401"
+
+          {
+            echo "### Grace Shop UAT deployed"
+            echo ""
+            echo "- URL: ${URL}"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Image: \`${IMAGE_REF}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
