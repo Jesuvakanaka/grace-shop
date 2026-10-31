@@ -34,9 +34,10 @@ export async function POST(request: Request) {
       productName,
       unitCostRmb,
       openingQuantity,
-      createdBy: session.username,
       ...rest,
       ...wholesale.data,
+      // Last, so a client-supplied createdBy can never override the session user.
+      createdBy: session.username,
     });
 
     return NextResponse.json(newProduct, { status: 201 });

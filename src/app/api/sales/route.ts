@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   const { session } = auth;
   try {
     const body = await request.json();
-    const { saleDate, paymentType, items, ...rest } = body;
+    const { saleDate, paymentType, items, customerName, customerPhone, cashAmount, creditAmount, notes } = body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ error: 'Items array is required' }, { status: 400 });
@@ -31,12 +31,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Payment type is required' }, { status: 400 });
     }
 
+    // Allow-listed fields only; createdBy always comes from the session.
     const newSale = await createSale({
       saleDate: saleDate ? new Date(saleDate) : new Date(),
       paymentType,
       items,
+      customerName,
+      customerPhone,
+      cashAmount,
+      creditAmount,
+      notes,
       createdBy: session.username,
-      ...rest,
     });
     return NextResponse.json(newSale, { status: 201 });
   } catch (error: any) {

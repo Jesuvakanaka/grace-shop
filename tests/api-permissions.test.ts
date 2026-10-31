@@ -165,6 +165,29 @@ describe('API permission matrix (ZP-465)', () => {
     assert.deepStrictEqual(await r403.json(), { error: 'Forbidden' });
   });
 
+  test('misconfigured JWT secret: authorize() returns a generic 500 without the config detail', async () => {
+    const env = process.env as Record<string, string | undefined>;
+    const saved = { NODE_ENV: env.NODE_ENV, JWT_SECRET: env.JWT_SECRET };
+    const originalError = console.error;
+    env.NODE_ENV = 'production';
+    delete env.JWT_SECRET;
+    console.error = () => {};
+    try {
+      const adjust = cases.find((c) => c.path === '/api/stock-movements/adjust')!;
+      const res = await adjust.handler(makeRequest(adjust, ownerToken), { params: Promise.resolve({}) });
+      assert.strictEqual(res.status, 500);
+      const text = await res.text();
+      assert.deepStrictEqual(JSON.parse(text), { error: 'Server misconfigured' });
+      assert.doesNotMatch(text, /JWT/);
+    } finally {
+      console.error = originalError;
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete env[k];
+        else env[k] = v;
+      }
+    }
+  });
+
   test('a token with an unknown role is treated as non-owner', async () => {
     const weird = await createToken(900003, 'perm-weird', 'ADMIN');
     const adjust = cases.find((c) => c.path === '/api/stock-movements/adjust')!;

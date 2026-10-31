@@ -22,19 +22,22 @@ export async function POST(request: Request) {
   const { session } = auth;
   try {
     const body = await request.json();
-    const { expenseDate, category, description, amount, ...rest } = body;
+    const { expenseDate, category, description, amount, paymentMethod, paidTo, notes } = body;
 
     if (!description || typeof amount !== 'number' || amount <= 0 || !category) {
       return NextResponse.json({ error: 'Invalid fields: description, category and amount > 0 are required' }, { status: 400 });
     }
 
+    // Allow-listed fields only; createdBy always comes from the session.
     const newExpense = await createExpense({
       expenseDate: expenseDate ? new Date(expenseDate) : new Date(),
       category,
       description,
       amount,
+      paymentMethod,
+      paidTo,
+      notes,
       createdBy: session.username,
-      ...rest,
     });
     return NextResponse.json(newExpense, { status: 201 });
   } catch (error: any) {

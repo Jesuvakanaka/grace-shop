@@ -275,3 +275,123 @@ describe('Business Control MVP Tests', () => {
     });
   });
 });
+
+// ZP-465: audit fields must come from the session, never from the client body.
+// Kept in this file (not a separate one) so it runs after the DB wipe above instead
+// of racing it from a parallel test process.
+describe('6. Audit fields come from the session (ZP-465)', () => {
+  const asJson = (token: string, body: unknown) =>
+    new Request('http://localhost/api/x', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie: `auth-token=${token}` },
+      body: JSON.stringify(body),
+    });
+  let staffToken: string;
+  let ownerToken: string;
+  let productId: number;
+
+  before(async () => {
+    process.env.JWT_SECRET ||= 'zp465-audit-field-tests-secret-0123456789abcdef';
+    const { createToken } = await import('../src/lib/auth');
+    staffToken = await createToken(910001, 'audit-staff', 'STAFF');
+    ownerToken = await createToken(910002, 'audit-owner', 'OWNER');
+    const p = await createProduct({
+      itemNumber: 'ZP465-AUDIT', productName: 'Audit Product', unitCostRmb: 10, unitCostUsd: 1.4, openingQuantity: 10,
+    });
+    productId = p.id;
+  });
+
+  test('STAFF POST /api/expenses with createdBy "owner" stores the session username and ignores unknown columns', async () => {
+    const { POST } = await import('../src/app/api/expenses/route');
+    const res = await POST(asJson(staffToken, {
+      category: 'Food', description: 'audit lunch', amount: 3,
+      createdBy: 'owner', createdAt: '2000-01-01T00:00:00.000Z', id: 987654,
+    }));
+    assert.strictEqual(res.status, 201);
+    const body = await res.json();
+    const stored = await prisma.expense.findUnique({ where: { id: body.id } });
+    assert.strictEqual(stored?.createdBy, 'audit-staff');
+    assert.notStrictEqual(stored?.id, 987654);
+    assert.notStrictEqual(stored?.createdAt.getUTCFullYear(), 2000);
+  });
+
+  test('STAFF POST /api/sales with createdBy "owner" stores the session username', async () => {
+    const { POST } = await import('../src/app/api/sales/route');
+    const res = await POST(asJson(staffToken, {
+      paymentType: 'CASH', items: [{ productId, quantity: 1, unitPrice: 20 }], cashAmount: 20,
+      createdBy: 'owner',
+    }));
+    assert.strictEqual(res.status, 201);
+    const body = await res.json();
+    const stored = await prisma.sale.findUnique({ where: { id: body.id } });
+    assert.strictEqual(stored?.createdBy, 'audit-staff');
+  });
+
+  test('OWNER POST /api/products with createdBy "someone-else" stores the session username', async () => {
+    const { POST } = await import('../src/app/api/products/route');
+    const res = await POST(asJson(ownerToken, {
+      itemNumber: 'ZP465-AUDIT-2', productName: 'Audit Product 2', unitCostRmb: 5, unitCostUsd: 0.7, openingQuantity: 1,
+      createdBy: 'someone-else',
+    }));
+    assert.strictEqual(res.status, 201);
+    const body = await res.json();
+    const stored = await prisma.product.findUnique({ where: { id: body.id } });
+    assert.strictEqual(stored?.createdBy, 'audit-owner');
+  });
+});
+
+// ZP-465: 500 responses must not leak internals (JWT config, Prisma errors).
+describe('7. Auth routes return generic 500s (ZP-465)', () => {
+  const env = process.env as Record<string, string | undefined>;
+  const saved = { NODE_ENV: env.NODE_ENV, JWT_SECRET: env.JWT_SECRET, ALLOW_SETUP: env.ALLOW_SETUP };
+  const restore = () => {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete env[k];
+      else env[k] = v;
+    }
+  };
+  const post = (body: string) =>
+    new Request('http://localhost/api/auth/x', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+
+  test('setup with a misconfigured JWT secret: generic 500 and no OWNER created', async () => {
+    const { POST } = await import('../src/app/api/auth/setup/route');
+    await prisma.user.deleteMany({});
+    env.NODE_ENV = 'production';
+    env.ALLOW_SETUP = 'true';
+    delete env.JWT_SECRET;
+    try {
+      const res = await POST(post(JSON.stringify({ username: 'zp465-setup', password: 'zp465-setup-password', fullName: 'X' })));
+      assert.strictEqual(res.status, 500);
+      assert.deepStrictEqual(await res.json(), { error: 'Internal Server Error' });
+      assert.strictEqual(await prisma.user.count(), 0);
+    } finally {
+      restore();
+    }
+  });
+
+  test('login with a misconfigured JWT secret: generic 500 without the config message', async () => {
+    const { POST } = await import('../src/app/api/auth/login/route');
+    const { hashPassword } = await import('../src/lib/auth');
+    await prisma.user.create({
+      data: { username: 'zp465-login', password: await hashPassword('zp465-login-password'), fullName: 'L', role: 'STAFF' },
+    });
+    env.NODE_ENV = 'production';
+    delete env.JWT_SECRET;
+    try {
+      const res = await POST(post(JSON.stringify({ username: 'zp465-login', password: 'zp465-login-password' })));
+      assert.strictEqual(res.status, 500);
+      const text = await res.text();
+      assert.deepStrictEqual(JSON.parse(text), { error: 'Internal Server Error' });
+      assert.doesNotMatch(text, /JWT|prisma/i);
+    } finally {
+      restore();
+    }
+  });
+
+  test('malformed JSON body is a 400, not a 500 with a parser message', async () => {
+    const login = await import('../src/app/api/auth/login/route');
+    const res = await login.POST(post('{not-json'));
+    assert.strictEqual(res.status, 400);
+    assert.deepStrictEqual(await res.json(), { error: 'Invalid request body' });
+  });
+});
