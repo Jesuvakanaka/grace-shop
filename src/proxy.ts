@@ -8,7 +8,9 @@ import { decideHostRouting, hostRoutingConfigFromEnv } from '@/lib/host-routing'
  */
 export function proxy(request: NextRequest) {
   const decision = decideHostRouting(
-    { host: request.headers.get('host'), pathname: request.nextUrl.pathname },
+    // Host header first; the request URL's host only if the header is absent
+    // (Next derives that URL from the same header, so the two agree).
+    { host: request.headers.get('host') ?? request.nextUrl.host, pathname: request.nextUrl.pathname },
     hostRoutingConfigFromEnv()
   );
 

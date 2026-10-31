@@ -224,8 +224,12 @@ jobs:
           GRACE_ADMIN_HOSTS: ${{ vars.GRACE_ADMIN_HOSTS || '' }}
         run: |
           set -euo pipefail
-          # Host lists are hostnames only; this also keeps them from smuggling
-          # in the ^@^ delimiter (i.e. extra env vars).
+          # Validate every repository variable that goes into --set-env-vars, so
+          # none can smuggle in the ^@^ delimiter (i.e. extra env vars).
+          if [[ ! "${GRACE_QUICK_LOGIN}" =~ ^(true|false)?$ ]]; then
+            echo "::error::GRACE_QUICK_LOGIN must be 'true', 'false' or empty" >&2
+            exit 1
+          fi
           for NAME in GRACE_STOREFRONT_HOSTS GRACE_ADMIN_HOSTS; do
             if [[ ! "${!NAME}" =~ ^[A-Za-z0-9.,:\ -]*$ ]]; then
               echo "::error::${NAME} must be a comma-separated list of hostnames" >&2
