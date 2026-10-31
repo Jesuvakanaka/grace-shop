@@ -3,23 +3,15 @@
 // This is the module the public pages (src/app/site/**) and public API
 // routes import. It is the security boundary between the private back office
 // and the public site: it returns only allow-listed DTOs (./dto) of public
-// products and categories (./queries), cached in the Next data cache with
-// tags (./cache-tags). See docs/storefront/public-data-layer.md.
+// products and categories. See docs/storefront/public-data-layer.md.
 //
-// The project does not enable Cache Components, so caching uses
-// unstable_cache with tags; revalidateStorefront expires them.
+// Caching: the project does not enable Cache Components, so unstable_cache
+// with tags. Exactly two entries (catalogue, categories; ./cached), so
+// requests can never grow the cache. revalidateStorefront expires them.
 import 'server-only'
 import { unstable_cache } from 'next/cache'
 import prisma from '@/lib/db'
-import { isValidSlug } from '@/lib/storefront-model'
-import * as queries from './queries'
-import {
-  STOREFRONT_REVALIDATE_SECONDS,
-  STOREFRONT_TAGS,
-  storefrontCategoryTag,
-  storefrontProductTag,
-} from './cache-tags'
-import type { PublicCategory, PublicProduct } from './dto'
+import { createStorefront, type CacheFn } from './cached'
 
 export { publicImageUrl, PUBLIC_IMAGE_URL_PREFIX } from './dto'
 export {
@@ -31,82 +23,27 @@ export {
 } from './image-sizes'
 export type { PublicProduct, PublicCategory, PublicImage, PublicCategoryRef } from './dto'
 export type {
-  ListPublishedProductsOptions,
-  ProductReadOptions,
+  CatalogueListOptions as ListPublishedProductsOptions,
+  CatalogueReadOptions as ProductReadOptions,
   PublicProductPage,
   PublishedProductResult,
-} from './queries'
+} from './catalogue'
 export { PUBLIC_PRODUCT_SORTS, type PublicProductSort } from './listing'
 export {
   revalidateStorefront,
   STOREFRONT_TAGS,
+  STOREFRONT_REVALIDATE_SECONDS,
   storefrontProductTag,
   storefrontCategoryTag,
-  STOREFRONT_REVALIDATE_SECONDS,
   type RevalidateScope,
 } from './cache-tags'
 
-const PRODUCT_TAGS = [STOREFRONT_TAGS.all, STOREFRONT_TAGS.products, STOREFRONT_TAGS.categories]
-const CATEGORY_TAGS = [STOREFRONT_TAGS.all, STOREFRONT_TAGS.categories]
-const revalidate = STOREFRONT_REVALIDATE_SECONDS
+const storefront = createStorefront({ db: prisma, cache: unstable_cache as unknown as CacheFn })
 
-/** One page of public products (see queries.listPublishedProducts). */
-export function listPublishedProducts(
-  options: queries.ListPublishedProductsOptions = {},
-): Promise<queries.PublicProductPage> {
-  // An invalid category slug is answered uncached (always empty).
-  if (options.categorySlug !== undefined && !isValidSlug(options.categorySlug)) {
-    return queries.listPublishedProducts(prisma, options)
-  }
-  return unstable_cache(
-    (o: queries.ListPublishedProductsOptions) => queries.listPublishedProducts(prisma, o),
-    ['storefront', 'listPublishedProducts'],
-    { tags: PRODUCT_TAGS, revalidate },
-  )(options)
-}
-
-/** `{ product }`, `{ redirectTo }` for an old slug, or null. */
-export async function getPublishedProductBySlug(
-  slug: string,
-  options: queries.ProductReadOptions = {},
-): Promise<queries.PublishedProductResult> {
-  // Junk from the URL never reaches the cache (keys and tags stay small).
-  if (!isValidSlug(slug)) return null
-  return unstable_cache(
-    (s: string, o: queries.ProductReadOptions) => queries.getPublishedProductBySlug(prisma, s, o),
-    ['storefront', 'getPublishedProductBySlug'],
-    { tags: [...PRODUCT_TAGS, storefrontProductTag(slug)], revalidate },
-  )(slug, options)
-}
-
-/** Other public products for a product page (same category first). */
-export async function listRelatedProducts(
-  slug: string,
-  limit = 4,
-  options: queries.ProductReadOptions = {},
-): Promise<PublicProduct[]> {
-  if (!isValidSlug(slug)) return []
-  return unstable_cache(
-    (s: string, l: number, o: queries.ProductReadOptions) => queries.listRelatedProducts(prisma, s, l, o),
-    ['storefront', 'listRelatedProducts'],
-    { tags: [...PRODUCT_TAGS, storefrontProductTag(slug)], revalidate },
-  )(slug, limit, options)
-}
-
-/** Published categories in display order. */
-export function listPublishedCategories(): Promise<PublicCategory[]> {
-  return unstable_cache(() => queries.listPublishedCategories(prisma), ['storefront', 'listPublishedCategories'], {
-    tags: CATEGORY_TAGS,
-    revalidate,
-  })()
-}
-
-/** A published category, or null. */
-export async function getPublishedCategory(slug: string): Promise<PublicCategory | null> {
-  if (!isValidSlug(slug)) return null
-  return unstable_cache(
-    (s: string) => queries.getPublishedCategory(prisma, s),
-    ['storefront', 'getPublishedCategory'],
-    { tags: [...CATEGORY_TAGS, storefrontCategoryTag(slug)], revalidate },
-  )(slug)
-}
+export const {
+  listPublishedProducts,
+  getPublishedProductBySlug,
+  listRelatedProducts,
+  listPublishedCategories,
+  getPublishedCategory,
+} = storefront

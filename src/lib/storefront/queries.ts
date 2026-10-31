@@ -1,27 +1,32 @@
 // Public storefront queries (ZP-484), uncached. Server only.
 //
-// Every function takes the Prisma client (or a transaction) so it can be
-// tested and scripted; ./index wraps them in the Next cache. They select an
-// explicit set of columns and return DTOs from ./dto, never raw rows.
+// loadPublicCatalogue and loadPublicCategories are the only database reads
+// for public data; ./cached caches exactly these two. The list/lookup
+// functions below are uncached conveniences (tests, scripts) that answer
+// from a freshly loaded catalogue with the same in-memory code (./catalogue).
 //
 // Visibility rule: a product is public only when it is published, has a slug
 // and its category is published. A category is public only when published.
 import type { Prisma } from '@prisma/client'
 import { isValidImageKey } from '@/lib/storage/keys'
-import { NEW_ARRIVAL_DAYS, isValidSlug } from '@/lib/storefront-model'
-import { resolveProductSlug, type Db } from '@/lib/storefront-model/db'
+import { isValidSlug } from '@/lib/storefront-model'
+import type { Db } from '@/lib/storefront-model/db'
+import { toPublicCategory, type PublicCategory, type PublicProduct, type PublicProductRow } from './dto'
 import {
-  toPublicCategory,
-  toPublicProduct,
-  type PublicCategory,
-  type PublicProduct,
-  type PublicProductRow,
-} from './dto'
-import { normalisePaging, sortProductRows, type PublicProductSort } from './listing'
+  buildCatalogue,
+  findProduct,
+  relatedProducts,
+  selectProducts,
+  type CatalogueListOptions,
+  type CatalogueReadOptions,
+  type PublicCatalogue,
+  type PublicProductPage,
+  type PublishedProductResult,
+} from './catalogue'
 
 if (typeof window !== 'undefined') throw new Error('src/lib/storefront is server-only')
 
-const DAY_MS = 86_400_000
+export type { PublicProductPage, PublishedProductResult } from './catalogue'
 
 /** Where clause for "this product is on the public site". */
 export const PUBLIC_PRODUCT_WHERE = {
@@ -57,129 +62,30 @@ const CATEGORY_SELECT = {
   heroImageKey: true,
 } satisfies Prisma.CategorySelect
 
-export type ProductReadOptions = {
-  /** "Few left" threshold (site settings in ZP-486). Default FEW_LEFT_THRESHOLD. */
+export type CatalogueLoadOptions = {
+  now?: Date
+  /** "Few left" threshold; site settings in ZP-486 (which then revalidates the catalogue). */
   fewLeftThreshold?: number
-  /** Include the item number in the DTO. Default off. */
-  includeItemNumber?: boolean
 }
 
-export type ListPublishedProductsOptions = ProductReadOptions & {
-  categorySlug?: string
-  /** Published within NEW_ARRIVAL_DAYS. */
-  newOnly?: boolean
-  featuredOnly?: boolean
-  hideSoldOut?: boolean
-  sort?: PublicProductSort
-  page?: number
-  pageSize?: number
-}
-
-export type PublicProductPage = {
-  items: PublicProduct[]
-  total: number
-  page: number
-  pageSize: number
-  pageCount: number
-}
-
-function dtoOptions(options: ProductReadOptions, now: Date) {
-  return { now, fewLeftThreshold: options.fewLeftThreshold, includeItemNumber: options.includeItemNumber === true }
-}
-
-/**
- * One page of public products. Filters run in the database; sorting and
- * paging run in memory over the filtered set (the catalogue is a few hundred
- * products), so price sorts can use only public prices.
- */
-export async function listPublishedProducts(
-  db: Db,
-  options: ListPublishedProductsOptions = {},
-  now: Date = new Date(),
-): Promise<PublicProductPage> {
-  const { page, pageSize } = normalisePaging(options)
-  const empty = { items: [], total: 0, page, pageSize, pageCount: 0 }
-  if (options.categorySlug !== undefined && !isValidSlug(options.categorySlug)) return empty
-
-  const where: Prisma.ProductWhereInput = {
-    ...PUBLIC_PRODUCT_WHERE,
-    ...(options.categorySlug !== undefined && { category: { is: { published: true, slug: options.categorySlug } } }),
-    ...(options.featuredOnly && { featured: true }),
-    ...(options.hideSoldOut && { currentQuantity: { gt: 0 } }),
-    ...(options.newOnly && { publishedAt: { gte: new Date(now.getTime() - NEW_ARRIVAL_DAYS * DAY_MS) } }),
-  }
-  const rows: PublicProductRow[] = await db.product.findMany({ where, select: PRODUCT_SELECT })
-  const sorted = sortProductRows(rows, options.sort)
-  const start = (page - 1) * pageSize
-  const opts = dtoOptions(options, now)
-  return {
-    items: sorted.slice(start, start + pageSize).map((r) => toPublicProduct(r, opts)),
-    total: sorted.length,
-    page,
-    pageSize,
-    pageCount: Math.ceil(sorted.length / pageSize),
-  }
-}
-
-export type PublishedProductResult = { product: PublicProduct } | { redirectTo: string } | null
-
-/**
- * A public product by slug. An old slug (ProductSlugRedirect) of a public
- * product returns `{ redirectTo: <current slug> }`. Unknown, invalid or
- * non-public slugs return null, whether live or old.
- */
-export async function getPublishedProductBySlug(
-  db: Db,
-  slug: string,
-  options: ProductReadOptions = {},
-  now: Date = new Date(),
-): Promise<PublishedProductResult> {
-  if (!isValidSlug(slug)) return null
-  const resolved = await resolveProductSlug(db, slug)
-  if (!resolved) return null
-  const row = await db.product.findFirst({
-    where: { ...PUBLIC_PRODUCT_WHERE, id: resolved.productId },
-    select: PRODUCT_SELECT,
-  })
-  if (!row) return null
-  if (resolved.redirected) return { redirectTo: resolved.slug }
-  return { product: toPublicProduct(row, dtoOptions(options, now)) }
-}
-
-export const MAX_RELATED = 12
-
-/**
- * Other public products for a product page: same category first, then the
- * rest of the catalogue, both in the default order. Never the product itself
- * or sold-out products. A non-public slug gives [].
- */
-export async function listRelatedProducts(
-  db: Db,
-  slug: string,
-  limit = 4,
-  options: ProductReadOptions = {},
-  now: Date = new Date(),
-): Promise<PublicProduct[]> {
-  const take = Math.min(MAX_RELATED, Math.max(0, Math.floor(Number.isFinite(limit) ? limit : 0)))
-  if (take === 0 || !isValidSlug(slug)) return []
-  const self = await db.product.findFirst({
-    where: { ...PUBLIC_PRODUCT_WHERE, slug },
-    select: { id: true, category: { select: { slug: true } } },
-  })
-  if (!self) return []
-  const rows: PublicProductRow[] = await db.product.findMany({
-    where: { ...PUBLIC_PRODUCT_WHERE, id: { not: self.id }, currentQuantity: { gt: 0 } },
-    select: PRODUCT_SELECT,
-  })
-  const sameCategory = (r: PublicProductRow) => r.category?.slug === self.category?.slug
-  const ordered = sortProductRows(rows)
-  const picked = [...ordered.filter(sameCategory), ...ordered.filter((r) => !sameCategory(r))].slice(0, take)
-  const opts = dtoOptions(options, now)
-  return picked.map((r) => toPublicProduct(r, opts))
+/** Every public product as a DTO, plus the old slugs of public products. */
+export async function loadPublicCatalogue(db: Db, options: CatalogueLoadOptions = {}): Promise<PublicCatalogue> {
+  const [rows, redirects] = await Promise.all([
+    db.product.findMany({ where: PUBLIC_PRODUCT_WHERE, select: PRODUCT_SELECT }) as Promise<PublicProductRow[]>,
+    db.productSlugRedirect.findMany({
+      where: { product: PUBLIC_PRODUCT_WHERE },
+      select: { oldSlug: true, product: { select: { slug: true } } },
+    }),
+  ])
+  return buildCatalogue(
+    rows,
+    redirects.map((r) => ({ oldSlug: r.oldSlug, slug: r.product.slug ?? '' })),
+    { now: options.now ?? new Date(), fewLeftThreshold: options.fewLeftThreshold },
+  )
 }
 
 /** Published categories, by sortOrder then name. */
-export async function listPublishedCategories(db: Db): Promise<PublicCategory[]> {
+export async function loadPublicCategories(db: Db): Promise<PublicCategory[]> {
   const rows = await db.category.findMany({
     where: { published: true },
     select: CATEGORY_SELECT,
@@ -188,11 +94,47 @@ export async function listPublishedCategories(db: Db): Promise<PublicCategory[]>
   return rows.map(toPublicCategory)
 }
 
-/** A published category by slug, else null. */
+// ─── Uncached conveniences (tests, scripts) ─────────────────────────────────
+
+export type ProductReadOptions = CatalogueReadOptions & { fewLeftThreshold?: number }
+export type ListPublishedProductsOptions = CatalogueListOptions & { fewLeftThreshold?: number }
+
+export async function listPublishedProducts(
+  db: Db,
+  options: ListPublishedProductsOptions = {},
+  now: Date = new Date(),
+): Promise<PublicProductPage> {
+  const catalogue = await loadPublicCatalogue(db, { now, fewLeftThreshold: options.fewLeftThreshold })
+  return selectProducts(catalogue, options)
+}
+
+export async function getPublishedProductBySlug(
+  db: Db,
+  slug: string,
+  options: ProductReadOptions = {},
+  now: Date = new Date(),
+): Promise<PublishedProductResult> {
+  if (!isValidSlug(slug)) return null
+  return findProduct(await loadPublicCatalogue(db, { now, fewLeftThreshold: options.fewLeftThreshold }), slug, options)
+}
+
+export async function listRelatedProducts(
+  db: Db,
+  slug: string,
+  limit = 4,
+  options: ProductReadOptions = {},
+  now: Date = new Date(),
+): Promise<PublicProduct[]> {
+  if (!isValidSlug(slug)) return []
+  const catalogue = await loadPublicCatalogue(db, { now, fewLeftThreshold: options.fewLeftThreshold })
+  return relatedProducts(catalogue, slug, limit, options)
+}
+
+export const listPublishedCategories = loadPublicCategories
+
 export async function getPublishedCategory(db: Db, slug: string): Promise<PublicCategory | null> {
   if (!isValidSlug(slug)) return null
-  const row = await db.category.findFirst({ where: { slug, published: true }, select: CATEGORY_SELECT })
-  return row ? toPublicCategory(row) : null
+  return (await loadPublicCategories(db)).find((c) => c.slug === slug) ?? null
 }
 
 /**

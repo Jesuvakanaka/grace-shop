@@ -9,7 +9,7 @@ import {
   toPublicCategory,
   type PublicProductRow,
 } from '../src/lib/storefront/dto'
-import { sortProductRows, normalisePaging, PUBLIC_PRODUCT_SORTS } from '../src/lib/storefront/listing'
+import { sortProducts, productSortKey, normalisePaging, PUBLIC_PRODUCT_SORTS } from '../src/lib/storefront/listing'
 import {
   revalidateStorefront,
   STOREFRONT_TAGS,
@@ -18,7 +18,7 @@ import {
   storefrontCategoryTag,
 } from '../src/lib/storefront/cache-tags'
 import { parsePublicProductsQuery } from '../src/lib/storefront/public-products-query'
-import { TokenBucketLimiter } from '../src/lib/storefront/rate-limit'
+import { TokenBucketLimiter, clientKey, ipBucket } from '../src/lib/storefront/rate-limit'
 import {
   PUBLIC_IMAGE_WIDTHS,
   parsePublicImageWidth,
@@ -278,7 +278,8 @@ describe('sort and pagination (pure)', () => {
     row({ slug: 'd', sortOrder: 1, featured: false, publishedAt: at(2), priceDisplay: 'ASK_FOR_PRICE', sellingPriceUsd: 1, productName: 'Bravo' }),
     row({ slug: 'e', sortOrder: 1, featured: true, publishedAt: at(3), sellingPriceUsd: 0, productName: 'Echo' }),
   ]
-  const slugs = (sort: (typeof PUBLIC_PRODUCT_SORTS)[number]) => sortProductRows(rows(), sort).map((r) => r.slug)
+  const slugs = (sort: (typeof PUBLIC_PRODUCT_SORTS)[number]) =>
+    sortProducts(rows().map((r) => ({ slug: r.slug, sort: productSortKey(r) })), sort).map((r) => r.slug)
 
   test('default: featured desc, then sortOrder asc, then publishedAt desc', () => {
     assert.deepStrictEqual(slugs('featured'), ['e', 'c', 'd', 'b', 'a'])
@@ -393,6 +394,29 @@ describe('rate limiter (token bucket)', () => {
     assert.strictEqual(limiter.take('1.1.1.1').ok, true)
     assert.strictEqual(limiter.take('1.1.1.1').ok, false)
   })
+  test('ipBucket: IPv4 as is, IPv6 by /64, IPv4-mapped IPv6 as IPv4', () => {
+    assert.strictEqual(ipBucket('203.0.113.9'), '203.0.113.9')
+    assert.strictEqual(ipBucket('203.0.113.9:51234'), '203.0.113.9')
+    assert.strictEqual(ipBucket('2001:db8:1:2:3:4:5:6'), '2001:db8:1:2::/64')
+    assert.strictEqual(ipBucket('2001:0DB8:0001:0002:ffff::1'), '2001:db8:1:2::/64')
+    assert.strictEqual(ipBucket('[2001:db8:1:2::abcd]'), '2001:db8:1:2::/64')
+    assert.strictEqual(ipBucket('2001:db8:1:2::1%eth0'), '2001:db8:1:2::/64')
+    assert.strictEqual(ipBucket('2001:db8::1'), '2001:db8:0:0::/64')
+    assert.strictEqual(ipBucket('::1'), '0:0:0:0::/64')
+    assert.strictEqual(ipBucket('::ffff:203.0.113.9'), '203.0.113.9')
+    assert.notStrictEqual(ipBucket('2001:db8:1:2::1'), ipBucket('2001:db8:1:3::1'))
+    assert.strictEqual(ipBucket('not-an-ip'), 'not-an-ip')
+    assert.strictEqual(ipBucket('1:2:3:4:5:6:7:8:9').length <= 64, true)
+  })
+
+  test('clientKey: last X-Forwarded-For entry, bucketed', () => {
+    const h = (xff: string) => new Headers({ 'x-forwarded-for': xff })
+    assert.strictEqual(clientKey(h('198.51.100.1, 203.0.113.9')), '203.0.113.9')
+    assert.strictEqual(clientKey(h('spoofed, 2001:db8:aa:bb::1')), '2001:db8:aa:bb::/64')
+    assert.strictEqual(clientKey(h('2001:db8:aa:bb::2')), clientKey(h('2001:db8:aa:bb:1:2:3:4')))
+    assert.strictEqual(clientKey(new Headers()), 'unknown')
+  })
+
   test('the number of tracked keys is bounded', () => {
     const limiter = new TokenBucketLimiter({ capacity: 1, refillPerSecond: 1, maxKeys: 2, now: () => 0 })
     limiter.take('a')

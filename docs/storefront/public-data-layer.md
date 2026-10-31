@@ -8,13 +8,15 @@ import Prisma directly.
 - Public surface (server only, `import 'server-only'`): `src/lib/storefront/index.ts`
 - DTOs and allow-list: `src/lib/storefront/dto.ts`
 - Uncached queries (take a Prisma client, used by tests and scripts): `src/lib/storefront/queries.ts`
+- Cached reads (exactly two entries): `src/lib/storefront/cached.ts`
+- In-memory catalogue (filter, sort, page, slug and related lookup): `src/lib/storefront/catalogue.ts`
 - Sorting and paging: `src/lib/storefront/listing.ts`
 - Image URLs, widths and srcset (pure, client-safe): `src/lib/storefront/image-sizes.ts`
 - Resized-picture LRU: `src/lib/storefront/resize-cache.ts`
 - Cache tags and revalidation: `src/lib/storefront/cache-tags.ts`
 - Public image route: `src/app/api/images/public/[key]/route.ts` (logic in `src/lib/storefront/public-image.ts`)
 - JSON route: `src/app/api/public/products/route.ts`
-- Tests: `tests/storefront-public-dto.test.ts` (pure), `tests/storefront-public-db.test.ts` (database)
+- Tests: `tests/storefront-public-dto.test.ts` (pure), `tests/storefront-public-db.test.ts` (database), `tests/storefront-public-cache.test.ts` (cache entries stay bounded), `tests/next-image-config.test.ts`
 
 The internal modules (`queries.ts`, `public-image.ts`) also throw if they
 are loaded in a browser. They do not import `server-only` because the
@@ -68,8 +70,8 @@ at any depth, matches
 
 | Function | Returns |
 | --- | --- |
-| `listPublishedProducts({ categorySlug?, newOnly?, featuredOnly?, hideSoldOut?, sort?, page?, pageSize?, fewLeftThreshold?, includeItemNumber? })` | `{ items, total, page, pageSize, pageCount }` |
-| `getPublishedProductBySlug(slug, { fewLeftThreshold?, includeItemNumber? })` | `{ product }`, or `{ redirectTo: <current slug> }` for an old slug (`ProductSlugRedirect`) of a public product, or `null` |
+| `listPublishedProducts({ categorySlug?, newOnly?, featuredOnly?, hideSoldOut?, sort?, page?, pageSize?, includeItemNumber? })` | `{ items, total, page, pageSize, pageCount }` |
+| `getPublishedProductBySlug(slug, { includeItemNumber? })` | `{ product }`, or `{ redirectTo: <current slug> }` for an old slug (`ProductSlugRedirect`) of a public product, or `null` |
 | `listRelatedProducts(slug, limit = 4)` | Products from the same category first, then the rest of the catalogue, in the default order. It never includes the product itself or sold-out products. At most 12. |
 | `listPublishedCategories()` | Published categories by `sortOrder`, then name |
 | `getPublishedCategory(slug)` | `PublicCategory` or `null` |
@@ -77,8 +79,11 @@ at any depth, matches
 | `publicImageSrcSet(key)` | The `srcset` value for `<img>` |
 | `revalidateStorefront(scope?)` | See [Caching](#caching-and-revalidation) |
 
-The few-left threshold is a parameter for now. Its default is
-`FEW_LEFT_THRESHOLD` (3). ZP-486 will read it from site settings.
+The cached functions use the default few-left threshold, `FEW_LEFT_THRESHOLD`
+(3), when they build the catalogue. When ZP-486 adds site settings, the
+catalogue loader should read the threshold from them, and a settings change
+should call `revalidateStorefront()`. The uncached functions in `queries.ts`
+take a `fewLeftThreshold` option, for tests and scripts.
 
 **Sorts** (`sort`):
 
@@ -91,43 +96,68 @@ The few-left threshold is a parameter for now. Its default is
 - `name`: display name A to Z
 
 `pageSize` is clamped to 1–48 (default 24) and `page` to at least 1.
-Filters run in the database. Sorting and paging run in memory over the
-filtered set, which is fine for a catalogue of a few hundred products.
+`newOnly` means `isNew`.
 
 ## Caching and revalidation
 
 The project does not enable Cache Components (`cacheComponents` in
-`next.config.ts`), so `'use cache'` is not available. The functions use
+`next.config.ts`), so `'use cache'` is not available. Caching uses
 `unstable_cache` with tags, as the Next 16 guide "Caching without Cache
 Components" describes.
 
-| Entry | Tags |
-| --- | --- |
-| product lists | `storefront`, `storefront:products`, `storefront:categories` |
-| product by slug, related | the same three plus `storefront:product:<slug>` |
-| category list | `storefront`, `storefront:categories` |
-| category by slug | the same two plus `storefront:category:<slug>` |
+### Exactly two cache entries
 
-Product entries also carry `storefront:categories`, because they embed the
-category name and depend on whether the category is published. Every entry
-also has `revalidate: 60` (`STOREFRONT_REVALIDATE_SECONDS`) as a backstop.
+Anonymous requests must not be able to grow the cache. `unstable_cache`
+keys an entry by its arguments, so caching each function call would add
+one entry for every distinct category, page, sort or unknown slug. A
+security review measured 200 distinct categories creating 200 cache files.
+Instead, `src/lib/storefront/cached.ts` caches only these two values, and
+their keys take no arguments:
+
+| Entry | Contents | Tags |
+| --- | --- | --- |
+| `storefront/catalogue/v1` | Every public product as an allow-listed DTO (in the default order, with the public sort key and the item number kept beside the DTO), and old slug → current slug for public products | `storefront`, `storefront:products`, `storefront:categories` |
+| `storefront/categories/v1` | Every published category as a DTO | `storefront`, `storefront:categories` |
+
+The catalogue also carries `storefront:categories` because product DTOs
+embed the category name and depend on whether the category is published.
+
+Every function answers in memory from those two values
+(`src/lib/storefront/catalogue.ts`): filtering, sorting, paging, slug and
+redirect lookup, related products and category lookup. An invalid slug
+returns before any cache read. An unknown slug reads the existing entry and
+creates nothing. `tests/storefront-public-cache.test.ts` checks that the set
+of cache keys stays at two across 200 distinct categories, many sorts and
+pages, and unknown slugs. The catalogue holds a few hundred products, so
+this is small. The cached value contains no cost, wholesale, quantity,
+source, notes or createdBy/updatedBy data. The item number is kept beside
+the DTO and is added only when a caller passes `includeItemNumber: true`.
+
+Both entries have `revalidate: 60` (`STOREFRONT_REVALIDATE_SECONDS`) as a
+backstop. Bump `CACHE_VERSION` in `cached.ts` when the cached shape
+changes.
+
+### When a change shows
 
 **The Next data cache is per instance.** `revalidateTag` only clears the
 cache of the Cloud Run instance that handled the admin request, and UAT runs
-up to 2 instances. Other instances see a change only when their entry
-reaches the 60 s backstop.
+up to 2 instances.
 
 | Change (publish, unpublish, edit) | When public data reflects it |
 | --- | --- |
 | On the instance that handled the change | Immediately, once the admin calls `revalidateStorefront` |
-| On other instances | ≤60 s across instances. An entry older than 60 s is refreshed in the background, so the first request after that may still get the old data once. |
-| No `revalidateStorefront` call (a missed call, or a stock change from sales) | ≤60 s on every instance |
-| `isNew` turning false 30 days after the first publish | ≤60 s late |
-| `GET /api/public/products` in a browser or CDN | Up to another 60 s (`max-age=60, s-maxage=60`) on top of the above |
+| On other instances | After the 60 s backstop. On a low-traffic instance the first request after expiry can still get the old data once (stale-while-revalidate); the requests after it get fresh data. |
+| No `revalidateStorefront` call (a missed call, or a stock change from sales) | The same as other instances, on every instance |
+| `isNew` turning false 30 days after the first publish | The same: after the 60 s backstop |
+| `GET /api/public/products` in a browser or CDN | Up to another 60 s (`Cache-Control: public, max-age=60, s-maxage=60`) on top of the above |
 
-In short: ≤60 s across instances; immediate on the instance that handled
-the change. Public **images** are not in this cache. Their visibility is
-checked on every request (see below).
+In short: immediate on the instance that handled the change. Other
+instances refresh after the 60 s backstop. On a low-traffic instance the
+first request after expiry can still get the old data once
+(stale-while-revalidate), then fresh data. A shared cache handler is the
+full fix and is tracked for launch hardening (ZP-495). Public **images**
+are not in this cache: their visibility is checked on every request (see
+below).
 
 **The admin (ZP-483) must call `revalidateStorefront` from its Route
 Handlers after every write that can change public data.** Without that
@@ -141,23 +171,22 @@ import { revalidateStorefront } from '@/lib/storefront'
 
 revalidateStorefront({ productSlugs: [oldSlug, newSlug] }) // publish, unpublish, edit, slug change, images, stock
 revalidateStorefront({ categorySlugs: [slug] })            // category edit, publish, unpublish, hero image
-revalidateStorefront()                                     // everything (e.g. after an import)
+revalidateStorefront()                                     // everything (e.g. after an import or a settings change)
 ```
 
-- `productSlugs` expires `storefront:products` (every product entry) and
-  each `storefront:product:<slug>`.
-- `categorySlugs` expires `storefront:categories` (every category entry and
-  every product entry) and each `storefront:category:<slug>`.
-- No argument expires `storefront`.
+- `productSlugs` expires `storefront:products` (the catalogue).
+- `categorySlugs` expires `storefront:categories` (the category list and
+  the catalogue).
+- No argument expires `storefront` (both).
+- The helper also expires `storefront:product:<slug>` and
+  `storefront:category:<slug>` for each valid slug. No entry carries those
+  tags today, so they have no effect. They are kept so that callers never
+  need to change if per-slug entries come back.
 
 It uses `revalidateTag(tag, { expire: 0 })`. The next request recomputes
 instead of serving stale data, which is what you want when something is
 unpublished. Invalid slugs are skipped. It returns the list of tags it
 expired.
-
-Stock changes (sales, stock movements) change `availability`. Until those
-routes call `revalidateStorefront({ productSlugs })`, availability can lag
-by up to 60 s.
 
 ## Public images: `GET /api/images/public/<32 hex>.webp[?w=<width>]`
 
@@ -186,7 +215,7 @@ Headers on a `200`:
 
 ```
 Content-Type: image/webp
-Cache-Control: public, max-age=300, s-maxage=300, stale-while-revalidate=86400
+Cache-Control: public, max-age=300, s-maxage=300, stale-while-revalidate=60
 X-Content-Type-Options: nosniff
 Content-Security-Policy: default-src 'none'; sandbox
 Content-Length: <bytes>
@@ -257,10 +286,17 @@ can import that file directly.
 - Every DTO image (`PublicImage`) already carries `url` (the original) and
   `srcSet`. `sizes` depends on the layout, so the component supplies it.
 
-`next.config.ts` keeps `images.minimumCacheTTL: 300`
-(`tests/next-image-config.test.ts`). The default is 4 hours. The setting
-is harmless and limits any accidental use of the optimiser. It does not
-fix the retention described above.
+**The optimiser cannot reach public pictures.** In `next.config.ts`,
+`images.localPatterns` allows `{ pathname: '/api/images/*', search: '' }`.
+That is one path segment, so the private `/api/images/<hex>.webp` is
+allowed and `/api/images/public/**` is not. A
+`/_next/image?url=/api/images/public/<key>` request returns 400.
+`tests/next-image-config.test.ts` checks both paths. It also checks that
+every `next/image` use in `src` is `unoptimized` or a literal `/brand/`
+asset. Today these are the admin dashboard and `ProductPicture`, which
+are both `unoptimized`, and the `/site` lockup. `images.minimumCacheTTL:
+300` stays. The default is 4 hours. The setting is harmless and limits
+any accidental optimiser use.
 
 ### How long an unpublished picture stays visible
 
@@ -272,8 +308,8 @@ one.
 | --- | --- |
 | The origin (this route, every size) | **Never.** Visibility is checked on every request, before the resize cache. |
 | A browser | Up to 300 s (`max-age=300`) |
-| A shared cache or CDN, if one is added | Up to 300 s (`s-maxage=300`). After that, at most one more stale response while it revalidates in the background (`stale-while-revalidate`); it then receives the uncacheable 404. Cloud Run has no CDN in front today. |
-| The Next image optimiser (`/_next/image`) | Indefinitely for a size it has already cached (see above). This is why storefront photos must not go through it. |
+| A shared cache or CDN, if one is added | Up to 300 s (`s-maxage=300`). For up to 60 s after that (`stale-while-revalidate=60`), it may serve one more stale copy while it revalidates in the background. It then receives the uncacheable 404. Cloud Run has no CDN in front today. |
+| The Next image optimiser (`/_next/image`) | Not applicable: `localPatterns` refuses `/api/images/public/**` (400). Before that change it kept a cached size indefinitely (see above). |
 
 `s-maxage` is 300, not the 3600 the issue first proposed. It bounds shared
 caches to the same 5 minutes as browsers. The optimiser also reads
@@ -289,13 +325,27 @@ returns the same `PublicProductPage` as `listPublishedProducts`.
   `featured`, `hideSoldOut` (each `1`, `0`, `true` or `false`), `sort`,
   `page` (1–1000) and `pageSize` (1–48). Any other parameter, a repeated
   parameter or a malformed value is a 400.
-- Rate limit: an in-memory token bucket per client IP, with a burst of 60
+- Rate limit: an in-memory token bucket per client, with a burst of 60
   and a refill of 1 request per second. Over the limit it returns 429 with
   `Retry-After`. The limit is **best effort**: each Cloud Run instance has
-  its own buckets, and they reset on restart. The client IP is the **last**
-  `X-Forwarded-For` entry, which Cloud Run appends. If a load balancer is
-  ever put in front, revisit this. At most 10,000 IPs are tracked; the least
-  recently used are dropped first.
-- `Cache-Control: public, max-age=60, s-maxage=60`.
+  its own buckets, and they reset on restart. At most 10,000 buckets are
+  tracked; the least recently used are dropped first.
+  - The client address is the **last** `X-Forwarded-For` entry, which Cloud
+    Run appends. Earlier entries come from the client and are ignored.
+  - IPv4 addresses get one bucket each. IPv6 addresses are bucketed by
+    their **/64** (`2001:db8:1:2::/64`), because one subscriber usually
+    holds a whole /64 and could otherwise rotate addresses to get fresh
+    buckets. IPv4-mapped IPv6 (`::ffff:a.b.c.d`) counts as the IPv4
+    address.
+  - **Load-balancer caveat:** behind an external HTTP(S) load balancer, the
+    last entry is the balancer's own address, so every client would share
+    one bucket. If one is added, switch `clientKey` to the entry the
+    balancer appends for the client (second from last).
+- `Cache-Control: public, max-age=60, s-maxage=60`. Browsers and any CDN
+  may reuse a page of results for 60 s. That comes on top of the data
+  cache's 60 s backstop, so a publish or unpublish can take up to about
+  2 minutes to show through this route on another instance. Errors (400,
+  429, 500) are `no-store`. The data comes from the cached catalogue, so
+  query parameters never create cache entries.
 - On the storefront host only `/api/public/*` and `/api/images/public/*` are
   reachable under `/api` (ZP-485).

@@ -24,7 +24,10 @@ const nextConfig: NextConfig = {
     // /api/products) is a 400, on every host.
     localPatterns: [
       { pathname: '/brand/**', search: '' },
-      { pathname: '/api/images/**', search: '' },
+      // ZP-484: one segment only, so the optimiser cannot fetch
+      // /api/images/public/** (it keeps serving a cached size after a
+      // picture is unpublished; storefront photos use <img srcset>).
+      { pathname: '/api/images/*', search: '' },
     ],
     remotePatterns: [
       {

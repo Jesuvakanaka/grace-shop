@@ -25,7 +25,7 @@ if (typeof window !== 'undefined') throw new Error('src/lib/storefront is server
  * picture at once. Keys are content-hashed, so a new photo has a new URL.
  * See docs/storefront/public-data-layer.md.
  */
-export const PUBLIC_IMAGE_CACHE_CONTROL = 'public, max-age=300, s-maxage=300, stale-while-revalidate=86400'
+export const PUBLIC_IMAGE_CACHE_CONTROL = 'public, max-age=300, s-maxage=300, stale-while-revalidate=60'
 
 /** Byte budget of the resized-picture cache, per server instance. */
 export const RESIZE_CACHE_BYTES = 64 * 1024 * 1024

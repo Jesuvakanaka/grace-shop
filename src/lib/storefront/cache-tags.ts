@@ -21,7 +21,7 @@ export const STOREFRONT_TAGS = {
  */
 export const STOREFRONT_REVALIDATE_SECONDS = 60
 
-export const storefrontProductTag =(slug: string) => `storefront:product:${slug}`
+export const storefrontProductTag = (slug: string) => `storefront:product:${slug}`
 export const storefrontCategoryTag = (slug: string) => `storefront:category:${slug}`
 
 export type RevalidateScope = {
