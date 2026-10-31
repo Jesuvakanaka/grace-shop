@@ -21,6 +21,13 @@ describe('next.config images.localPatterns', () => {
     }
   });
 
+  // ZP-484: optimised sizes are cached for max(minimumCacheTTL, upstream max-age)
+  // and Next cannot invalidate them, so this bounds how long an unpublished
+  // picture can still be served through /_next/image.
+  test('minimumCacheTTL is 300 s, matching the public image max-age', () => {
+    assert.strictEqual(nextConfig.images?.minimumCacheTTL, 300);
+  });
+
   test('blocks every other route and any query string', () => {
     for (const url of [
       '/api/products',

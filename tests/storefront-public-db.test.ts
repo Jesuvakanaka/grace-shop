@@ -242,7 +242,7 @@ describe('storefront public data layer (database)', () => {
       const res = await get(`${HEX('1')}.webp`)
       assert.strictEqual(res.status, 200)
       assert.strictEqual(res.headers.get('content-type'), 'image/webp')
-      assert.strictEqual(res.headers.get('cache-control'), 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400')
+      assert.strictEqual(res.headers.get('cache-control'), 'public, max-age=300, s-maxage=300, stale-while-revalidate=86400')
       assert.strictEqual(res.headers.get('x-content-type-options'), 'nosniff')
       assert.strictEqual(res.headers.get('content-security-policy'), "default-src 'none'; sandbox")
       assert.strictEqual(await res.text(), 'webp-1')

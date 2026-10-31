@@ -11,13 +11,19 @@ import { isPublicImageKey } from './queries'
 if (typeof window !== 'undefined') throw new Error('src/lib/storefront is server-only')
 
 /**
- * Browsers may reuse a picture for 5 minutes, shared caches (a CDN) for 1
- * hour, and a shared cache may serve it stale once more while it revalidates
- * in the background. Keys are content-hashed, so a new photo has a new URL;
- * the short browser lifetime only bounds how long an UNPUBLISHED picture
- * stays visible. See docs/storefront/public-data-layer.md.
+ * Browsers, shared caches and the Next image optimiser may reuse a picture
+ * for 5 minutes; a shared cache may serve it stale once more while it
+ * revalidates in the background. Keys are content-hashed, so a new photo has
+ * a new URL; the short lifetime only bounds how long an UNPUBLISHED picture
+ * stays visible.
+ *
+ * s-maxage is 300, not 3600: the optimiser (/_next/image) caches each resized
+ * variant for s-maxage (preferred over max-age) or images.minimumCacheTTL,
+ * whichever is larger, and that cache cannot be invalidated. With 3600 an
+ * unpublished picture stayed resizable for an hour. See
+ * docs/storefront/public-data-layer.md.
  */
-export const PUBLIC_IMAGE_CACHE_CONTROL = 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400'
+export const PUBLIC_IMAGE_CACHE_CONTROL = 'public, max-age=300, s-maxage=300, stale-while-revalidate=86400'
 
 export function notFound(): Response {
   return new Response('Not Found', {

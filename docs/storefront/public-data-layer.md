@@ -163,10 +163,17 @@ Headers on a `200`:
 
 ```
 Content-Type: image/webp
-Cache-Control: public, max-age=300, s-maxage=3600, stale-while-revalidate=86400
+Cache-Control: public, max-age=300, s-maxage=300, stale-while-revalidate=86400
 X-Content-Type-Options: nosniff
 Content-Security-Policy: default-src 'none'; sandbox
 ```
+
+`s-maxage` is 300, not the 3600 the issue first proposed. The Next image
+optimiser reads `s-maxage` in preference to `max-age` from the upstream
+response (`next/dist/server/image-optimizer/get-max-age.js`). It caches each
+resized variant for the larger of that value and `images.minimumCacheTTL`.
+With `s-maxage=3600`, `/_next/image` answered `Cache-Control: public,
+max-age=3600` and kept serving an unpublished picture for an hour.
 
 ### How long an unpublished picture stays visible
 
@@ -178,14 +185,14 @@ one.
 | --- | --- |
 | The route itself | Never. The check is not cached. |
 | A browser | Up to 5 minutes (`max-age=300`) |
-| A shared cache or CDN, if one is added | Up to 1 hour (`s-maxage=3600`). After that, at most one more stale response while it revalidates in the background (`stale-while-revalidate`). It then receives the uncacheable 404. Cloud Run has no CDN in front today. |
-| **The Next image optimiser (`/_next/image`)** | **Up to 4 hours.** It caches each resized variant for the larger of the upstream `max-age` (300) and `images.minimumCacheTTL`. The Next 16 default for that is 14400. Next has no way to invalidate it. |
+| A shared cache or CDN, if one is added | Up to 5 minutes (`s-maxage=300`). After that, at most one more stale response while it revalidates in the background (`stale-while-revalidate`). It then receives the uncacheable 404. Cloud Run has no CDN in front today. |
+| The Next image optimiser (`/_next/image`) | Up to 5 minutes for each size that was already cached. A size not cached yet returns 404 at once. The lifetime is the larger of the upstream `s-maxage` (300) and `images.minimumCacheTTL`, which `next.config.ts` sets to 300; the Next 16 default is 14400, 4 hours. Next cannot invalidate this cache, so keep both values low. |
 
-**Gap: the optimiser's 4-hour cache.** To bring it down to 5 minutes, set
-`images.minimumCacheTTL: 300` in `next.config.ts`. That file was outside
-this issue's scope. The manual proof below confirms the gap: after an
-unpublish, a variant that was already cached is still served (`HIT`), and a
-variant that was not cached yet returns 404.
+Proof on a production build (`next build` then `next start`): a cached size
+answered `Cache-Control: public, max-age=300, must-revalidate`,
+`X-Nextjs-Cache: HIT`. Straight after an unpublish it was still a `HIT`.
+More than 300 s later it was no longer served. `tests/next-image-config.test.ts`
+pins `minimumCacheTTL` to 300.
 
 ### Responsive sizes
 

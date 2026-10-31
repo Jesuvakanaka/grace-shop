@@ -14,6 +14,11 @@ const nextConfig: NextConfig = {
     root: projectRoot,
   },
   images: {
+    // ZP-484: resized variants are cached for max(minimumCacheTTL, upstream
+    // max-age) and cannot be invalidated. 300 s matches the public image
+    // route's max-age, so an unpublished picture stops being served through
+    // /_next/image within 5 minutes (the Next 16 default is 4 hours).
+    minimumCacheTTL: 300,
     // ZP-485: the optimiser (/_next/image?url=...) may only fetch brand assets
     // and stored images, without a query string. Anything else (e.g.
     // /api/products) is a 400, on every host.
