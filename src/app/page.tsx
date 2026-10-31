@@ -124,7 +124,7 @@ export default function Dashboard() {
                         width={48}
                         height={48}
                         unoptimized
-                        className="rounded-lg object-cover shrink-0"
+                        className="w-12 h-12 rounded-lg object-cover shrink-0"
                       />
                     ) : (
                       <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-xs shrink-0">
