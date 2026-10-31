@@ -2,6 +2,8 @@
 
 # Secrets / local env (never baked into the image)
 .env*
+# google-github-actions/auth credentials file (written into the CI workspace)
+gha-creds-*.json
 
 # Installed / built artefacts (rebuilt inside the image)
 node_modules

@@ -1,4 +1,4 @@
-# Shared quality gate (ZP-470): lint (changed files), migrate + unit tests
+# Shared quality gate (ZP-470): lint (no new errors in changed files), migrate + unit tests
 # against Postgres 16, and a production build.
 #
 # Called by ci.yml (pull requests) and by deploy-uat.yml (the `test` job that
@@ -66,32 +66,15 @@ jobs:
         run: npm ci
 
       # TODO(lint backlog): `npm run lint` currently fails on master with ~144
-      # pre-existing errors. Until that backlog is fixed, only the JS/TS files
-      # this change adds/modifies are linted ("no new lint errors"; touching a
-      # file means fixing its errors). Once `npm run lint` is clean, replace
-      # this step with `npm run lint`. See docs/deployment/deploy-uat.md.
-      - name: Lint changed files
+      # pre-existing errors. Until that backlog is fixed, CI enforces "no new
+      # lint errors": a changed JS/TS file may not gain ESLint errors compared
+      # with its base version, and a new file must have 0 errors. Once
+      # `npm run lint` is clean, replace this step with `npm run lint`.
+      # See .github/scripts/lint-no-new-errors.mjs and docs/deployment/deploy-uat.md.
+      - name: Lint (no new errors in changed files)
         env:
           LINT_BASE: ${{ inputs.lint-base }}
-        run: |
-          set -euo pipefail
-          BASE="${LINT_BASE}"
-          if [[ -z "${BASE}" || "${BASE}" =~ ^0+$ ]]; then
-            echo "::notice::No lint base for this run; skipping changed-files lint."
-            exit 0
-          fi
-          if ! git rev-parse --verify --quiet "${BASE}^{commit}" >/dev/null; then
-            echo "::warning::Lint base ${BASE} not found in history; falling back to HEAD^."
-            BASE="HEAD^"
-          fi
-          mapfile -t FILES < <(git diff --name-only --diff-filter=ACMR "${BASE}...HEAD" -- '*.ts' '*.tsx' '*.js' '*.mjs')
-          if [[ ${#FILES[@]} -eq 0 ]]; then
-            echo "No changed JS/TS files to lint."
-            exit 0
-          fi
-          printf 'Linting %d changed file(s):\n' "${#FILES[@]}"
-          printf '  %s\n' "${FILES[@]}"
-          npx eslint "${FILES[@]}"
+        run: node .github/scripts/lint-no-new-errors.mjs "${LINT_BASE}"
 
       - name: Apply migrations (prisma migrate deploy)
         run: npm run migrate

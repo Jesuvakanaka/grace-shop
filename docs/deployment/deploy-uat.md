@@ -28,7 +28,7 @@ queued in one concurrency group and are never cancelled half-way.
 
 1. **test**: `checks.yml`, the same job as PR CI. If it fails, nothing deploys.
    1. `npm ci`
-   2. Lint the changed files (see below).
+   2. Lint: no new errors in changed files (see below).
    3. `npm run migrate` against a Postgres 16 service container.
    4. `npm test`, with a dummy test-only `JWT_SECRET`.
    5. `npm run build`
@@ -66,26 +66,39 @@ queued in one concurrency group and are never cancelled half-way.
 Secret values never appear in the workflow or its logs. Only the Secret
 Manager names are referenced.
 
-## Lint in CI: changed files only (temporary)
+## Lint in CI: no new errors (temporary)
 
 `npm run lint` currently fails on `master` with about 144 errors that were
-already there. Until that backlog is fixed, CI lints only the JS/TS files a
-change adds or modifies:
+already there. Until that backlog is fixed, CI runs
+`.github/scripts/lint-no-new-errors.mjs <base>`, which enforces "no new lint
+errors":
 
-```bash
-git diff --name-only --diff-filter=ACMR <base>...HEAD -- '*.ts' '*.tsx' '*.js' '*.mjs' | xargs npx eslint
-```
+1. It lists the JS/TS files (`.ts`, `.tsx`, `.js`, `.mjs`) that the change
+   adds, modifies or renames, relative to the merge base with `<base>`.
+2. For each file it counts ESLint errors in the HEAD version, and in the base
+   version (`git show <merge-base>:<file>`, linted with the same config under
+   the same path).
+3. It fails if any file's error count goes up. A new file must have 0 errors.
+   Warnings are not counted. A per-file table (base, head, delta) is printed,
+   with the errors of every failing file.
+
+You can edit a file that has old errors without fixing them, as long as you
+do not add more. Run it locally the same way:
+`node .github/scripts/lint-no-new-errors.mjs origin/master`.
+
+`<base>` is set as follows:
 
 - In a pull request, `<base>` is `origin/<base branch>`.
 - For a feature-branch push, it is `origin/master`.
 - For a push to `master`, it is the previous `master` commit.
 - A manual deploy dispatch skips this step, because `master` already passed it.
 
-This rule enforces "no new lint errors". If you edit a file that already has
-errors, fix them in the same change.
+`scripts/**/*.js` and `prisma/**/*.js` are CommonJS Node scripts, so
+`eslint.config.mjs` allows `require` there.
 
 **TODO:** once `npm run lint` passes on `master`, replace the
-"Lint changed files" step in `checks.yml` with `npm run lint`.
+"Lint (no new errors in changed files)" step in `checks.yml` with
+`npm run lint`.
 
 ## One-time seed (users, products, opening stock)
 
