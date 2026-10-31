@@ -49,6 +49,7 @@ export const ADMIN_PAGE_SECTIONS: readonly string[] = [
   'sales',
   'settings',
   'stock-ledger',
+  'website',
 ];
 
 /** API prefixes the storefront may call. Everything else under /api is 404 there. */
