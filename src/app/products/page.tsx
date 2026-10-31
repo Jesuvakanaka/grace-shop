@@ -319,8 +319,10 @@ export default function ProductsPage() {
             {!filtered.length && <div className="text-center text-slate-500 py-8">No products found</div>}
           </div>
 
-          {/* Desktop table */}
-          <table className="table w-full hidden md:table">
+          {/* Desktop table. Visibility lives on a wrapper: the `table` class is also
+              Tailwind's display:table utility, which overrode `hidden` on the table itself. */}
+          <div className="hidden md:block">
+          <table className="table w-full">
             <thead>
               <tr>
                 <th className="text-left p-2 w-16">Image</th>
@@ -397,6 +399,7 @@ export default function ProductsPage() {
               )}
             </tbody>
           </table>
+          </div>
           </div>
         </>
       )}

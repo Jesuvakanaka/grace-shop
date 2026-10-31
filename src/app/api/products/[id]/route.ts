@@ -28,7 +28,8 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     }
 
     const { id } = await params;
-    const body = await request.json();
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== 'object') return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
     const wholesale = parseWholesaleFields(body);
     if (!wholesale.ok) return NextResponse.json({ error: wholesale.error }, { status: 400 });
     const updated = await updateProduct(Number(id), { ...body, ...wholesale.data });

@@ -1,6 +1,12 @@
 // ZP-475: the product_wholesale_fields migration applies cleanly on top of a
 // 0_init database seeded by `npm run init`, and keeps existing product data.
 //
+// The seed script uses the generated Prisma client, which already includes the
+// new columns, so it cannot seed a database that is only at 0_init. The test
+// therefore migrates fully, seeds, then recreates the pre-migration state
+// (drops the two columns and deletes this migration's _prisma_migrations row)
+// before checksumming and running `prisma migrate deploy` for real.
+//
 // Opt-in (skipped by `npm test` unless the variable is set), because it needs
 // an EMPTY local database of its own and takes ~30s:
 //
@@ -47,10 +53,21 @@ describe('migration: product_wholesale_fields', { skip: !URL_ && 'set MIGRATION_
       );
       assert.strictEqual(tables[0].n, 0, 'MIGRATION_TEST_DATABASE_URL must point at an empty database');
 
-      // 1. Database as it was before this change: baseline only, then seed.
-      run('npx prisma db execute --schema prisma/schema.prisma --file prisma/migrations/0_init/migration.sql', env);
-      run('npx prisma migrate resolve --applied 0_init', env);
+      // 1. Seed with the current code (the generated client already knows the
+      //    new columns, so the seed must run on the full schema), then put the
+      //    database back to its pre-ZP-475 state: drop the two columns and
+      //    forget that this migration was applied. The 48 seeded rows stay.
+      run('npx prisma migrate deploy', env);
       run('node scripts/init-system.js', env);
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "Product" DROP COLUMN "wholesalePriceUsd", DROP COLUMN "wholesaleMinQuantity"`,
+      );
+      await prisma.$executeRawUnsafe(`DELETE FROM "_prisma_migrations" WHERE migration_name = '${NEW_MIGRATION}'`);
+      const cols = await prisma.$queryRawUnsafe<{ n: number }[]>(
+        `select count(*)::int as n from information_schema.columns
+         where table_name = 'Product' and column_name in ('wholesalePriceUsd', 'wholesaleMinQuantity')`,
+      );
+      assert.strictEqual(cols[0].n, 0, 'pre-migration state should not have the wholesale columns');
       const before = await prisma.$queryRawUnsafe<{ products: number; checksum: string }[]>(CHECKSUM_SQL);
       assert.strictEqual(before[0].products, 48);
 

@@ -42,6 +42,34 @@ describe('parseWholesaleFields (server validation)', () => {
     }
   });
 
+  test('only plain decimal strings are accepted (no hex, exponent or signs)', () => {
+    for (const bad of ['0x10', '1e3', '1e308', '+5', '-0', '.5', '5.', '1,000', 'Infinity']) {
+      const r = parseWholesaleFields({ wholesalePriceUsd: bad });
+      assert.strictEqual(r.ok, false, `expected price ${JSON.stringify(bad)} to be rejected`);
+    }
+    for (const bad of ['0x10', '1e1', '+6', '6.0']) {
+      const r = parseWholesaleFields({ wholesaleMinQuantity: bad });
+      assert.strictEqual(r.ok, false, `expected quantity ${JSON.stringify(bad)} to be rejected`);
+    }
+    assert.deepStrictEqual(parseWholesaleFields({ wholesalePriceUsd: ' 12.50 ', wholesaleMinQuantity: ' 6 ' }), {
+      ok: true,
+      data: { wholesalePriceUsd: 12.5, wholesaleMinQuantity: 6 },
+    });
+  });
+
+  test('wholesale price and quantity have a sane ceiling of 1,000,000', () => {
+    assert.deepStrictEqual(parseWholesaleFields({ wholesalePriceUsd: 1_000_000, wholesaleMinQuantity: 1_000_000 }), {
+      ok: true,
+      data: { wholesalePriceUsd: 1_000_000, wholesaleMinQuantity: 1_000_000 },
+    });
+    for (const bad of [1e308, 1_000_000.01, '1000000.01']) {
+      assert.strictEqual(parseWholesaleFields({ wholesalePriceUsd: bad }).ok, false, `price ${bad}`);
+    }
+    for (const bad of [1_000_001, '1000001']) {
+      assert.strictEqual(parseWholesaleFields({ wholesaleMinQuantity: bad }).ok, false, `quantity ${bad}`);
+    }
+  });
+
   test('rejects a wholesale minimum quantity that is not a whole number >= 1', () => {
     for (const bad of [0, -3, 2.5, '2.5', 'six', 2147483648, false]) {
       const r = parseWholesaleFields({ wholesaleMinQuantity: bad });
@@ -151,6 +179,17 @@ describe('product route handlers', () => {
     assert.strictEqual(res.status, 400);
     const body = await res.json();
     assert.match(body.error, /minimum quantity/i);
+  });
+
+  test('OWNER PUT with a non-JSON body -> 400, not 500', async () => {
+    const token = await createToken(1, 'owner', 'OWNER');
+    const req = new Request('http://localhost/api/products/1', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', cookie: `auth-token=${token}` },
+      body: 'not json{',
+    });
+    const res = await putProduct(req, ctx('1'));
+    assert.strictEqual(res.status, 400);
   });
 
   test('OWNER POST with a non-integer wholesale minimum quantity -> 400', async () => {
