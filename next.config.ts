@@ -14,6 +14,13 @@ const nextConfig: NextConfig = {
     root: projectRoot,
   },
   images: {
+    // ZP-485: the optimiser (/_next/image?url=...) may only fetch brand assets
+    // and stored images, without a query string. Anything else (e.g.
+    // /api/products) is a 400, on every host.
+    localPatterns: [
+      { pathname: '/brand/**', search: '' },
+      { pathname: '/api/images/**', search: '' },
+    ],
     remotePatterns: [
       {
         protocol: 'http',
