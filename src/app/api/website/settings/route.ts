@@ -6,7 +6,7 @@ import { NextResponse } from 'next/server'
 import { authorize, OWNER_ONLY } from '@/lib/api-auth'
 import prisma from '@/lib/db'
 import { readSiteSettings, updateSiteSettings } from '@/lib/site-settings/db'
-import { revalidateSiteSettings } from '@/lib/site-settings/revalidate'
+import { revalidateSiteSettings, settingsRevalidateScope } from '@/lib/site-settings/revalidate'
 import { validateSiteSettingsInput } from '@/lib/site-settings/validate'
 
 export async function GET(request: Request) {
@@ -41,8 +41,10 @@ export async function PUT(request: Request) {
   }
 
   try {
+    const before = await readSiteSettings(prisma)
     const settings = await updateSiteSettings(prisma, result.value, auth.session.username)
-    revalidateSiteSettings()
+    // A changed few-left threshold expires the whole storefront (product DTOs embed it).
+    revalidateSiteSettings(settingsRevalidateScope(before, settings))
     return NextResponse.json({ settings })
   } catch (error) {
     console.error('[site-settings] save failed:', error instanceof Error ? error.message : error)

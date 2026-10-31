@@ -17,7 +17,7 @@ the "few left" threshold and whether item numbers are public.
   - `dto.ts`: `toPublicSiteSettings`, `publicSettingsImageUrl`, `settingsImageKeys` (pure)
   - `db.ts`: `readSiteSettings`, `updateSiteSettings` (server only)
   - `public.ts`: `getPublicSiteSettings()` (cached), `loadPublicSiteSettings(db)` (server only)
-  - `revalidate.ts`: `revalidateSiteSettings()` (server only)
+  - `revalidate.ts`: `settingsRevalidateScope`, `revalidateSiteSettings(scope)` (server only; uses the shared storefront helper)
 - Tests: `tests/site-settings-validate.test.ts`, `tests/site-settings-public.test.ts`,
   `tests/site-settings-api.test.ts` (database), `tests/api-permissions.test.ts`,
   `tests/migration-site-settings.test.ts` (opt-in, see the file header)
@@ -129,7 +129,7 @@ const href = buildWhatsAppLink(settings, { product: name, url, colour, size }) /
 ```
 
 `getPublicSiteSettings()` is server only (it imports Prisma). It is cached
-with `unstable_cache`, the tag `storefront:settings` and `revalidate: 60`.
+with `unstable_cache`, the tags `storefront` and `storefront:settings`, and `revalidate: 60`.
 The project does not enable Cache Components, so `'use cache'` is not
 available. It returns
 an allow-listed DTO (`PublicSiteSettings` in `dto.ts`):
@@ -163,13 +163,22 @@ It never includes `updatedBy`, timestamps or raw storage keys.
 
 ## Revalidation
 
-After a successful `PUT`, `revalidateSiteSettings()` calls Next's
-`revalidateTag(tag, { expire: 0 })` for `storefront:settings` and
-`storefront:home`. `{ expire: 0 }` means the next storefront request reads
-fresh data instead of being served stale content. The call never throws,
-because the save has already happened. Outside a Next.js request (tests,
-scripts) `revalidateTag` throws an invariant error, which is logged and
-ignored.
+After a successful `PUT`, the route compares the settings before and after
+(`settingsRevalidateScope`) and calls `revalidateSiteSettings(scope)`:
+
+- **The few-left threshold changed:** no scope, so `revalidateStorefront()`
+  expires `storefront`, which is every storefront entry. The cached catalogue
+  builds every product's `availability` with the threshold from settings.
+- **Anything else:** `{ settings: true }` expires `storefront:settings` and
+  `storefront:home`.
+
+Revalidation goes through the one storefront helper (`revalidateStorefront`
+in `src/lib/storefront/cache-tags.ts`) and its never-throwing wrapper in
+`src/lib/website/revalidate.ts`, using `{ expire: 0 }`, so the next request
+reads fresh data. The call never throws, because the save has already
+happened. Outside a Next.js request (tests, scripts), the "static generation
+store missing" error is ignored. Any other error is logged and reported as
+`{ ok: false }`.
 
 **Several instances: 60-second backstop.** `revalidateTag` clears only the
 cache of the instance that handled the `PUT`. Cloud Run runs up to 2
@@ -185,38 +194,23 @@ The admin form validates every field, but it sends only the fields that
 changed (`changedSettings` in `src/lib/site-settings/diff.ts`, with latitude
 and longitude always sent together).
 
-**TODO (consolidate):** `src/lib/site-settings/revalidate.ts` calls
-`revalidateTag` directly so that it does not edit ZP-484's
-`src/lib/storefront/*` or ZP-483's `src/lib/website/revalidate.ts`. Once
-those land, route this through the shared helper. The tag names must match.
-
-## KNOWN GAP: settings pictures are not publicly served yet
+## Settings pictures are served publicly
 
 Settings pictures are uploaded through the existing `/api/upload` pipeline.
 That pipeline stores them as `products/<32 hex>.webp`, the same as product
 pictures, and the setting stores that key. The public DTO turns a key into
 `/api/images/public/<32 hex>.webp`.
 
-The public image route (`src/app/api/images/public/**`, ZP-484) only serves
-keys that belong to published products or categories, so **it will not serve
-settings pictures**. This was not changed here, because those files belong to
-ZP-484. One of these follow-ups is needed:
-
-1. Preferred: extend the public route's allow-list to also accept the keys
-   that `SiteSettings` references. `settingsImageKeys(settings)` in
-   `src/lib/site-settings/dto.ts` returns them, and the result can be cached
-   with the `storefront:settings` tag.
-2. Or give settings pictures their own prefix (for example `site/`). This
-   needs a change to the upload pipeline and to `keys.ts`, and the public
-   route would serve that prefix without a database lookup.
-
-Until then the storefront should treat `about.imageUrl`,
-`home.heroImageUrls.*` and `seo.shareImageUrl` as possibly unreachable, or
-fall back to brand assets.
+Since the Phase 1 consolidation, the public image route's visibility check
+(`isPublicImageKey` in `src/lib/storefront/queries.ts`) also accepts the
+**current** settings pictures (`settingsImageKeys()`, through
+`isSettingsImageKey` in `src/lib/site-settings/db.ts`). The check runs
+uncached on every request, before the resize cache. When the owner replaces
+a picture, the old key is a 404 (`no-store`) at once, unless a public product
+or published category still uses it. The width allow-list and headers are
+the same as for product pictures.
 
 ## Navigation
 
-The Sidebar and MoreSheet are not changed here. ZP-483 adds the "Website"
-admin nav entry and `src/app/(admin)/website/categories/`. That page did not
-exist on master when this was built, so **ZP-483 should link to
-`/website/settings`** from the Website section or the categories page.
+The Sidebar and MoreSheet are not changed here. The ZP-483 categories page
+(`/website/categories`) has a tab bar that links to `/website/settings`.

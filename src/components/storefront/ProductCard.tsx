@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { Badge } from "./Badge";
 import { cn } from "./cn";
-import { ASK_FOR_PRICE, availabilityLabel, cardImages, formatPriceUsd, productHref } from "./product";
+import { ASK_FOR_PRICE, availabilityLabel, CARD_SIZES, cardImages, formatPriceUsd, productHref } from "./product";
 import { ImageFrame, StorefrontImg } from "./StorefrontImage";
 import type { PublicProduct } from "./types";
 
 export type ProductCardProps = {
-  /** The public product DTO (ZP-484 shape, see types.ts). */
+  /** The public product DTO (src/lib/storefront/dto.ts). */
   product: PublicProduct;
   /** Builds the link from the slug. Default: productHref → `/site/p/<slug>`. */
   hrefFor?: (slug: string) => string;
@@ -29,7 +29,7 @@ export function ProductCard({
   hrefFor = productHref,
   showCategory = true,
   eager = false,
-  sizes = "(min-width: 1024px) 280px, 50vw",
+  sizes = CARD_SIZES,
   className,
 }: ProductCardProps) {
   const { primary, hover } = cardImages(product);

@@ -7,6 +7,7 @@
 // `cache` is unstable_cache in ./index; tests pass a recording stand-in.
 import { isValidSlug } from '@/lib/storefront-model'
 import type { Db } from '@/lib/storefront-model/db'
+import { readFewLeftThreshold } from '@/lib/site-settings/db'
 import { STOREFRONT_REVALIDATE_SECONDS, STOREFRONT_TAGS } from './cache-tags'
 import {
   findProduct,
@@ -35,7 +36,10 @@ const CACHE_VERSION = 'v1'
 
 export function createStorefront(deps: { db: Db; cache: CacheFn }) {
   const catalogue = deps.cache(
-    (): Promise<PublicCatalogue> => loadPublicCatalogue(deps.db),
+    // The few-left threshold comes from site settings (ZP-486). A settings
+    // save that changes it expires the whole storefront (no-scope revalidate).
+    async (): Promise<PublicCatalogue> =>
+      loadPublicCatalogue(deps.db, { fewLeftThreshold: await readFewLeftThreshold(deps.db) }),
     ['storefront', 'catalogue', CACHE_VERSION],
     {
       // Product DTOs embed category names and depend on category visibility.

@@ -79,11 +79,15 @@ at any depth, matches
 | `publicImageSrcSet(key)` | The `srcset` value for `<img>` |
 | `revalidateStorefront(scope?)` | See [Caching](#caching-and-revalidation) |
 
-The cached functions use the default few-left threshold, `FEW_LEFT_THRESHOLD`
-(3), when they build the catalogue. When ZP-486 adds site settings, the
-catalogue loader should read the threshold from them, and a settings change
-should call `revalidateStorefront()`. The uncached functions in `queries.ts`
-take a `fewLeftThreshold` option, for tests and scripts.
+The cached catalogue takes its few-left threshold from site settings
+(`fewLeftThreshold`, read with `readFewLeftThreshold` in
+`src/lib/site-settings/db.ts`). If the settings row is missing, it uses
+`FEW_LEFT_THRESHOLD` (3). When a settings save changes the threshold,
+`PUT /api/website/settings` calls `revalidateStorefront()` with no scope.
+Every product DTO embeds the threshold, so the whole storefront is expired.
+Other settings changes expire only `storefront:settings` and
+`storefront:home`. The uncached functions in `queries.ts` still take a
+`fewLeftThreshold` option, for tests and scripts.
 
 **Sorts** (`sort`):
 
@@ -171,8 +175,18 @@ import { revalidateStorefront } from '@/lib/storefront'
 
 revalidateStorefront({ productSlugs: [oldSlug, newSlug] }) // publish, unpublish, edit, slug change, images, stock
 revalidateStorefront({ categorySlugs: [slug] })            // category edit, publish, unpublish, hero image
-revalidateStorefront()                                     // everything (e.g. after an import or a settings change)
+revalidateStorefront({ settings: true })                   // site settings (storefront:settings, storefront:home)
+revalidateStorefront()                                     // everything (e.g. after an import or a few-left threshold change)
 ```
+
+This is the only implementation of the tags. Route Handlers call it through
+`src/lib/website/revalidate.ts` (`revalidateStorefront`, or
+`revalidateStorefrontSafely` for the list of failed tags). That wrapper
+never throws. It ignores only the "static generation store missing"
+error, which happens outside a request (unit tests, scripts), and logs any
+other error. `src/lib/site-settings/revalidate.ts` uses the same wrapper.
+The `getPublicSiteSettings()` entry carries `storefront` and
+`storefront:settings`, so a call with no scope also clears it.
 
 - `productSlugs` expires `storefront:products` (the catalogue).
 - `categorySlugs` expires `storefront:categories` (the category list and
@@ -197,6 +211,11 @@ of these:
   content-hashed and shared between products (7 August pictures are), so a
   key used by both a published and an unpublished product is served.
 - the `heroImageKey` of a published category
+- one of the **current** site settings pictures (hero desktop, hero mobile,
+  about and default share image; `settingsImageKeys()` in
+  `src/lib/site-settings/dto.ts`, checked by `isSettingsImageKey`). When the
+  owner replaces one, the old key is a 404 at once, unless a public product
+  or published category still uses it.
 
 The visibility check reads the database on **every** request, sizes
 included, before any cache is read. The origin therefore stops serving an
@@ -269,7 +288,7 @@ can import that file directly.
 <img
   src={image.url}                 // or publicImageSrc(key, 640)
   srcSet={image.srcSet}           // or publicImageSrcSet(key)
-  sizes="(min-width: 1024px) 25vw, 50vw" // the component knows its layout
+  sizes={CARD_SIZES}              // "(min-width: 1024px) 25vw, (min-width: 768px) 33vw, 50vw" for ProductCard
   alt={image.alt}
   loading="lazy"
   decoding="async"

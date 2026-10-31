@@ -9,6 +9,7 @@ import type { PrismaClient } from '@prisma/client'
 import prisma from '@/lib/db'
 import { readSiteSettings } from './db'
 import { toPublicSiteSettings, type PublicSiteSettings } from './dto'
+import { STOREFRONT_TAGS } from '@/lib/storefront/cache-tags'
 import { SITE_SETTINGS_TAG } from './revalidate'
 
 export type { PublicSiteSettings } from './dto'
@@ -27,7 +28,8 @@ export async function loadPublicSiteSettings(db: PrismaClient = prisma): Promise
  */
 export const PUBLIC_SETTINGS_REVALIDATE_SECONDS = 60
 export const PUBLIC_SETTINGS_CACHE_OPTIONS = Object.freeze({
-  tags: [SITE_SETTINGS_TAG],
+  // "storefront" too: revalidateStorefront() with no scope clears every storefront entry.
+  tags: [STOREFRONT_TAGS.all, SITE_SETTINGS_TAG],
   revalidate: PUBLIC_SETTINGS_REVALIDATE_SECONDS,
 })
 

@@ -17,7 +17,7 @@ The tools build on the data model in [data-model.md](./data-model.md) (ZP-482).
 | Validation (allow-lists) | `src/lib/website/validation.ts` |
 | Wording, limits, statuses (client-safe) | `src/lib/website/labels.ts` |
 | Preview tokens | `src/lib/website/preview-token.ts`, `preview-config.ts` |
-| Cache revalidation shim | `src/lib/website/revalidate.ts` |
+| Cache revalidation (safe wrapper around `src/lib/storefront/cache-tags.ts`) | `src/lib/website/revalidate.ts` |
 | Admin product routes → gallery sync | `src/lib/website/product-image-sync.ts` |
 | Tests | `tests/website-admin-api.test.ts`, `tests/website-preview-token.test.ts`, `tests/website-revalidate.test.ts` |
 
@@ -127,17 +127,15 @@ ships)". ZP-490 should:
 ## Revalidation
 
 After every successful change the routes call `revalidateStorefront(scope)`
-from `src/lib/website/revalidate.ts`. It is a **temporary shim** that mirrors
-ZP-484's `src/lib/storefront/cache-tags.ts` exactly: the same tags
-(`storefront`, `storefront:products`, `storefront:product:<slug>`,
-`storefront:categories`, `storefront:category:<slug>`), the same scope
-(`productSlugs`, `categorySlugs`, old **and** new slug after a rename) and
-`revalidateTag(tag, { expire: 0 })`. It also never throws (outside a request,
-for example in unit tests, it does nothing).
-
-**Consolidate once ZP-484 is on master:** make the shim call ZP-484's
-`revalidateStorefront`, keep the try/catch wrapper, and delete the duplicated
-tag code. The admin product PUT and DELETE routes also revalidate the
+from `src/lib/website/revalidate.ts`. Since the Phase 1 consolidation this
+is a thin, never-throwing wrapper around ZP-484's `revalidateStorefront` in
+`src/lib/storefront/cache-tags.ts`, which is the only place the tags are
+defined. The scope is `productSlugs` and `categorySlugs` (old **and** new
+slug after a rename), plus `settings` for ZP-486. The wrapper tries each tag
+separately. It ignores the "static generation store missing" error (outside
+a request, for example in unit tests) and logs any other error.
+`storefrontTagsFor(scope)` returns the tags without expiring anything. The
+admin product PUT and DELETE routes also revalidate the
 product's slug. The stock adjustment route (`/api/stock-movements/adjust`) is
 outside ZP-483's paths and does not revalidate yet, so an availability change
 appears on the site when the cache entry is next recomputed.

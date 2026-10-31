@@ -11,6 +11,7 @@ import type { Prisma } from '@prisma/client'
 import { isValidImageKey } from '@/lib/storage/keys'
 import { isValidSlug } from '@/lib/storefront-model'
 import type { Db } from '@/lib/storefront-model/db'
+import { isSettingsImageKey } from '@/lib/site-settings/db'
 import { toPublicCategory, type PublicCategory, type PublicProduct, type PublicProductRow } from './dto'
 import {
   buildCatalogue,
@@ -140,14 +141,17 @@ export async function getPublishedCategory(db: Db, slug: string): Promise<Public
 /**
  * Whether an image key may be served publicly: it belongs to a ProductImage
  * of a public product (any one of them; keys are shared between products),
- * or it is the hero image of a published category. Not cached, so
- * unpublishing takes effect at once for this check.
+ * or it is the hero image of a published category, or it is one of the
+ * CURRENT site settings pictures (hero desktop/mobile, about, share image;
+ * settingsImageKeys, ZP-486). Not cached, so unpublishing or replacing a
+ * picture takes effect at once for this check.
  */
 export async function isPublicImageKey(db: Db, key: string): Promise<boolean> {
   if (!isValidImageKey(key)) return false
-  const [image, category] = await Promise.all([
+  const [image, category, settings] = await Promise.all([
     db.productImage.findFirst({ where: { imageKey: key, product: PUBLIC_PRODUCT_WHERE }, select: { id: true } }),
     db.category.findFirst({ where: { heroImageKey: key, published: true }, select: { id: true } }),
+    isSettingsImageKey(db, key),
   ])
-  return image !== null || category !== null
+  return image !== null || category !== null || settings
 }

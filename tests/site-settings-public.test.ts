@@ -147,15 +147,16 @@ describe('public cache options (review fix 1)', () => {
   test('tagged storefront:settings with a 60s time-based backstop (multi-instance Cloud Run)', async () => {
     const { PUBLIC_SETTINGS_CACHE_OPTIONS, PUBLIC_SETTINGS_REVALIDATE_SECONDS } = await import('../src/lib/site-settings/public')
     assert.strictEqual(PUBLIC_SETTINGS_REVALIDATE_SECONDS, 60)
-    assert.deepStrictEqual(PUBLIC_SETTINGS_CACHE_OPTIONS, { tags: ['storefront:settings'], revalidate: 60 })
+    // Also "storefront", so revalidateStorefront() (no scope) clears it with everything else.
+    assert.deepStrictEqual(PUBLIC_SETTINGS_CACHE_OPTIONS, { tags: ['storefront', 'storefront:settings'], revalidate: 60 })
   })
 })
 
 describe('revalidateSiteSettings', () => {
   test('revalidates storefront:settings and storefront:home, expiring immediately', () => {
     const calls: unknown[][] = []
-    const r = revalidateSiteSettings((...args: unknown[]) => void calls.push(args))
-    assert.deepStrictEqual(r, { ok: true })
+    const r = revalidateSiteSettings({ settings: true }, (...args: unknown[]) => void calls.push(args))
+    assert.deepStrictEqual(r, { ok: true, tags: ['storefront:settings', 'storefront:home'] })
     assert.deepStrictEqual([...SITE_SETTINGS_REVALIDATE_TAGS], ['storefront:settings', 'storefront:home'])
     assert.deepStrictEqual(calls, [
       ['storefront:settings', { expire: 0 }],
@@ -163,16 +164,23 @@ describe('revalidateSiteSettings', () => {
     ])
   })
 
-  test('a failing revalidator is reported, not thrown (the save already happened)', () => {
-    const originalWarn = console.warn
-    console.warn = () => {}
+  test('outside a Next request the "store missing" error is ignored', () => {
+    const r = revalidateSiteSettings({ settings: true }, () => {
+      throw new Error('Invariant: static generation store missing in revalidateTag("storefront:settings")')
+    })
+    assert.strictEqual(r.ok, true)
+  })
+
+  test('any other failure is reported, not thrown (the save already happened)', () => {
+    const originalError = console.error
+    console.error = () => {}
     try {
-      const r = revalidateSiteSettings(() => {
-        throw new Error('Invariant: static generation store missing')
+      const r = revalidateSiteSettings({ settings: true }, () => {
+        throw new Error('boom')
       })
       assert.strictEqual(r.ok, false)
     } finally {
-      console.warn = originalWarn
+      console.error = originalError
     }
   })
 })

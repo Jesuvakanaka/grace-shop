@@ -58,14 +58,20 @@ describe('ProductCard derivations from the public DTO', () => {
   test('primary and hover photos are the first two DTO images; null sizes become undefined', () => {
     const p = product({
       images: [
-        { url: '/api/images/public/a.webp', alt: 'Front', width: null, height: null },
-        { url: '/api/images/public/b.webp', alt: 'Back', width: 800, height: 1000 },
-        { url: '/api/images/public/c.webp', alt: 'Detail', width: null, height: null },
+        { url: '/api/images/public/a.webp', srcSet: '/api/images/public/a.webp?w=320 320w', alt: 'Front', width: null, height: null },
+        { url: '/api/images/public/b.webp', srcSet: '', alt: 'Back', width: 800, height: 1000 },
+        { url: '/api/images/public/c.webp', srcSet: '', alt: 'Detail', width: null, height: null },
       ],
     });
     const { primary, hover } = cardImages(p);
-    assert.deepStrictEqual(primary, { src: '/api/images/public/a.webp', alt: 'Front', width: undefined, height: undefined });
-    assert.deepStrictEqual(hover, { src: '/api/images/public/b.webp', alt: 'Back', width: 800, height: 1000 });
+    assert.deepStrictEqual(primary, {
+      src: '/api/images/public/a.webp',
+      srcSet: '/api/images/public/a.webp?w=320 320w',
+      alt: 'Front',
+      width: undefined,
+      height: undefined,
+    });
+    assert.deepStrictEqual(hover, { src: '/api/images/public/b.webp', srcSet: undefined, alt: 'Back', width: 800, height: 1000 });
     assert.deepStrictEqual(cardImages(product()), { primary: undefined, hover: undefined });
     assert.deepStrictEqual(cardImages(product({ images: [p.images[0]] })).hover, undefined);
     assert.strictEqual(toImageData(p.images[1]).width, 800);
