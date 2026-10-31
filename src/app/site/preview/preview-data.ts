@@ -37,8 +37,22 @@ function slug(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
+/**
+ * A srcset shaped like the real one (ZP-484's publicImageSrcSet). The art
+ * route ignores `?w=` (SVG scales), so every candidate is the same picture.
+ */
+export function previewSrcSet(url: string): string {
+  return [480, 828, 1200].map((w) => `${url}?w=${w} ${w}w`).join(", ");
+}
+
 function toPublicImage(image: StorefrontImageData): PublicImage {
-  return { url: image.src, alt: image.alt, width: image.width ?? null, height: image.height ?? null };
+  return {
+    url: image.src,
+    srcSet: previewSrcSet(image.src),
+    alt: image.alt,
+    width: image.width ?? null,
+    height: image.height ?? null,
+  };
 }
 
 /** Placeholder products in the public DTO shape (ZP-484 PublicProduct). */
@@ -49,7 +63,10 @@ export const products: PublicProduct[] = seeds.map((s) => {
     productArt(s.garment, s.altTone, `${s.name}, on the rail`),
     productArt("label", "creamOnStone", "VYRA woven label detail"),
   ].map(toPublicImage);
-  if (s.brokenPhoto) images[0] = { ...images[0], url: "/site/preview/art/missing-photo.svg" };
+  if (s.brokenPhoto) {
+    const missing = "/site/preview/art/missing-photo.svg";
+    images[0] = { ...images[0], url: missing, srcSet: previewSrcSet(missing) };
+  }
   return {
     slug: slug(s.name),
     name: s.name,

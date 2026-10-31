@@ -12,7 +12,7 @@ export { Gallery } from "./Gallery";
 export { DEFAULT_NAV, Header } from "./Header";
 export { Hero } from "./Hero";
 export { ProductCard, ProductGrid, type ProductCardProps } from "./ProductCard";
-export { ASK_FOR_PRICE, availabilityLabel, cardImages, formatPriceUsd, productHref, toImageData } from "./product";
+export { ASK_FOR_PRICE, availabilityLabel, CARD_SIZES, cardImages, formatPriceUsd, productHref, toImageData } from "./product";
 export { Container, Section, type SectionTone } from "./Section";
 export { SectionHeader } from "./SectionHeader";
 export { EmptyState, ErrorState, NotFoundState } from "./States";

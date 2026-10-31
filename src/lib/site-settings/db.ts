@@ -2,6 +2,7 @@
 import { Prisma, type PrismaClient, type SiteSettings } from '@prisma/client'
 import { EDITABLE_FIELDS, SITE_SETTINGS_DEFAULTS, type SiteSettingsData } from './schema'
 import { validateOpeningHours } from './validate'
+import { settingsImageKeys } from './dto'
 
 export const SITE_SETTINGS_ID = 1
 
@@ -20,6 +21,17 @@ export function rowToSiteSettings(row: SiteSettings | null): SiteSettingsData {
 /** Current settings; the defaults when the row is missing (the migration seeds it). */
 export async function readSiteSettings(db: Db): Promise<SiteSettingsData> {
   return rowToSiteSettings(await db.siteSettings.findUnique({ where: { id: SITE_SETTINGS_ID } }))
+}
+
+/** True when `key` is one of the CURRENT settings pictures (settingsImageKeys). Uncached. */
+export async function isSettingsImageKey(db: Db, key: string): Promise<boolean> {
+  return settingsImageKeys(await readSiteSettings(db)).includes(key)
+}
+
+/** The "few left" threshold the storefront uses; the default when the row is missing. */
+export async function readFewLeftThreshold(db: Db): Promise<number> {
+  const row = await db.siteSettings.findUnique({ where: { id: SITE_SETTINGS_ID }, select: { fewLeftThreshold: true } })
+  return row?.fewLeftThreshold ?? SITE_SETTINGS_DEFAULTS.fewLeftThreshold
 }
 
 function toColumns(patch: Partial<SiteSettingsData>) {

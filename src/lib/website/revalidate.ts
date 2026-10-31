@@ -1,61 +1,58 @@
-// Storefront cache revalidation shim (ZP-483). Server only.
+// Storefront revalidation for admin writes (ZP-483; consolidated in Phase 1).
+// Server only.
 //
-// TODO(ZP-484): ZP-484 adds src/lib/storefront/cache-tags.ts with
-// revalidateStorefront(scope). It was not on master when ZP-483 was built, so
-// this file mirrors it exactly: the same tag names, the same scope shape and
-// `revalidateTag(tag, { expire: 0 })`. Whichever branch merges second replaces
-// the body of revalidateStorefront below with a call to the ZP-484 helper
-// (keep the try/catch wrapper) and deletes the duplicated tag code.
+// The tags and scope rules live in ONE place: revalidateStorefront in
+// src/lib/storefront/cache-tags.ts (ZP-484). This module only adds the
+// never-throwing wrapper the admin routes need: the change is already
+// committed, so a failed revalidation must not turn it into an error.
+// Imported from cache-tags directly (not '@/lib/storefront', which imports
+// 'server-only' and Prisma) so it stays cheap to load in route handlers and tests.
 import { revalidateTag } from 'next/cache'
-import { isValidSlug } from '@/lib/storefront-model'
+import { revalidateStorefront as expireStorefrontTags, type RevalidateScope } from '@/lib/storefront/cache-tags'
 
-/** Same values as ZP-484's STOREFRONT_TAGS. */
-export const STOREFRONT_TAGS = {
-  all: 'storefront',
-  products: 'storefront:products',
-  categories: 'storefront:categories',
-} as const
+export {
+  STOREFRONT_TAGS,
+  storefrontProductTag,
+  storefrontCategoryTag,
+  type RevalidateScope,
+} from '@/lib/storefront/cache-tags'
 
-export const storefrontProductTag = (slug: string) => `storefront:product:${slug}`
-export const storefrontCategoryTag = (slug: string) => `storefront:category:${slug}`
+type RevalidateTagFn = (tag: string, profile: { expire: number }) => void
 
-export type RevalidateScope = {
-  /** Products that changed. Pass the old AND the new slug after a slug change. null/invalid slugs are skipped. */
-  productSlugs?: readonly (string | null | undefined)[]
-  /** Categories that changed. Pass the old AND the new slug after a slug change. */
-  categorySlugs?: readonly (string | null | undefined)[]
-}
+/** Outside a Next request (unit tests, scripts) there is nothing to revalidate. */
+const OUTSIDE_REQUEST = 'static generation store missing'
 
-const validSlugs = (slugs: readonly (string | null | undefined)[]) => slugs.filter((s): s is string => isValidSlug(s))
-
-/** The tags ZP-484's revalidateStorefront would expire for this scope. */
+/** The tags revalidateStorefront expires for this scope (no side effects). */
 export function storefrontTagsFor(scope?: RevalidateScope): string[] {
-  const tags: string[] = []
-  if (!scope) tags.push(STOREFRONT_TAGS.all)
-  else {
-    if (scope.productSlugs) tags.push(STOREFRONT_TAGS.products, ...validSlugs(scope.productSlugs).map(storefrontProductTag))
-    if (scope.categorySlugs) tags.push(STOREFRONT_TAGS.categories, ...validSlugs(scope.categorySlugs).map(storefrontCategoryTag))
-  }
-  return [...new Set(tags)]
+  return expireStorefrontTags(scope, { revalidateTag: () => {} })
 }
 
 /**
- * Expire storefront cache entries after a successful admin change. Never
- * throws: the change is already committed, and a failed revalidation only
- * delays the public site. Outside a Next request (unit tests, scripts) there
- * is nothing to revalidate, and revalidateTag's "store missing" error is ignored.
+ * Expire storefront cache entries; never throws. Each tag is tried on its
+ * own. The "outside a request" invariant error is ignored; any other error is
+ * logged and its tag listed in `failed`.
  */
-export function revalidateStorefront(scope?: RevalidateScope): string[] {
-  const tags = storefrontTagsFor(scope)
-  for (const tag of tags) {
-    try {
-      revalidateTag(tag, { expire: 0 })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      if (!message.includes('static generation store missing')) {
-        console.error('[website] revalidate failed:', tag, message)
+export function revalidateStorefrontSafely(
+  scope?: RevalidateScope,
+  revalidate: RevalidateTagFn = revalidateTag,
+): { tags: string[]; failed: string[] } {
+  const failed: string[] = []
+  const tags = expireStorefrontTags(scope, {
+    revalidateTag: (tag, profile) => {
+      try {
+        revalidate(tag, profile)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (message.includes(OUTSIDE_REQUEST)) return
+        failed.push(tag)
+        console.error('[storefront] revalidate failed:', tag, message)
       }
-    }
-  }
-  return tags
+    },
+  })
+  return { tags, failed }
+}
+
+/** Expire storefront cache entries after a successful admin change. Never throws. Returns the tags. */
+export function revalidateStorefront(scope?: RevalidateScope): string[] {
+  return revalidateStorefrontSafely(scope).tags
 }

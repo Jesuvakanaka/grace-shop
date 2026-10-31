@@ -10,6 +10,10 @@ export const STOREFRONT_TAGS = {
   products: 'storefront:products',
   /** On every entry that contains category data, including product entries (category name and visibility). */
   categories: 'storefront:categories',
+  /** Site settings (getPublicSiteSettings, ZP-486). */
+  settings: 'storefront:settings',
+  /** Home page entries that embed settings (hero, statement, trust strip). */
+  home: 'storefront:home',
 } as const
 
 /**
@@ -25,10 +29,12 @@ export const storefrontProductTag = (slug: string) => `storefront:product:${slug
 export const storefrontCategoryTag = (slug: string) => `storefront:category:${slug}`
 
 export type RevalidateScope = {
-  /** Products that changed. Pass the old AND the new slug after a slug change. */
-  productSlugs?: readonly string[]
+  /** Products that changed. Pass the old AND the new slug after a slug change. null/invalid slugs are skipped. */
+  productSlugs?: readonly (string | null | undefined)[]
   /** Categories that changed (name, description, hero, published, order). */
-  categorySlugs?: readonly string[]
+  categorySlugs?: readonly (string | null | undefined)[]
+  /** Site settings changed (ZP-486): `storefront:settings` and `storefront:home`. */
+  settings?: boolean
 }
 
 type RevalidateDeps = { revalidateTag: (tag: string, profile: { expire: number }) => void }
@@ -42,6 +48,11 @@ type RevalidateDeps = { revalidateTag: (tag: string, profile: { expire: number }
  *   and related products embed the product) plus each `storefront:product:<slug>`.
  * - categorySlugs: every entry with category data (`storefront:categories`,
  *   which product entries also carry) plus each `storefront:category:<slug>`.
+ * - settings: `storefront:settings` and `storefront:home` (ZP-486). A settings
+ *   change that alters product DTOs (the few-left threshold) passes no scope.
+ *
+ * Throws whatever revalidateTag throws (e.g. outside a request); admin routes
+ * use the never-throwing wrapper in src/lib/website/revalidate.ts.
  *
  * Uses `{ expire: 0 }`: the next request recomputes instead of being served
  * stale data, so an unpublished product disappears at once. Invalid slugs
@@ -58,6 +69,7 @@ export function revalidateStorefront(scope?: RevalidateScope, deps: RevalidateDe
     if (scope.categorySlugs) {
       tags.push(STOREFRONT_TAGS.categories, ...scope.categorySlugs.filter(isValidSlug).map(storefrontCategoryTag))
     }
+    if (scope.settings) tags.push(STOREFRONT_TAGS.settings, STOREFRONT_TAGS.home)
   }
   const unique = [...new Set(tags)]
   for (const tag of unique) deps.revalidateTag(tag, { expire: 0 })

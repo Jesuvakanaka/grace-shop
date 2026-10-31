@@ -31,9 +31,16 @@ export function availabilityLabel(availability: Availability): string | null {
   }
 }
 
+/**
+ * `sizes` for a product card in ProductGrid: 4 columns from 1024px, 3 from
+ * 768px, otherwise 2. Lets the browser pick the right srcset width.
+ */
+export const CARD_SIZES = "(min-width: 1024px) 25vw, (min-width: 768px) 33vw, 50vw";
+
 export function toImageData(image: PublicImage): StorefrontImageData {
   return {
     src: image.url,
+    srcSet: image.srcSet || undefined,
     alt: image.alt,
     width: image.width ?? undefined,
     height: image.height ?? undefined,

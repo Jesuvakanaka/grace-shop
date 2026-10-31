@@ -69,12 +69,13 @@ export function StorefrontImg({
   decorative = false,
 }: StorefrontImgProps) {
   const img = (
-    // Plain <img>: sources are local files or preview SVGs; next/image can
-    // replace this once ZP-484 serves photos with known sizes.
+    // Plain <img> with srcset: storefront photos come from
+    // /api/images/public?w= (ZP-484), not the Next image optimiser.
     // eslint-disable-next-line @next/next/no-img-element
     <img
       ref={eager ? eagerRef : lazyRef}
       src={image.src}
+      srcSet={image.srcSet}
       alt={decorative ? "" : image.alt}
       width={image.width}
       height={image.height}

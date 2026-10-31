@@ -3,6 +3,8 @@
 
 export type StorefrontImageData = {
   src: string;
+  /** `srcset` candidates ("url 320w, …"). Pair with a `sizes` value. */
+  srcSet?: string;
   alt: string;
   /** Intrinsic size for width/height attributes (stops layout jumps). Optional: frames have a fixed ratio. */
   width?: number;
@@ -15,38 +17,10 @@ export type NavLink = {
 };
 
 /*
- * Public product shape, structurally identical to `PublicProduct` in ZP-484's
- * src/lib/storefront/dto.ts (branch zp-484-public-data-layer, not merged yet),
- * with the model enum values from src/lib/storefront-model/rules.ts. Defined
- * here so the design system does not import an unmerged module.
- * TODO(ZP-484): unify — replace with `import type { PublicProduct } from "@/lib/storefront/dto"`.
+ * The public product DTO comes from the data layer (ZP-484). These are
+ * TYPE-ONLY imports: they are erased at compile time, so no server code
+ * (Prisma, next/cache) reaches client components. Never turn them into value
+ * imports.
  */
-export type Availability = "IN_STOCK" | "FEW_LEFT" | "SOLD_OUT";
-
-export type PublicImage = {
-  url: string;
-  alt: string;
-  /** Null until the data layer stores image sizes. */
-  width: number | null;
-  height: number | null;
-};
-
-export type PublicCategoryRef = { slug: string; name: string };
-
-export type PublicProduct = {
-  slug: string;
-  name: string;
-  description: string | null;
-  category: PublicCategoryRef;
-  colours: string | null;
-  sizes: string | null;
-  availability: Availability;
-  /** Primary first, then gallery order. */
-  images: PublicImage[];
-  isNew: boolean;
-  featured: boolean;
-  /** Only when the price is shown; null means "ask for price". */
-  priceUsd: number | null;
-  /** Only when the caller opted in. */
-  itemNumber?: string;
-};
+export type { Availability } from "@/lib/storefront-model/rules";
+export type { PublicImage, PublicCategoryRef, PublicProduct } from "@/lib/storefront/dto";
