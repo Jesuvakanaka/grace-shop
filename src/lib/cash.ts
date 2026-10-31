@@ -1,24 +1,9 @@
 import prisma from '@/lib/db'
+import { ensureCashPosition } from '@/lib/cash-position'
 import { startOfDay } from 'date-fns'
 
 export async function getOrCreateCashPosition(date: Date) {
-  const cashDate = startOfDay(date)
-  let pos = await prisma.cashPosition.findUnique({ where: { cashDate } })
-  if (!pos) {
-    const prev = await prisma.cashPosition.findFirst({
-      where: { cashDate: { lt: cashDate } },
-      orderBy: { cashDate: 'desc' }
-    })
-    const openingCash = prev?.actualCountedCash ?? prev?.expectedClosingCash ?? 0
-    pos = await prisma.cashPosition.create({
-      data: {
-        cashDate,
-        openingCash,
-        expectedClosingCash: openingCash
-      }
-    })
-  }
-  return pos
+  return ensureCashPosition(prisma, date)
 }
 
 export async function updateCashPosition(date: Date, field: string, amount: number) {

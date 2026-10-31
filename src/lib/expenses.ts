@@ -1,4 +1,5 @@
 import prisma from '@/lib/db'
+import { ensureCashPosition } from '@/lib/cash-position'
 import { startOfDay, endOfDay } from 'date-fns'
 
 export async function createExpense(data: {
@@ -30,32 +31,14 @@ export async function createExpense(data: {
     })
 
     if ((data.paymentMethod || 'CASH') === 'CASH') {
-      const cashDate = startOfDay(data.expenseDate)
-      const cashPosition = await tx.cashPosition.findUnique({ where: { cashDate } })
-      if (cashPosition) {
-        await tx.cashPosition.update({
-          where: { cashDate },
-          data: {
-            expensesPaid: cashPosition.expensesPaid + data.amount,
-            expectedClosingCash: cashPosition.expectedClosingCash - data.amount
-          }
-        })
-      } else {
-        const prev = await tx.cashPosition.findFirst({
-          where: { cashDate: { lt: cashDate } },
-          orderBy: { cashDate: 'desc' }
-        })
-        const openingCash = prev?.actualCountedCash ?? prev?.expectedClosingCash ?? 0
-        await tx.cashPosition.create({
-          data: {
-            cashDate,
-            openingCash,
-            expensesPaid: data.amount,
-            expectedClosingCash: openingCash - data.amount,
-            createdBy: data.createdBy
-          }
-        })
-      }
+      const cashPosition = await ensureCashPosition(tx, data.expenseDate, data.createdBy)
+      await tx.cashPosition.update({
+        where: { id: cashPosition.id },
+        data: {
+          expensesPaid: { increment: data.amount },
+          expectedClosingCash: { decrement: data.amount }
+        }
+      })
     }
     return expense
   })

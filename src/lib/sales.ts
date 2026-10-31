@@ -1,4 +1,5 @@
 import prisma from '@/lib/db'
+import { ensureCashPosition } from '@/lib/cash-position'
 import { startOfDay, endOfDay } from 'date-fns'
 
 export async function createSale(data: {
@@ -78,32 +79,14 @@ export async function createSale(data: {
     }
 
     if ((data.paymentType === 'CASH' || data.paymentType === 'MIXED') && (data.cashAmount || 0) > 0) {
-      const cashDate = startOfDay(data.saleDate)
-      const cashPosition = await tx.cashPosition.findUnique({ where: { cashDate } })
-      if (cashPosition) {
-        await tx.cashPosition.update({
-          where: { cashDate },
-          data: {
-            cashSales: cashPosition.cashSales + (data.cashAmount || 0),
-            expectedClosingCash: cashPosition.expectedClosingCash + (data.cashAmount || 0)
-          }
-        })
-      } else {
-        const prev = await tx.cashPosition.findFirst({
-          where: { cashDate: { lt: cashDate } },
-          orderBy: { cashDate: 'desc' }
-        })
-        const openingCash = prev?.actualCountedCash ?? prev?.expectedClosingCash ?? 0
-        await tx.cashPosition.create({
-          data: {
-            cashDate,
-            openingCash,
-            cashSales: data.cashAmount || 0,
-            expectedClosingCash: openingCash + (data.cashAmount || 0),
-            createdBy: data.createdBy
-          }
-        })
-      }
+      const cashPosition = await ensureCashPosition(tx, data.saleDate, data.createdBy)
+      await tx.cashPosition.update({
+        where: { id: cashPosition.id },
+        data: {
+          cashSales: { increment: data.cashAmount || 0 },
+          expectedClosingCash: { increment: data.cashAmount || 0 }
+        }
+      })
     }
 
     if ((data.paymentType === 'CREDIT' || data.paymentType === 'MIXED') && (data.creditAmount || 0) > 0) {
