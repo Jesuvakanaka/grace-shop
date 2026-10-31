@@ -47,6 +47,15 @@ import * as stockMovements from '../src/app/api/stock-movements/route';
 import * as upload from '../src/app/api/upload/route';
 import * as imageByKey from '../src/app/api/images/[key]/route';
 import * as websiteSettings from '../src/app/api/website/settings/route';
+import * as websiteProducts from '../src/app/api/website/products/route';
+import * as websiteProductById from '../src/app/api/website/products/[id]/route';
+import * as websiteProductPublish from '../src/app/api/website/products/[id]/publish/route';
+import * as websiteProductPreview from '../src/app/api/website/products/[id]/preview-token/route';
+import * as websiteProductImages from '../src/app/api/website/products/[id]/images/route';
+import * as websiteProductImage from '../src/app/api/website/products/[id]/images/[imageId]/route';
+import * as websiteProductsBulk from '../src/app/api/website/products/bulk/route';
+import * as websiteCategories from '../src/app/api/website/categories/route';
+import * as websiteCategoryById from '../src/app/api/website/categories/[id]/route';
 
 // PUBLIC: no session needed (sign-in routes). "Allowed" for every caller, including no cookie.
 type Policy = 'PUBLIC' | 'SESSION' | 'OWNER';
@@ -126,6 +135,23 @@ const cases: Case[] = [
   // ZP-486: website site settings. OWNER-only for reading too (the public site uses getPublicSiteSettings()).
   { method: 'GET', path: '/api/website/settings', handler: h(websiteSettings.GET), policy: 'OWNER' },
   { method: 'PUT', path: '/api/website/settings', handler: h(websiteSettings.PUT), policy: 'OWNER' },
+
+  // ZP-483: admin website tools. Every route is OWNER only, reads included.
+  { method: 'GET', path: '/api/website/products', handler: h(websiteProducts.GET), policy: 'OWNER' },
+  { method: 'POST', path: '/api/website/products/bulk', handler: h(websiteProductsBulk.POST), policy: 'OWNER' },
+  { method: 'GET', path: `/api/website/products/${MISSING_ID}`, handler: h(websiteProductById.GET), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'PATCH', path: `/api/website/products/${MISSING_ID}`, handler: h(websiteProductById.PATCH), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: `/api/website/products/${MISSING_ID}/publish`, handler: h(websiteProductPublish.POST), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: `/api/website/products/${MISSING_ID}/preview-token`, handler: h(websiteProductPreview.POST), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: `/api/website/products/${MISSING_ID}/images`, handler: h(websiteProductImages.POST), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'PUT', path: `/api/website/products/${MISSING_ID}/images`, handler: h(websiteProductImages.PUT), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'PATCH', path: `/api/website/products/${MISSING_ID}/images/${MISSING_ID}`, handler: h(websiteProductImage.PATCH), policy: 'OWNER', params: { id: MISSING_ID, imageId: MISSING_ID } },
+  { method: 'DELETE', path: `/api/website/products/${MISSING_ID}/images/${MISSING_ID}`, handler: h(websiteProductImage.DELETE), policy: 'OWNER', params: { id: MISSING_ID, imageId: MISSING_ID } },
+  { method: 'GET', path: '/api/website/categories', handler: h(websiteCategories.GET), policy: 'OWNER' },
+  { method: 'POST', path: '/api/website/categories', handler: h(websiteCategories.POST), policy: 'OWNER' },
+  { method: 'PUT', path: '/api/website/categories', handler: h(websiteCategories.PUT), policy: 'OWNER' },
+  { method: 'PATCH', path: `/api/website/categories/${MISSING_ID}`, handler: h(websiteCategoryById.PATCH), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'DELETE', path: `/api/website/categories/${MISSING_ID}`, handler: h(websiteCategoryById.DELETE), policy: 'OWNER', params: { id: MISSING_ID } },
 ];
 
 function makeRequest(c: Case, token?: string): Request {

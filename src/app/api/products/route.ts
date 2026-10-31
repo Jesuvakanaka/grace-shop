@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getAllProducts, createProduct } from '@/lib/products';
 import { authorize, OWNER_ONLY } from '@/lib/api-auth';
 import { parseWholesaleFields } from '@/lib/validation/product';
+import { attachPictureToNewProduct, checkImageUrl } from '@/lib/website/product-image-sync';
 
 export async function GET(request: Request) {
   const auth = await authorize(request);
@@ -28,8 +29,10 @@ export async function POST(request: Request) {
     }
     const wholesale = parseWholesaleFields(body);
     if (!wholesale.ok) return NextResponse.json({ error: wholesale.error }, { status: 400 });
+    const image = checkImageUrl(body.imageUrl);
+    if (!image.ok) return NextResponse.json({ error: image.error }, { status: 400 });
 
-    const newProduct = await createProduct({
+    const created = await createProduct({
       itemNumber,
       productName,
       unitCostRmb,
@@ -39,6 +42,8 @@ export async function POST(request: Request) {
       // Last, so a client-supplied createdBy can never override the session user.
       createdBy: session.username,
     });
+    // ZP-483: createProduct does not store a picture; store it and create the primary gallery image.
+    const newProduct = image.value ? await attachPictureToNewProduct(created.id, image.value) : created;
 
     return NextResponse.json(newProduct, { status: 201 });
   } catch (error: any) {

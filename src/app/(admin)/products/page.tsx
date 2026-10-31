@@ -1,9 +1,34 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { ProductPicture } from '@/components/ProductPicture';
 import { QuantityPill } from '@/components/ui/QuantityPill';
 import { getMissingProductDetails } from '@/lib/product-completeness';
+import { describeMissing, WEBSITE_STATUS_LABEL, type WebsiteStatus } from '@/lib/website/labels';
+import type { PublishMissing } from '@/lib/storefront-model';
+import { WebsiteSection } from './WebsiteSection';
+
+// ZP-483: website status per product (owner only), from GET /api/website/products.
+interface WebsiteInfo {
+  id: number;
+  status: WebsiteStatus;
+  missing: PublishMissing[];
+  categoryName: string | null;
+}
+
+// "Draft" = not published (ready or not); "Ready to publish" = not published and nothing missing.
+type WebsiteFilter = 'all' | 'published' | 'draft' | 'ready';
+
+interface BulkOutcome {
+  message: string;
+  failures: { label: string; reason: string }[];
+}
+
+const WEBSITE_BADGE: Record<WebsiteStatus, string> = {
+  PUBLISHED: 'badge-success',
+  DRAFT: 'badge-info',
+  NOT_READY: 'badge-neutral',
+};
 
 interface Product {
   id: number;
@@ -51,6 +76,18 @@ export default function ProductsPage() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  // Edit only: send imageUrl only when the picture was changed in this form, so a
+  // stale value never overwrites a main photo chosen in the Website section.
+  const [imageChanged, setImageChanged] = useState(false);
+
+  // ZP-483 website tools (owner only).
+  const [website, setWebsite] = useState<Map<number, WebsiteInfo>>(new Map());
+  const [websiteFilter, setWebsiteFilter] = useState<WebsiteFilter>('all');
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
+  const [bulkCategory, setBulkCategory] = useState('');
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkOutcome, setBulkOutcome] = useState<BulkOutcome | null>(null);
 
   const fetchProducts = () => {
     fetch('/api/products')
@@ -59,9 +96,24 @@ export default function ProductsPage() {
       .catch(() => setLoading(false));
   };
 
+  const fetchWebsite = useCallback(() => {
+    fetch('/api/website/products')
+      .then(r => (r.ok ? r.json() : []))
+      .then((rows: WebsiteInfo[]) => setWebsite(new Map(rows.map(r => [r.id, r]))))
+      .catch(() => {});
+    fetch('/api/website/categories')
+      .then(r => (r.ok ? r.json() : []))
+      .then(setCategories)
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     fetchProducts();
   }, []);
+
+  useEffect(() => {
+    if (isOwner) fetchWebsite();
+  }, [isOwner, fetchWebsite]);
 
   const resetForm = () => {
     setFormData({
@@ -78,6 +130,7 @@ export default function ProductsPage() {
       imageUrl: null
     });
     setImagePreview(null);
+    setImageChanged(false);
     setError('');
   };
 
@@ -102,6 +155,7 @@ export default function ProductsPage() {
       imageUrl: product.imageUrl
     });
     setImagePreview(product.imageUrl);
+    setImageChanged(false);
     setEditingProduct(product);
     setError('');
     setShowModal(true);
@@ -131,6 +185,7 @@ export default function ProductsPage() {
       if (!res.ok) throw new Error(data.error || 'Upload failed');
       
       setFormData(prev => ({ ...prev, imageUrl: data.url }));
+      setImageChanged(true);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Upload failed';
       setError(message);
@@ -143,7 +198,19 @@ export default function ProductsPage() {
   const removeImage = () => {
     setFormData(prev => ({ ...prev, imageUrl: null }));
     setImagePreview(null);
+    setImageChanged(true);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // The main photo was changed in the Website section: the server already
+  // updated imageUrl, so the form just follows it.
+  const followWebsitePicture = (url: string | null) => {
+    setFormData(prev => ({ ...prev, imageUrl: url }));
+    setImagePreview(url);
+    setImageChanged(false);
+    if (editingProduct) {
+      setProducts(prev => prev.map(p => (p.id === editingProduct.id ? { ...p, imageUrl: url } : p)));
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -162,8 +229,8 @@ export default function ProductsPage() {
         wholesalePriceUsd: formData.wholesalePriceUsd.trim() || null,
         wholesaleMinQuantity: formData.wholesaleMinQuantity.trim() || null,
         notes: formData.notes || null,
-        imageUrl: formData.imageUrl
       };
+      if (!editingProduct || imageChanged) payload.imageUrl = formData.imageUrl;
 
       // Edit only: retail price, and stock on hand (recorded as a stock adjustment).
       let newStock: number | null = null;
@@ -220,6 +287,7 @@ export default function ProductsPage() {
       
       setShowModal(false);
       resetForm();
+      if (isOwner) fetchWebsite();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Save failed';
       setError(message);
@@ -253,11 +321,93 @@ export default function ProductsPage() {
   const missingFor = (p: Product) => (isOwner ? getMissingProductDetails(p) : []);
   const needsDetailsCount = isOwner ? products.filter(p => missingFor(p).length > 0).length : 0;
 
+  const websiteOf = (p: Product) => (isOwner ? website.get(p.id) : undefined);
+  const matchesWebsiteFilter = (p: Product) => {
+    if (!isOwner || websiteFilter === 'all') return true;
+    const status = websiteOf(p)?.status;
+    if (!status) return false;
+    if (websiteFilter === 'published') return status === 'PUBLISHED';
+    if (websiteFilter === 'draft') return status !== 'PUBLISHED';
+    return status === 'DRAFT';
+  };
+  const websiteCounts = {
+    published: [...website.values()].filter(w => w.status === 'PUBLISHED').length,
+    draft: [...website.values()].filter(w => w.status !== 'PUBLISHED').length,
+    ready: [...website.values()].filter(w => w.status === 'DRAFT').length,
+  };
+
   const filtered = products.filter(p =>
     (p.productName?.toLowerCase().includes(search.toLowerCase()) ||
     p.itemNumber?.includes(search)) &&
-    (!needsDetailsOnly || missingFor(p).length > 0)
+    (!needsDetailsOnly || missingFor(p).length > 0) &&
+    matchesWebsiteFilter(p)
   ).sort((a, b) => a.itemNumber.localeCompare(b.itemNumber, 'en', { numeric: true })); // AUG-2 before AUG-10
+
+  // ─── Bulk website actions (owner) ─────────────────────────────────────────
+  const visibleSelected = filtered.filter(p => selected.has(p.id));
+  const allVisibleSelected = filtered.length > 0 && visibleSelected.length === filtered.length;
+  const toggleSelected = (id: number) =>
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const toggleAllVisible = () =>
+    setSelected(allVisibleSelected ? new Set() : new Set(filtered.map(p => p.id)));
+  const labelFor = (id: number) => {
+    const p = products.find(x => x.id === id);
+    return p ? `${p.itemNumber} ${p.productName}` : `#${id}`;
+  };
+
+  const runBulk = async (body: Record<string, unknown>) => {
+    const ids = visibleSelected.map(p => p.id);
+    if (!ids.length) return;
+    setBulkBusy(true);
+    setBulkOutcome(null);
+    try {
+      const res = await fetch('/api/website/products/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, ids }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setBulkOutcome({ message: data.error || 'The bulk action failed.', failures: [] });
+      } else if (body.action === 'set-category') {
+        setBulkOutcome({ message: `Category set on ${data.updated} ${data.updated === 1 ? 'product' : 'products'}.`, failures: [] });
+        setSelected(new Set());
+      } else {
+        type Row = { id: number; ok: boolean; missing?: PublishMissing[]; error?: string };
+        const failures = (data.results as Row[])
+          .filter(r => !r.ok)
+          .map(r => ({ label: labelFor(r.id), reason: r.missing ? describeMissing(r.missing) : r.error || 'Failed' }));
+        const verb = body.action === 'publish' ? 'Published' : 'Unpublished';
+        setBulkOutcome({ message: `${verb} ${data.succeeded} of ${ids.length}.`, failures });
+        setSelected(new Set(failures.length ? (data.results as Row[]).filter(r => !r.ok).map(r => r.id) : []));
+      }
+    } catch {
+      setBulkOutcome({ message: 'The bulk action failed. Check the connection and try again.', failures: [] });
+    } finally {
+      setBulkBusy(false);
+      fetchWebsite();
+    }
+  };
+
+  const websiteBadge = (p: Product) => {
+    const w = websiteOf(p);
+    if (!w) return null;
+    return (
+      <span
+        className={`badge ${WEBSITE_BADGE[w.status]}`}
+        title={w.status === 'NOT_READY' ? describeMissing(w.missing) : undefined}
+        data-testid="product-website-status"
+        data-status={w.status}
+      >
+        {WEBSITE_STATUS_LABEL[w.status]}
+      </span>
+    );
+  };
 
   const formatCurrency = (val: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val || 0);
@@ -284,7 +434,8 @@ export default function ProductsPage() {
     );
   };
 
-  const desktopColumnCount = isOwner ? 12 : 11;
+  // Owners also get the select checkbox, Website and Actions columns.
+  const desktopColumnCount = isOwner ? 14 : 11;
 
   return (
     <div className="p-6">
@@ -316,7 +467,74 @@ export default function ProductsPage() {
             Needs details only ({needsDetailsCount})
           </label>
         )}
+        {isOwner && (
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            Website
+            <select
+              className="input py-1 w-auto"
+              value={websiteFilter}
+              onChange={e => setWebsiteFilter(e.target.value as WebsiteFilter)}
+              data-testid="filter-website"
+            >
+              <option value="all">All products</option>
+              <option value="published">Published ({websiteCounts.published})</option>
+              <option value="draft">Draft ({websiteCounts.draft})</option>
+              <option value="ready">Ready to publish ({websiteCounts.ready})</option>
+            </select>
+          </label>
+        )}
       </div>
+
+      {isOwner && visibleSelected.length > 0 && (
+        <div className="card p-3 mb-4 flex flex-wrap items-center gap-2" data-testid="bulk-bar">
+          <span className="text-sm font-medium mr-1" data-testid="bulk-count">{visibleSelected.length} selected</span>
+          <button className="btn btn-sm btn-primary" disabled={bulkBusy} onClick={() => runBulk({ action: 'publish' })} data-testid="bulk-publish">
+            Publish
+          </button>
+          <button className="btn btn-sm btn-secondary" disabled={bulkBusy} onClick={() => runBulk({ action: 'unpublish' })} data-testid="bulk-unpublish">
+            Unpublish
+          </button>
+          <span className="flex items-center gap-2">
+            <select
+              className="input py-1 w-auto"
+              value={bulkCategory}
+              onChange={e => setBulkCategory(e.target.value)}
+              aria-label="Category for the selected products"
+              data-testid="bulk-category"
+            >
+              <option value="">Set category…</option>
+              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <button
+              className="btn btn-sm btn-secondary"
+              disabled={bulkBusy || !bulkCategory}
+              onClick={() => runBulk({ action: 'set-category', categoryId: Number(bulkCategory) })}
+              data-testid="bulk-set-category"
+            >
+              Apply
+            </button>
+          </span>
+          <button className="btn btn-sm btn-ghost ml-auto" onClick={() => setSelected(new Set())}>Clear</button>
+        </div>
+      )}
+
+      {isOwner && bulkOutcome && (
+        <div
+          className={`p-3 mb-4 rounded-lg text-sm border ${bulkOutcome.failures.length ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-brand-olive-50 border-brand-olive-200 text-brand-olive-700'}`}
+          data-testid="bulk-outcome"
+          role="status"
+        >
+          <div className="flex justify-between gap-2">
+            <p className="font-medium">{bulkOutcome.message}</p>
+            <button className="text-xs underline" onClick={() => setBulkOutcome(null)}>Dismiss</button>
+          </div>
+          {bulkOutcome.failures.length > 0 && (
+            <ul className="mt-1 list-disc pl-5" data-testid="bulk-failures">
+              {bulkOutcome.failures.map(f => <li key={f.label}><strong>{f.label}</strong>: {f.reason}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="p-8 text-center text-slate-500">Loading...</div>
@@ -325,6 +543,12 @@ export default function ProductsPage() {
           <div className="card table-container" data-testid="product-table">
           {/* Mobile card list */}
           <div className="md:hidden space-y-2 p-2">
+            {isOwner && filtered.length > 0 && (
+              <label className="flex items-center gap-2 px-2 text-sm text-slate-600">
+                <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} data-testid="select-all-mobile" />
+                Select all shown ({filtered.length})
+              </label>
+            )}
             {filtered.map((p) => (
               <div
                 key={p.id}
@@ -335,6 +559,18 @@ export default function ProductsPage() {
                 role={isOwner ? 'button' : undefined}
                 tabIndex={isOwner ? 0 : undefined}
               >
+                {isOwner && (
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 shrink-0"
+                    checked={selected.has(p.id)}
+                    onClick={e => e.stopPropagation()}
+                    onKeyDown={e => e.stopPropagation()}
+                    onChange={() => toggleSelected(p.id)}
+                    aria-label={`Select ${p.itemNumber}`}
+                    data-testid="product-select"
+                  />
+                )}
                 {p.imageUrl ? (
                   <ProductPicture src={p.imageUrl} alt={p.productName} size={56} className="rounded-lg shrink-0" />
                 ) : (
@@ -348,6 +584,7 @@ export default function ProductsPage() {
                     {p.wholesaleMinQuantity != null && ` · min ${p.wholesaleMinQuantity}`}
                   </p>
                   {needsDetailsBadge(p)}
+                  {websiteBadge(p) && <div className="mt-1">{websiteBadge(p)}</div>}
                   <span className="sr-only" data-testid="product-selling-price-rmb">{p.sellingPriceRmb}</span>
                   <span className="sr-only" data-testid="product-selling-price-usd">{formatCurrency(p.sellingPriceUsd)}</span>
                   <span className="sr-only" data-testid="product-opening-quantity">{p.openingQuantity}</span>
@@ -366,6 +603,17 @@ export default function ProductsPage() {
           <table className="table w-full">
             <thead>
               <tr>
+                {isOwner && (
+                  <th className="p-2 w-8">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleAllVisible}
+                      aria-label="Select all shown products"
+                      data-testid="select-all"
+                    />
+                  </th>
+                )}
                 <th className="text-left p-2 w-16">Image</th>
                 <th className="text-left p-2">Item #</th>
                 <th className="text-left p-2">Product Name</th>
@@ -377,12 +625,24 @@ export default function ProductsPage() {
                 <th className="text-right p-2">Wholesale Min Qty</th>
                 <th className="text-right p-2">Opening Qty</th>
                 <th className="text-right p-2">Current Stock</th>
+                {isOwner && <th className="text-left p-2">Website</th>}
                 {isOwner && <th className="text-center p-2">Actions</th>}
               </tr>
             </thead>
             <tbody>
               {filtered.map(p => (
                 <tr key={p.id} className="border-t border-slate-200" data-testid="product-row" data-item-number={p.itemNumber}>
+                  {isOwner && (
+                    <td className="p-2">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(p.id)}
+                        onChange={() => toggleSelected(p.id)}
+                        aria-label={`Select ${p.itemNumber}`}
+                        data-testid="product-select"
+                      />
+                    </td>
+                  )}
                   <td className="p-2">
                     {p.imageUrl ? (
                       <ProductPicture src={p.imageUrl} alt={p.productName} size={48} className="rounded" />
@@ -407,6 +667,16 @@ export default function ProductsPage() {
                   <td className="text-right p-2 font-bold" data-testid="product-current-stock" data-stock={p.currentQuantity}>
                     {p.currentQuantity}
                   </td>
+                  {isOwner && (
+                    <td className="p-2">
+                      {websiteBadge(p)}
+                      {websiteOf(p)?.status === 'NOT_READY' && (
+                        <div className="text-xs text-slate-500 mt-1" data-testid="product-website-missing">
+                          {describeMissing(websiteOf(p)!.missing)}
+                        </div>
+                      )}
+                    </td>
+                  )}
                   {isOwner && (
                     <td className="text-center p-2 space-x-1">
                       <button 
@@ -442,7 +712,7 @@ export default function ProductsPage() {
       {/* Add/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-brand-ink/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="card p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <div className={`card p-4 sm:p-6 w-full ${editingProduct && isOwner ? 'max-w-2xl' : 'max-w-lg'} max-h-[90vh] overflow-y-auto`}>
             <h2 className="text-xl font-bold mb-4">
               {editingProduct ? 'Edit Product' : 'Add Product'}
             </h2>
@@ -668,6 +938,19 @@ export default function ProductsPage() {
                 </button>
               </div>
             </form>
+
+            {/* ZP-483: website tools, owner only, for saved products. Saved on their own. */}
+            {editingProduct && isOwner && (
+              <div className="mt-6">
+                <WebsiteSection
+                  key={editingProduct.id}
+                  productId={editingProduct.id}
+                  retailPriceUsd={Number(formData.sellingPriceUsd || 0)}
+                  onPictureChange={followWebsitePicture}
+                  onStatusChange={fetchWebsite}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}
