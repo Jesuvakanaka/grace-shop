@@ -397,3 +397,209 @@ body {
 .print-only {
   display: none;
 }
+
+/* ------------------------------------------------------------------------- */
+/* ZP-481 storefront design system (src/components/storefront/).             */
+/* Additive only: every class starts with `sf-`, nothing above is changed.   */
+/* Spec: docs/brand/vyra-brand-kit.md, section "Storefront".                 */
+/* ------------------------------------------------------------------------- */
+
+/* In the components layer so Tailwind utilities can still override them. */
+@layer components {
+  /* Display headline: 40px on a 375 phone, 72px at 1280. */
+  .sf-display {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: clamp(2.5rem, 1.6rem + 3.6vw, 4.5rem);
+    line-height: 1.1;
+    letter-spacing: -0.005em;
+  }
+  /* Section title: 32px mobile, 40px desktop. */
+  .sf-title {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: clamp(2rem, 1.6rem + 1.2vw, 2.5rem);
+    line-height: 1.1;
+  }
+  /* Product page name: 32px. */
+  .sf-product-title {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: 2rem;
+    line-height: 1.1;
+  }
+  .sf-body {
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.6;
+    max-width: 65ch;
+  }
+  @media (min-width: 1024px) {
+    .sf-body {
+      font-size: 1.0625rem;
+    }
+  }
+  /* Labels, buttons, nav: 12-13px uppercase, 0.18-0.25em tracking. */
+  .sf-label {
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.3;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+  .sf-label-lg {
+    font-family: var(--font-sans);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.3;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .sf-price {
+    font-family: var(--font-sans);
+    font-size: 1.125rem;
+    font-weight: 500;
+    line-height: 1.3;
+  }
+  /* Short lime rule above section titles. */
+  .sf-rule {
+    display: block;
+    width: 40px;
+    height: 3px;
+    background-color: var(--color-brand-lime);
+  }
+  /* Hairline: 1px at 10% ink. */
+  .sf-hairline {
+    border-color: rgba(30, 30, 30, 0.1);
+  }
+}
+
+/* Focus: 2px lime ring outside a 2px olive inner border. */
+.sf-focus:focus-visible,
+.sf-focus-within:focus-within {
+  outline: 2px solid var(--color-brand-lime);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--color-brand-olive);
+}
+.sf-focus:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Fade-in on load: 200ms ease-out. */
+@keyframes sf-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.sf-fade-in {
+  animation: sf-fade-in 220ms ease-out both;
+}
+
+/*
+ * Images (StorefrontImg). Visible by default: no JavaScript is needed to see a
+ * photo. After hydration, a photo still loading gets data-pending (hidden) and
+ * fades in on load; a failed one gets data-failed (hidden, the cream tile with
+ * the mark shows). Without JavaScript, ::before covers the browser's
+ * broken-image icon: browsers only render ::before on an image that failed.
+ */
+.sf-img {
+  opacity: 1;
+  transition: opacity 250ms ease-out;
+}
+.sf-img[data-pending] {
+  opacity: 0;
+}
+.sf-img[data-failed] {
+  visibility: hidden;
+}
+.sf-img::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: var(--color-brand-cream-100);
+}
+@media (scripting: none) {
+  .sf-img[data-pending] {
+    opacity: 1;
+  }
+}
+
+/* The focus ring appears at once: no colour transition on the outline. */
+.sf-focus:focus-visible {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, transform;
+}
+
+/* ProductCard: desktop hover zooms to 1.03 and swaps to the second photo. */
+.sf-card-media {
+  transition: transform 250ms ease-out;
+}
+.sf-img.sf-card-alt {
+  opacity: 0;
+}
+@media (hover: hover) and (pointer: fine) {
+  .sf-card:hover .sf-card-media {
+    transform: scale(1.03);
+  }
+  .sf-card:hover .sf-img.sf-card-alt:not([data-pending]):not([data-failed]) {
+    opacity: 1;
+  }
+}
+
+@layer components {
+  /* Horizontal scrollers (chips, rows, gallery): no visible scrollbar. */
+  .sf-scroll-x {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .sf-scroll-x::-webkit-scrollbar {
+    display: none;
+  }
+  .sf-snap-x {
+    scroll-snap-type: x mandatory;
+  }
+  .sf-snap-x > * {
+    scroll-snap-align: start;
+  }
+}
+
+/* Full-screen dialogs (mobile menu, gallery zoom). */
+.sf-dialog {
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.sf-dialog[open] {
+  animation: sf-fade-in 200ms ease-out both;
+}
+.sf-dialog::backdrop {
+  background: rgba(30, 30, 30, 0.4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sf-fade-in,
+  .sf-dialog[open] {
+    animation: none;
+  }
+  .sf-img,
+  .sf-card-media,
+  .sf-motion {
+    transition: none !important;
+  }
+  .sf-card:hover .sf-card-media {
+    transform: none;
+  }
+  .sf-smooth {
+    scroll-behavior: auto !important;
+  }
+}

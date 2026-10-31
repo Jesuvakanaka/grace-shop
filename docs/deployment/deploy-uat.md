@@ -66,7 +66,9 @@ and skips **deploy**.
         [UAT quick sign-in](#uat-quick-sign-in)),
         `GRACE_STOREFRONT_HOSTS` and `GRACE_ADMIN_HOSTS` (repository
         variables, default empty; see
-        [Storefront and admin hosts](#storefront-and-admin-hosts-two-front-doors)).
+        [Storefront and admin hosts](#storefront-and-admin-hosts-two-front-doors)),
+        `GRACE_STOREFRONT_PREVIEW` (repository variable, default `false`; see
+        [Storefront design preview](#storefront-design-preview)).
         The list is passed with gcloud's `^@^` delimiter so the commas inside
         a host list survive.
       - Port 8080, startup probe on `/api/health`.
@@ -302,6 +304,34 @@ curl -sI https://<storefront-host>/products          # 404
 curl -sI https://<storefront-host>/api/auth/session  # 404
 curl -sI https://<storefront-host>/site              # 308, location: /
 curl -sI https://<admin-host>/                       # 200, x-robots-tag: noindex, nofollow
+```
+
+## Storefront design preview
+
+**What it does.** `/site/preview` is a static preview of the VYRA storefront
+design system (ZP-481): home, collection and product page, built from
+`src/components/storefront/` with placeholder data and placeholder art (no
+real product photos). It renders only when the web service has
+`GRACE_STOREFRONT_PREVIEW=true`; otherwise the page and its art
+(`/site/preview/art/*.svg`) are a plain 404. It is always `noindex`.
+
+**Where to see it.** On the UAT run.app URL: `https://<uat-url>/site/preview`.
+
+**Turn it on / off.** The deploy step reads the repository variable
+`GRACE_STOREFRONT_PREVIEW` and uses `false` when it is not set. Only `true`,
+`false` or empty are accepted; anything else fails the deploy.
+
+```bash
+gh variable set GRACE_STOREFRONT_PREVIEW --body true -R Jesuvakanaka/grace-shop
+gh variable set GRACE_STOREFRONT_PREVIEW --body false -R Jesuvakanaka/grace-shop
+```
+
+As with the other variables, a change takes effect on the next deploy.
+
+**Check after a deploy:**
+
+```bash
+curl -sI https://<uat-url>/site/preview   # 200 when true, 404 when false
 ```
 
 ## Where the owner reads the UAT passwords

@@ -67,6 +67,7 @@ All files live in `public/brand/`. Letters are drawn as paths, never live text, 
 | `vyra-mark-mono.svg` | One colour (`currentColor`). The left arm stops short of the right arm, so the overlap still reads. | One-colour print, embossing, stamps, small sizes on photos. |
 | `vyra-wordmark.svg` | "VYRA" in widely tracked geometric capitals over "WEAR DIFFERENT". Near-black. | Headers where the mark already appears nearby. |
 | `vyra-lockup.svg` | Mark above the wordmark and tagline. | Login page, receipts, signage. |
+| `vyra-wordmark-cream.svg` | `vyra-wordmark.svg` with a cream (`#EDE6D3`) fill. Hand-derived (ZP-481), not written by the generator. | The ink storefront footer and other dark grounds. |
 | `vyra-icon-192.png`, `vyra-icon-512.png`, `vyra-icon-maskable-512.png` | The mark on cream. | Web manifest (phone home screen). |
 
 App icons in `src/app/`:
@@ -98,3 +99,128 @@ App icons in `src/app/`:
 
 - User-visible "Grace Shop" became **VYRA** in: the page `<title>` ("VYRA - Stock, Cash & Credit"), the login header (lockup plus "Stock, Cash & Credit" and the tagline "Wear Different"), the desktop sidebar, the mobile top bar, and the print header ("VYRA · Stock, Cash & Credit").
 - Left as "Grace Shop" on purpose: infrastructure and docs (`.github/workflows/deploy-uat.yml`, `docs/deployment/*`). These describe the internal service, which is still called grace-shop on Cloud Run.
+
+## Storefront
+
+The public VYRA site (ZP-481). Components live in `src/components/storefront/`, the storefront CSS utilities (`sf-*`) at the end of `src/app/globals.css`, and a design preview of every component at `/site/preview` (only when `GRACE_STOREFRONT_PREVIEW=true`; never indexed).
+
+### Personality
+
+- Premium, warm, confident and uncluttered: a boutique lookbook, not a marketplace.
+- Photography carries the page. The interface stays quiet: cream grounds, hairlines, small spaced labels, no shadows, no rounded "app" shapes.
+- Mood: a model in head-to-toe lime against greenery and cream stone; lime and cream shopping bags; black woven labels; a clothes rail of lime, cream and black.
+- Headlines: "Style your way", "Elevate your style", "Be bold. Be you."
+
+### Colour
+
+| Role | Colour | Token | Rules |
+|---|---|---|---|
+| Page (about 70% of every page) | Cream `#EDE6D3` is the dominant ground. Cream-light `#F6F2E8` only for an occasional alternate section (one per page, e.g. "Shop by category") and image tiles | `brand-cream`, `brand-cream-100` | The default ground. |
+| Text, wordmark, footer | Ink `#1E1E1E` | `brand-ink` | Secondary text is ink-soft `#55514A` (`brand-ink-soft`). |
+| Primary buttons, links | Olive `#5F7A1F`, hover `#4A6018` | `brand-olive`, `brand-olive-700` | Buttons: white text on olive. **Text** links and olive labels on cream use olive-700, because olive text on cream is 3.93:1. |
+| Accent only | Lime `#9BB21E` | `brand-lime` | Thin rules, active states, badges with ink text, the NEW badge, focus rings, and occasional full-bleed colour blocks. **Never white text on lime.** |
+| Cards, inputs, chips | White | `white` | |
+
+All text meets WCAG AA. The hero overlay uses a deep-olive gradient (`#2A3610`, 85% at the left edge, 76% at 45%, clear by 75%) so its white text stays AA over any photo.
+
+### Type
+
+- **Headings:** Cormorant Garamond, weight 500, line-height 1.1, sentence case.
+  - Hero: 72px on desktop, 40px on a 375px phone (`.sf-display`, fluid).
+  - Section titles: 32–40px (`.sf-title`). Product name: 32px (`.sf-product-title`). Card names: 20–22px, clamped to 2 lines.
+- **Body:** Jost 16–17px, line-height 1.6, max 65 characters per line (`.sf-body`).
+- **Labels, buttons, nav, badges:** Jost 12–13px (never smaller), uppercase, 0.18–0.2em tracking (`.sf-label`, `.sf-label-lg`), e.g. "SHOP THE COLLECTION →".
+- **Prices:** Jost 18px medium (`.sf-price`). No price shows "ASK FOR PRICE" in the olive-700 label style.
+- **Wordmark:** always the SVG paths (`<Wordmark>` in `Brand.tsx`, or the files above), never typed. In the header it is the letters only; "WEAR DIFFERENT" only appears at 200px wide and up (the footer).
+
+### Layout
+
+- Mobile-first. Content max width 1200px (`<Container>`): 16px gutters on phones, 24–32px above.
+- Section padding: 56–64px on phones, 96–112px on desktop (`<Section>`).
+- Product grid: 2 columns on phones, 3 on tablets, 4 on desktop (`<ProductGrid columns={2|3|4}>`).
+- Corners: 0–2px. Buttons, badges, chips and image frames are 2px. Editorial, not bubbly.
+- Rules: 1px hairlines at 10% ink. A 40×3px lime rule sits above section titles (`.sf-rule`).
+- Tap targets: at least 44×44px everywhere (buttons, nav, chips, dots, icon buttons).
+
+### Imagery
+
+- Product cards: 4:5 portrait, `object-fit: cover`, on cream-light.
+- Heroes: 16:9 on desktop with the text over a soft gradient, or a split layout. On phones the photo is 4:5 and the text sits below it on cream, so the photo is never hidden behind text.
+- Photos are visible without JavaScript and before hydration. After hydration, a below-the-fold photo that is still loading is hidden and fades in when it loads (250ms); a photo that loaded earlier stays as it is. The hero photo loads eagerly with high fetch priority (it is the LCP element) and never fades.
+- Never a broken image: every frame (cards, tiles, hero, gallery, zoom) paints a cream tile with the VYRA mark first, and a photo that fails is hidden, leaving the tile (`ImageFrame` + `StorefrontImg`). Without JavaScript a CSS `::before` layer covers the browser broken-image icon.
+
+### Components (`src/components/storefront/`)
+
+All are presentational: they take props and fetch nothing (the data layer is ZP-484). Import from `@/components/storefront`.
+
+| Component | What it does |
+|---|---|
+| `Header` | Sticky cream bar; a hairline appears once the page scrolls. Phones: hamburger, centred wordmark, WhatsApp. Desktop: wordmark left, nav (Shop · Collections · New Arrivals · About · Visit Us), WhatsApp. The phone menu is a native modal `<dialog>`: full-screen cream, large serif links, focus trapped, Esc closes and focus returns to the hamburger. |
+| `Hero` | Serif headline, sub-line ("Premium fashion. Modern you."), olive primary and ghost secondary button. `layout="overlay"` or `"split"`; `as="h2"` for editorial blocks lower down. Art-directed `<picture>` (16:9 desktop, 4:5 phone). |
+| `SectionHeader` | Lime rule, serif title, optional intro and "VIEW ALL →" link. |
+| `ProductCard` / `ProductGrid` | Takes `product`: the public product DTO (`PublicProduct` in `types.ts`, structurally identical to ZP-484 `src/lib/storefront/dto.ts`; to be unified when ZP-484 merges). From it: link `hrefFor(slug)` (default `productHref` = `/site/p/<slug>`, which also works on the storefront host via its 308 to `/p/<slug>`), first photo, second photo on desktop hover (zoom 1.03×), NEW badge (`isNew`, not when sold out), "Few left" / "Sold out" badges (`availability` `FEW_LEFT` / `SOLD_OUT`), category name, serif name (2 lines), price `$NN` from `priceUsd` or ASK FOR PRICE when null. The whole card is one link. |
+| `CategoryTile` | Image with the category name in uppercase spaced type on a cream plate (ink on cream, AA over any photo). |
+| `FilterBar` | Scrollable chips (`aria-pressed`) plus a sort `<select>`. Controlled through callbacks, or local state when none are passed. Chips wrap on desktop. |
+| `Gallery` | CSS scroll-snap track (swipe on phones, with dots), thumbnail rail and arrows on desktop, arrow keys on the focused track, full-screen zoom in a native `<dialog>`. No dependencies. |
+| `EnquiryButton` | Full-width olive "ENQUIRE ON WHATSAPP" with the chat glyph. `placement="sticky"` pins it to the bottom of the screen on phones while the product `<article>` is in view (render it as the article's last direct child); `href` comes from the caller (wa.me logic is ZP-490). |
+| `TrustStrip` | "Premium quality · Visit our store · Enquire on WhatsApp" with thin line icons. |
+| `ColourBlock` | Full-bleed lime (ink text, ink button) or olive (white text, cream button) section with one serif statement ("Confidence in every stitch") and one button. At most one per page. |
+| `Footer` | Ink ground, cream text, cream mono mark plus the cream wordmark with tagline, address and hours (placeholders until confirmed), social icons, link columns, "© VYRA". |
+| `EmptyState`, `ErrorState`, `NotFoundState` | Mark, lime rule, serif title, a short line and one or two buttons. The 404 says "This piece has moved on" |
+| `Button` | `primary` (olive), `ghost` (ink outline), `ghost-light` (white outline on dark), `ink`, `cream`, `link` (olive-700 with arrow). 2px corners, 44px min height. Renders a `Link` with `href`, else a `<button>`. |
+| `Badge` | `lime` (NEW), `light` (Few left), `ink` (Sold out). |
+| `Mark`, `Wordmark` | Inline SVG brand marks that take `currentColor` (mono mark, wordmark) or the brand colours (colour mark). |
+
+### Motion
+
+- 150–250ms ease-out. Content fades up on load (`.sf-fade-in`, 220ms). Dialogs fade in.
+- `prefers-reduced-motion: reduce` turns off the fade-ups, image fades, hover zoom and smooth gallery scrolling.
+- No autoplaying carousels with text. The gallery only moves when the shopper moves it.
+- Focus (`.sf-focus`): a 2px lime ring outside a 2px olive inner border. The olive keeps 3.93:1 on cream where lime alone would not.
+
+### Voice
+
+Short, warm, second person: "Come in, take your time and try everything on." Uppercase is for labels only. Headlines are sentence case.
+
+### Targets
+
+WCAG 2.2 AA; tap targets at least 44px; Lighthouse mobile Performance ≥ 85, Accessibility ≥ 95, SEO ≥ 95 (measured on the preview); LCP under 2.5s.
+
+### Storefront contrast
+
+Computed with the WCAG 2.x relative-luminance formula. Text needs 4.5:1 and non-text UI needs 3:1.
+
+| Pair | Ratio | Needed | Result |
+|---|---|---|---|
+| Ink text on cream (page, headings, body, category plate) | 13.38:1 | 4.5 | Pass |
+| Ink text on cream-light #F6F2E8 (alternating sections, trust strip) | 14.91:1 | 4.5 | Pass |
+| Ink text on white (cards, chips, inputs, Few left badge) | 16.67:1 | 4.5 | Pass |
+| Ink-soft #55514A on cream (secondary text, sold-out size) | 6.33:1 | 4.5 | Pass |
+| Ink-soft on cream-light | 7.06:1 | 4.5 | Pass |
+| Ink-soft on white | 7.89:1 | 4.5 | Pass |
+| Olive-700 #4A6018 on cream (links, ASK FOR PRICE, eyebrows, icons) | 5.66:1 | 4.5 | Pass |
+| Olive-700 on cream-light | 6.31:1 | 4.5 | Pass |
+| White on olive (primary button, enquiry button, olive colour block) | 4.89:1 | 4.5 | Pass |
+| White on olive-700 (button hover) | 7.05:1 | 4.5 | Pass |
+| Ink on lime (NEW badge, lime colour block text) | 6.97:1 | 4.5 | Pass |
+| Cream on ink (footer, ink button, Sold out badge, active chip, preview bar) | 13.38:1 | 4.5 | Pass |
+| Cream-300 #DED4BA on ink (footer labels, copyright) | 11.30:1 | 4.5 | Pass |
+| Lime on ink (footer link hover) | 6.97:1 | 4.5 | Pass |
+| Ink on cream button (on olive block) | 13.38:1 | 4.5 | Pass |
+| White on hero gradient, worst case (75% deep olive over white) | 5.88:1 | 4.5 | Pass |
+| Lime-200 #DDE88F eyebrow on hero gradient, worst case (82% at 6-16% of the width) | 5.59:1 | 4.5 | Pass |
+| White on hero gradient at 0% (left edge, 85%) | 8.05:1 | 4.5 | Pass |
+| Non-text: olive focus border on cream | 3.93:1 | 3 | Pass |
+| Non-text: lime focus ring on ink (footer) | 6.97:1 | 3 | Pass |
+| Non-text: ghost button border (ink) on cream | 13.38:1 | 3 | Pass |
+| Non-text: active gallery dot (ink) on cream | 13.38:1 | 3 | Pass |
+| Non-text: inactive gallery dot (ink 50%) on cream | 3.08:1 | 3 | Pass |
+| White on lime (never used) | 2.39:1 | 4.5 | **Fail** |
+| Olive #5F7A1F text on cream (never used; use olive-700) | 3.93:1 | 4.5 | **Fail** |
+
+### Implementation notes
+
+- The admin CSS sets `* { border-color: … }` outside any cascade layer, which beats Tailwind's layered `border-*` colour utilities. Storefront components therefore use the important form (`border-brand-ink/10!`, `divide-brand-ink/10!`) wherever the border colour matters.
+- The `sf-*` typography and scroller classes sit in `@layer components`, so Tailwind utilities can still override them; focus, image-state and motion rules sit outside layers on purpose.
+- Plain `<img>` is used for now (local files and preview SVGs with explicit sizes). Switch `StorefrontImg` to `next/image` once ZP-484 serves real photos.
+- The design preview draws its placeholder "photography" as SVG (`src/app/site/preview/placeholder-art.ts`, served by `src/app/site/preview/art/[key]/route.ts`). It never uses the private August packing shots or any external image host.
