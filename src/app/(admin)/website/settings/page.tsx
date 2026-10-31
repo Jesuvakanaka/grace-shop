@@ -18,7 +18,7 @@ import {
   type OpeningHours,
   type SiteSettingsData,
 } from '@/lib/site-settings/schema';
-import { validateSiteSettingsInput, type FieldErrors } from '@/lib/site-settings/validate';
+import { normalizeE164, validateSiteSettingsInput, type FieldErrors } from '@/lib/site-settings/validate';
 import { buildWhatsAppLink } from '@/lib/site-settings/whatsapp';
 import { imageUrlForKey, isValidImageKey, PRODUCT_IMAGE_PREFIX, IMAGE_URL_PREFIX } from '@/lib/storage/keys';
 
@@ -248,8 +248,10 @@ export default function WebsiteSettingsPage() {
     />
   );
 
+  // Preview only for a number that would pass validation.
+  const previewNumber = form.whatsappNumber ? normalizeE164(form.whatsappNumber) : null;
   const preview = buildWhatsAppLink(
-    { contacts: { whatsappNumber: form.whatsappNumber, enquiryTemplate: form.enquiryTemplate, generalEnquiryMessage: form.generalEnquiryMessage } },
+    { contacts: { whatsappNumber: previewNumber, enquiryTemplate: form.enquiryTemplate, generalEnquiryMessage: form.generalEnquiryMessage } },
     { product: 'Silk Wrap Dress', url: 'https://vyra.example/p/silk-wrap-dress' },
   );
 
@@ -297,7 +299,7 @@ export default function WebsiteSettingsPage() {
               </a>
             </>
           ) : (
-            'Add a WhatsApp number to enable the enquiry buttons.'
+            'Add a valid WhatsApp number to enable the enquiry buttons.'
           )}
         </p>
       </Section>
