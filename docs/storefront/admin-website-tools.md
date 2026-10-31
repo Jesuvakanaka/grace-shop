@@ -11,7 +11,7 @@ The tools build on the data model in [data-model.md](./data-model.md) (ZP-482).
 | --- | --- |
 | Website section in the product editor | `src/app/(admin)/products/WebsiteSection.tsx` |
 | Products list: Website column, filters, bulk bar | `src/app/(admin)/products/page.tsx` |
-| Categories page | `src/app/(admin)/website/categories/page.tsx` (`/website` redirects here) |
+| Categories page | `src/app/(admin)/website/categories/page.tsx` (`/website` redirects here; its tab bar links to Site settings, `/website/settings` from ZP-486) |
 | Nav entry "Website" (owner only) | `src/components/Sidebar.tsx`, `src/components/MoreSheet.tsx` |
 | Server logic | `src/lib/website/products.ts`, `categories.ts` |
 | Validation (allow-lists) | `src/lib/website/validation.ts` |

@@ -126,8 +126,12 @@ export default function WebsiteCategoriesPage() {
       <div className="mb-1 text-sm text-slate-500">Website</div>
       <h1 className="text-2xl font-bold mb-2">Categories</h1>
       <nav className="flex gap-4 text-sm mb-6 border-b border-slate-200" aria-label="Website tools">
-        <span className="pb-2 border-b-2 border-brand-olive text-brand-olive-700 font-medium">Categories</span>
-        <span className="pb-2 text-slate-400" title="Coming with ZP-486">Site settings (soon)</span>
+        <span className="pb-2 border-b-2 border-brand-olive text-brand-olive-700 font-medium" aria-current="page">
+          Categories
+        </span>
+        <Link href="/website/settings" className="pb-2 text-slate-600 hover:text-slate-900" data-testid="website-nav-settings">
+          Site settings
+        </Link>
         <Link href="/products" className="pb-2 text-slate-600 hover:text-slate-900 ml-auto">
           Products →
         </Link>

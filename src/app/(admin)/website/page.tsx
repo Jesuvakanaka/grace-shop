@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 
 // ZP-483: "Website" in the admin nav opens the first website tool.
-// Site settings (ZP-486) will be added next to Categories.
+// The categories page links to Site settings (/website/settings, ZP-486).
 export default function WebsitePage() {
   redirect('/website/categories');
 }

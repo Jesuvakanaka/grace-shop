@@ -17,7 +17,7 @@ const navItems = [
   { label: 'Day Closing', href: '/closing', icon: '🔒', testId: 'sidebar-closing' },
   { label: 'Import Data', href: '/import', icon: '📥', testId: 'sidebar-import', ownerOnly: true },
   { label: 'Reports', href: '/reports', icon: '📊', testId: 'sidebar-reports' },
-  // ZP-483: the VYRA website tools (Categories; Site settings come with ZP-486).
+  // ZP-483: the VYRA website tools (Categories, with a link to Site settings from ZP-486).
   { label: 'Website', href: '/website', icon: '🌐', testId: 'sidebar-website', ownerOnly: true },
   { label: 'Exchange Rate', href: '/settings/exchange-rate', icon: '⚙️', testId: 'sidebar-exchange-rate', ownerOnly: true },
   { label: 'Change Password', href: '/settings/password', icon: '🔑', testId: 'sidebar-change-password' },
