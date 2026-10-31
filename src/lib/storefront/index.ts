@@ -17,6 +17,13 @@ import { STOREFRONT_TAGS, storefrontCategoryTag, storefrontProductTag } from './
 import type { PublicCategory, PublicProduct } from './dto'
 
 export { publicImageUrl, PUBLIC_IMAGE_URL_PREFIX } from './dto'
+export {
+  publicImageSrc,
+  publicImageSrcSet,
+  PUBLIC_IMAGE_WIDTHS,
+  SRCSET_WIDTHS,
+  type PublicImageWidth,
+} from './image-sizes'
 export type { PublicProduct, PublicCategory, PublicImage, PublicCategoryRef } from './dto'
 export type {
   ListPublishedProductsOptions,

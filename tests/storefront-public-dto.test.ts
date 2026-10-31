@@ -18,8 +18,20 @@ import {
 } from '../src/lib/storefront/cache-tags'
 import { parsePublicProductsQuery } from '../src/lib/storefront/public-products-query'
 import { TokenBucketLimiter } from '../src/lib/storefront/rate-limit'
+import {
+  PUBLIC_IMAGE_WIDTHS,
+  parsePublicImageWidth,
+  publicImageSrc,
+  publicImageSrcSet,
+  STORED_IMAGE_MAX_DIMENSION,
+} from '../src/lib/storefront/image-sizes'
+import { IMAGE_MAX_DIMENSION } from '../src/lib/storage/images'
+import { ByteLruCache } from '../src/lib/storefront/resize-cache'
 
 const KEY = (c: string) => `products/${c.repeat(32)}.webp`
+// Written out by hand so the srcset helper is checked against a literal.
+const SRCSET = (c: string) =>
+  [320, 480, 640, 828, 1080, 1200].map((w) => `/api/images/public/${c.repeat(32)}.webp?w=${w} ${w}w`).join(', ')
 const NOW = new Date('2026-11-01T12:00:00Z')
 const DAY = 86_400_000
 
@@ -78,7 +90,7 @@ describe('public product DTO', () => {
       'slug',
     ])
     assert.deepStrictEqual(Object.keys(dto.category).sort(), ['name', 'slug'])
-    for (const image of dto.images) assert.deepStrictEqual(Object.keys(image).sort(), ['alt', 'height', 'url', 'width'])
+    for (const image of dto.images) assert.deepStrictEqual(Object.keys(image).sort(), ['alt', 'height', 'srcSet', 'url', 'width'])
   })
 
   test('no key, at any depth, looks private', () => {
@@ -153,8 +165,8 @@ describe('public product DTO', () => {
       { now: NOW },
     )
     assert.deepStrictEqual(dto.images, [
-      { url: `/api/images/public/${'a'.repeat(32)}.webp`, alt: 'Front', width: null, height: null },
-      { url: `/api/images/public/${'b'.repeat(32)}.webp`, alt: 'Silk Dress', width: null, height: null },
+      { url: `/api/images/public/${'a'.repeat(32)}.webp`, alt: 'Front', srcSet: SRCSET('a'), width: null, height: null },
+      { url: `/api/images/public/${'b'.repeat(32)}.webp`, alt: 'Silk Dress', srcSet: SRCSET('b'), width: null, height: null },
     ])
   })
 
@@ -178,12 +190,81 @@ describe('public product DTO', () => {
       slug: 'dresses',
       name: 'Dresses',
       description: 'All dresses',
-      heroImage: { url: `/api/images/public/${'d'.repeat(32)}.webp`, alt: 'Dresses', width: null, height: null },
+      heroImage: { url: `/api/images/public/${'d'.repeat(32)}.webp`, alt: 'Dresses', srcSet: SRCSET('d'), width: null, height: null },
     })
     assert.strictEqual(
       toPublicCategory({ slug: 'x', name: 'X', description: null, heroImageKey: 'bad' }).heroImage,
       null,
     )
+  })
+})
+
+describe('public image sizes', () => {
+  test('width allow-list', () => {
+    assert.deepStrictEqual([...PUBLIC_IMAGE_WIDTHS], [320, 480, 640, 828, 1080, 1200, 1600])
+  })
+
+  test('the stored maximum mirrors the upload pipeline', () => {
+    assert.strictEqual(STORED_IMAGE_MAX_DIMENSION, IMAGE_MAX_DIMENSION)
+  })
+
+  test('parsePublicImageWidth: absent -> original; allowed -> number; anything else -> error', () => {
+    assert.deepStrictEqual(parsePublicImageWidth(new URLSearchParams('')), { ok: true, width: null })
+    assert.deepStrictEqual(parsePublicImageWidth(new URLSearchParams('w=640')), { ok: true, width: 640 })
+    assert.deepStrictEqual(parsePublicImageWidth(new URLSearchParams('w=1600')), { ok: true, width: 1600 })
+    for (const s of ['w=800', 'w=0', 'w=-640', 'w=640.0', 'w=0640', 'w=abc', 'w=', 'w=640&w=320', 'x=1', 'w=640&q=75']) {
+      assert.strictEqual(parsePublicImageWidth(new URLSearchParams(s)).ok, false, s)
+    }
+  })
+
+  test('publicImageSrc', () => {
+    assert.strictEqual(publicImageSrc(KEY('c')), `/api/images/public/${'c'.repeat(32)}.webp`)
+    assert.strictEqual(publicImageSrc(KEY('c'), 640), `/api/images/public/${'c'.repeat(32)}.webp?w=640`)
+    assert.throws(() => publicImageSrc(KEY('c'), 800))
+    assert.throws(() => publicImageSrc('products/../x.webp', 640))
+  })
+
+  test('publicImageSrcSet lists every width up to the stored maximum (1200)', () => {
+    assert.strictEqual(
+      publicImageSrcSet(KEY('c')),
+      `/api/images/public/${'c'.repeat(32)}.webp?w=320 320w, ` +
+        `/api/images/public/${'c'.repeat(32)}.webp?w=480 480w, ` +
+        `/api/images/public/${'c'.repeat(32)}.webp?w=640 640w, ` +
+        `/api/images/public/${'c'.repeat(32)}.webp?w=828 828w, ` +
+        `/api/images/public/${'c'.repeat(32)}.webp?w=1080 1080w, ` +
+        `/api/images/public/${'c'.repeat(32)}.webp?w=1200 1200w`,
+    )
+    assert.strictEqual(publicImageSrcSet(KEY('c')), SRCSET('c'))
+  })
+})
+
+describe('ByteLruCache', () => {
+  const buf = (n: number) => Buffer.alloc(n)
+
+  test('bounded by bytes, evicts least recently used', () => {
+    const cache = new ByteLruCache(100)
+    cache.set('a', buf(40))
+    cache.set('b', buf(40))
+    assert.ok(cache.get('a')) // a is now most recent
+    cache.set('c', buf(40)) // evicts b
+    assert.strictEqual(cache.get('b'), undefined)
+    assert.ok(cache.get('a') && cache.get('c'))
+    assert.ok(cache.bytes <= 100)
+    assert.strictEqual(cache.size, 2)
+  })
+
+  test('an entry larger than the whole cache is not stored', () => {
+    const cache = new ByteLruCache(10)
+    cache.set('big', buf(11))
+    assert.strictEqual(cache.get('big'), undefined)
+    assert.strictEqual(cache.bytes, 0)
+  })
+
+  test('replacing a key updates the byte count', () => {
+    const cache = new ByteLruCache(100)
+    cache.set('a', buf(40))
+    cache.set('a', buf(10))
+    assert.strictEqual(cache.bytes, 10)
   })
 })
 

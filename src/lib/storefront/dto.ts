@@ -5,7 +5,8 @@
 // Cost, wholesale, quantity, source, notes, item number (unless opted in),
 // createdBy/updatedBy and database ids are never copied.
 // See docs/storefront/public-data-layer.md.
-import { isValidImageKey, PRODUCT_IMAGE_PREFIX } from '@/lib/storage/keys'
+import { isValidImageKey } from '@/lib/storage/keys'
+import { publicImageSrc, publicImageSrcSet } from './image-sizes'
 import {
   compareGalleryImages,
   displayName,
@@ -17,17 +18,18 @@ import {
   type PriceDisplayValue,
 } from '@/lib/storefront-model'
 
-/** URL prefix of the public image route (GET /api/images/public/<32 hex>.webp). */
-export const PUBLIC_IMAGE_URL_PREFIX = '/api/images/public/'
+export { PUBLIC_IMAGE_URL_PREFIX } from './image-sizes'
 
-/** Public URL for a storage key ("products/<32 hex>.webp"). Throws for an invalid key. */
+/** Public URL (original size) for a storage key ("products/<32 hex>.webp"). Throws for an invalid key. */
 export function publicImageUrl(key: string): string {
-  if (!isValidImageKey(key)) throw new Error('Invalid image key')
-  return `${PUBLIC_IMAGE_URL_PREFIX}${key.slice(PRODUCT_IMAGE_PREFIX.length)}`
+  return publicImageSrc(key)
 }
 
 export type PublicImage = {
+  /** Original size. */
   url: string
+  /** For <img srcset>: every allowed width up to 1200. The component supplies `sizes`. */
+  srcSet: string
   alt: string
   /** Not stored yet (pictures are at most 1200px on the longest side); null until known. */
   width: number | null
@@ -107,7 +109,7 @@ function text(value: string | null | undefined): string | null {
 }
 
 function image(key: string, alt: string): PublicImage {
-  return { url: publicImageUrl(key), alt, width: null, height: null }
+  return { url: publicImageSrc(key), srcSet: publicImageSrcSet(key), alt, width: null, height: null }
 }
 
 export function toPublicProduct(row: PublicProductRow, options: ProductDtoOptions): PublicProduct {

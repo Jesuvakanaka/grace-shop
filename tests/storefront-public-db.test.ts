@@ -18,9 +18,13 @@ import {
   isPublicImageKey,
 } from '../src/lib/storefront/queries'
 import { servePublicImage } from '../src/lib/storefront/public-image'
+import { ByteLruCache } from '../src/lib/storefront/resize-cache'
+import sharp from 'sharp'
 
 const HEX = (c: string) => c.repeat(32)
 const KEY = (c: string) => `products/${HEX(c)}.webp`
+const SRCSET = (c: string) =>
+  [320, 480, 640, 828, 1080, 1200].map((w) => `/api/images/public/${HEX(c)}.webp?w=${w} ${w}w`).join(', ')
 const DAY = 86_400_000
 const NOW = Date.now()
 const at = (days: number) => new Date(NOW - days * DAY)
@@ -123,7 +127,7 @@ describe('storefront public data layer (database)', () => {
         slug: 'zp484-pub',
         name: 'ZP484 Public',
         description: null,
-        heroImage: { url: `/api/images/public/${HEX('8')}.webp`, alt: 'ZP484 Public', width: null, height: null },
+        heroImage: { url: `/api/images/public/${HEX('8')}.webp`, alt: 'ZP484 Public', srcSet: SRCSET('8'), width: null, height: null },
       })
     })
 
@@ -230,7 +234,7 @@ describe('storefront public data layer (database)', () => {
   })
 
   describe('public images', () => {
-    const get = (fileName: string) => servePublicImage(fileName, { db: prisma, storage })
+    const get = (fileName: string, query = '') => servePublicImage(fileName, new URLSearchParams(query), { db: prisma, storage, cache: new ByteLruCache(1024 * 1024) })
 
     test('isPublicImageKey', async () => {
       assert.strictEqual(await isPublicImageKey(prisma, KEY('1')), true)
@@ -274,6 +278,85 @@ describe('storefront public data layer (database)', () => {
       const p = await prisma.product.findUniqueOrThrow({ where: { slug: 'zp484-p4' } })
       await prisma.productImage.create({ data: { productId: p.id, imageKey: KEY('e'), isPrimary: true } })
       assert.strictEqual((await get(`${HEX('e')}.webp`)).status, 404)
+    })
+  })
+
+  describe('public image sizes (?w=)', () => {
+    const SIZED = 'c' // 1200x800 real WebP
+    let cache: ByteLruCache
+    let productId: number
+    const getSized = (query: string, fileName = `${HEX(SIZED)}.webp`) =>
+      servePublicImage(fileName, new URLSearchParams(query), { db: prisma, storage, cache })
+
+    before(async () => {
+      cache = new ByteLruCache(8 * 1024 * 1024)
+      const bytes = await sharp({ create: { width: 1200, height: 800, channels: 3, background: '#a33' } }).webp().toBuffer()
+      await storage.put(KEY(SIZED), bytes)
+      const cat = await prisma.category.findUniqueOrThrow({ where: { slug: 'zp484-pub' } })
+      const p = await product({ slug: 'zp484-sized', published: true, publishedAt: at(1), categoryId: cat.id }, [KEY(SIZED)])
+      productId = p.id
+    })
+
+    test('an invalid width is a 400, for public and private keys alike', async () => {
+      for (const q of ['w=800', 'w=abc', 'w=', 'w=640&w=320', 'w=640&q=75', 'foo=1']) {
+        const res = await getSized(q)
+        assert.strictEqual(res.status, 400, q)
+        assert.strictEqual(res.headers.get('cache-control'), 'no-store')
+      }
+      assert.strictEqual((await getSized('w=800', `${HEX('4')}.webp`)).status, 400)
+    })
+
+    test('a resized response is WebP and narrower than the original', async () => {
+      const original = Buffer.from(await (await getSized('')).arrayBuffer())
+      assert.strictEqual((await sharp(original).metadata()).width, 1200)
+
+      const res = await getSized('w=640')
+      assert.strictEqual(res.status, 200)
+      assert.strictEqual(res.headers.get('content-type'), 'image/webp')
+      assert.strictEqual(res.headers.get('cache-control'), 'public, max-age=300, s-maxage=300, stale-while-revalidate=86400')
+      assert.strictEqual(res.headers.get('x-content-type-options'), 'nosniff')
+      assert.strictEqual(res.headers.get('content-security-policy'), "default-src 'none'; sandbox")
+      const resized = Buffer.from(await res.arrayBuffer())
+      assert.strictEqual(res.headers.get('content-length'), String(resized.length))
+      const meta = await sharp(resized).metadata()
+      assert.strictEqual(meta.format, 'webp')
+      assert.strictEqual(meta.width, 640)
+      assert.strictEqual(meta.height, 427)
+      assert.ok(resized.length < original.length)
+    })
+
+    test('never upscales: w=1600 on a 1200px picture is 1200px', async () => {
+      const res = await getSized('w=1600')
+      assert.strictEqual(res.status, 200)
+      assert.strictEqual((await sharp(Buffer.from(await res.arrayBuffer())).metadata()).width, 1200)
+    })
+
+    test('the resized bytes are cached', async () => {
+      assert.ok(cache.size >= 2)
+      const before = cache.size
+      await getSized('w=640')
+      assert.strictEqual(cache.size, before)
+    })
+
+    test('unpublished after a size was cached: that size is a 404, the cache is not consulted first', async () => {
+      assert.ok(cache.has(`${KEY(SIZED)}|640`), 'w=640 was cached while published')
+      await prisma.product.update({ where: { id: productId }, data: { published: false } })
+      try {
+        for (const q of ['w=640', 'w=1600', 'w=320', '']) {
+          const res = await getSized(q)
+          assert.strictEqual(res.status, 404, q)
+          assert.strictEqual(res.headers.get('cache-control'), 'no-store')
+        }
+      } finally {
+        await prisma.product.update({ where: { id: productId }, data: { published: true } })
+      }
+      assert.strictEqual((await getSized('w=640')).status, 200, 'republished: served again')
+    })
+
+    test('a picture that cannot be decoded gives a 500, not the bytes', async () => {
+      const res = await getSized('w=640', `${HEX('1')}.webp`) // stored bytes are "webp-1"
+      assert.strictEqual(res.status, 500)
+      assert.strictEqual(res.headers.get('cache-control'), 'no-store')
     })
   })
 })

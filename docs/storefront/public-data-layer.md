@@ -9,6 +9,8 @@ import Prisma directly.
 - DTOs and allow-list: `src/lib/storefront/dto.ts`
 - Uncached queries (take a Prisma client, used by tests and scripts): `src/lib/storefront/queries.ts`
 - Sorting and paging: `src/lib/storefront/listing.ts`
+- Image URLs, widths and srcset (pure, client-safe): `src/lib/storefront/image-sizes.ts`
+- Resized-picture LRU: `src/lib/storefront/resize-cache.ts`
 - Cache tags and revalidation: `src/lib/storefront/cache-tags.ts`
 - Public image route: `src/app/api/images/public/[key]/route.ts` (logic in `src/lib/storefront/public-image.ts`)
 - JSON route: `src/app/api/public/products/route.ts`
@@ -45,7 +47,7 @@ checks the key set.
 | `category` | `{ slug, name }` |
 | `colours`, `sizes` | free text, or `null` |
 | `availability` | `getAvailability(currentQuantity, fewLeftThreshold)`: `IN_STOCK`, `FEW_LEFT` or `SOLD_OUT`. The quantity itself is never included. |
-| `images` | `[{ url, alt, width, height }]`, primary first, then gallery order. `url` is `/api/images/public/<32 hex>.webp`. `alt` falls back to the name. `width` and `height` are `null` because dimensions are not stored yet. Pictures are at most 1200px on the longest side. Invalid keys are dropped. |
+| `images` | `[{ url, srcSet, alt, width, height }]`, primary first, then gallery order. `url` is the original, `/api/images/public/<32 hex>.webp`. `srcSet` lists every allowed width up to 1200 (see [Use <img srcset>](#use-img-srcset-not-nextimage)). `alt` falls back to the name. `width` and `height` are `null` because dimensions are not stored yet. Pictures are at most 1200px on the longest side. Invalid keys are dropped. |
 | `isNew` | `isNewArrival()`: first published within 30 days |
 | `featured` | `Product.featured` |
 | `priceUsd` | `publicPriceUsd()`. Only with `SHOW_PRICE` and a price greater than 0, otherwise `null` ("ask for price"). |
@@ -71,7 +73,8 @@ at any depth, matches
 | `listRelatedProducts(slug, limit = 4)` | Products from the same category first, then the rest of the catalogue, in the default order. It never includes the product itself or sold-out products. At most 12. |
 | `listPublishedCategories()` | Published categories by `sortOrder`, then name |
 | `getPublishedCategory(slug)` | `PublicCategory` or `null` |
-| `publicImageUrl(key)` | `/api/images/public/<32 hex>.webp`. Throws for an invalid key. |
+| `publicImageUrl(key)`, `publicImageSrc(key, w?)` | `/api/images/public/<32 hex>.webp`, with `?w=<w>` if a width is given. Throws for an invalid key or width. |
+| `publicImageSrcSet(key)` | The `srcset` value for `<img>` |
 | `revalidateStorefront(scope?)` | See [Caching](#caching-and-revalidation) |
 
 The few-left threshold is a parameter for now. Its default is
@@ -138,9 +141,9 @@ Stock changes (sales, stock movements) change `availability`. Until those
 routes call `revalidateStorefront({ productSlugs })`, availability can lag
 by up to an hour.
 
-## Public images: `GET /api/images/public/<32 hex>.webp`
+## Public images: `GET /api/images/public/<32 hex>.webp[?w=<width>]`
 
-No sign-in is needed. The route serves the bytes only when the key is one
+No sign-in is needed. The route serves a picture only when the key is one
 of these:
 
 - the `imageKey` of a `ProductImage` of **any** public product. Keys are
@@ -148,16 +151,18 @@ of these:
   key used by both a published and an unpublished product is served.
 - the `heroImageKey` of a published category
 
-Everything else returns the same plain `404` with `Cache-Control: no-store`:
-a malformed or traversal key, an unknown key, a picture that is not public,
-or bytes missing from storage. It never returns 401 or 403, so it does not
-reveal whether a private picture exists. The key is checked with the same
-strict validator as the private route (`imageKeyFromFileName`: only
-`<32 lowercase hex>.webp`).
+The visibility check reads the database on **every** request, sizes
+included, before any cache is read. The origin therefore stops serving an
+unpublished picture at once.
 
-The visibility check reads the database on every request and is not
-cached, so the route itself stops serving a picture as soon as it is
-unpublished.
+| Request | Response |
+| --- | --- |
+| Malformed or traversal key (strict `imageKeyFromFileName`: only `<32 lowercase hex>.webp`) | `404`, `Cache-Control: no-store` |
+| Any query other than a single `w` from the allow-list (`w=800`, `w=abc`, `w=640&w=320`, `q=75`, …) | `400`, `no-store`. This is checked before the database, and the answer is the same for every key, so it reveals nothing. |
+| Unknown key, picture not public, or bytes missing | `404`, `no-store`. It is never 401 or 403. |
+| Public, no `w` | `200`, the stored original (WebP, at most 1200px on the longest side) |
+| Public, `w` in {320, 480, 640, 828, 1080, 1200, 1600} | `200`, a WebP resized to that width (quality 80, as the upload pipeline). It is never upscaled: `w=1600` on a 1200px picture gives 1200px. |
+| A picture that cannot be decoded | `500`, `no-store` |
 
 Headers on a `200`:
 
@@ -166,14 +171,78 @@ Content-Type: image/webp
 Cache-Control: public, max-age=300, s-maxage=300, stale-while-revalidate=86400
 X-Content-Type-Options: nosniff
 Content-Security-Policy: default-src 'none'; sandbox
+Content-Length: <bytes>
 ```
 
-`s-maxage` is 300, not the 3600 the issue first proposed. The Next image
-optimiser reads `s-maxage` in preference to `max-age` from the upstream
-response (`next/dist/server/image-optimizer/get-max-age.js`). It caches each
-resized variant for the larger of that value and `images.minimumCacheTTL`.
-With `s-maxage=3600`, `/_next/image` answered `Cache-Control: public,
-max-age=3600` and kept serving an unpublished picture for an hour.
+### Resizing and the resize cache
+
+Resizing uses sharp, loaded lazily (`await import('sharp')`) as the upload
+pipeline does, so routes that never resize do not load it. Concurrent
+requests for the same key and width share one resize.
+
+**Decision: resized bytes live in an in-process LRU, not in storage.**
+`src/lib/storefront/resize-cache.ts` holds them, bounded to 64 MB per
+instance (`RESIZE_CACHE_BYTES`) and keyed by `<key>|<width>`.
+
+- The route is unauthenticated. Writing to the bucket from it would let
+  anonymous traffic create objects (cost and abuse), and the public path
+  would need write access to storage.
+- The set of entries is small: public keys times 7 widths. Resizing a
+  1200px WebP takes milliseconds, so a cold or restarted instance simply
+  recomputes.
+- The cache never decides what is public. It is read only **after** the
+  visibility check. `tests/storefront-public-db.test.ts` caches a size
+  while the product is published, unpublishes it, and gets 404 for that
+  size, for other sizes and for the original.
+
+### Use `<img srcset>`, not `next/image`
+
+Storefront components (ZP-481, ZP-489) **must not** use `next/image` for
+product or category photos. The Next image optimiser
+(`/_next/image?url=…`) keeps serving a size it has cached after the
+picture is unpublished. When the cached size expires, it serves it
+`STALE` and revalidates. The revalidation gets a 404, and Next 16's
+response cache (`retainPreviousCacheEntry` in
+`next/dist/server/response-cache/index.js`) keeps the old image and
+retries every 30 seconds, with no expiry. This was measured on a
+production build:
+
+| Time (UTC) | `/_next/image?url=/api/images/public/<key>&w=640` |
+| --- | --- |
+| 21:12:00 | `200`, `max-age=300`, `MISS`, then `HIT` |
+| 21:12:11 | product unpublished: still `200 HIT`, while the route itself returns `404` |
+| 21:17:36 | `200 STALE`; the server logs `internal image response failed ... 404` |
+| 21:17:38 to 21:18:24 | `200 HIT`, `max-age=30` |
+
+Use plain `<img>` with the helpers from `@/lib/storefront`. They come from
+`src/lib/storefront/image-sizes.ts`, which is pure, so client components
+can import that file directly.
+
+```tsx
+<img
+  src={image.url}                 // or publicImageSrc(key, 640)
+  srcSet={image.srcSet}           // or publicImageSrcSet(key)
+  sizes="(min-width: 1024px) 25vw, 50vw" // the component knows its layout
+  alt={image.alt}
+  loading="lazy"
+  decoding="async"
+/>
+```
+
+- `publicImageSrc(key, w?)` gives `/api/images/public/<hex>.webp`, or the
+  same with `?w=<w>`. It throws for an invalid key or a width outside the
+  allow-list.
+- `publicImageSrcSet(key)` gives
+  `"…?w=320 320w, …?w=480 480w, …?w=640 640w, …?w=828 828w, …?w=1080 1080w, …?w=1200 1200w"`.
+  1600 is accepted by the route but not listed, because no stored picture
+  is wider than 1200.
+- Every DTO image (`PublicImage`) already carries `url` (the original) and
+  `srcSet`. `sizes` depends on the layout, so the component supplies it.
+
+`next.config.ts` keeps `images.minimumCacheTTL: 300`
+(`tests/next-image-config.test.ts`). The default is 4 hours. The setting
+is harmless and limits any accidental use of the optimiser. It does not
+fix the retention described above.
 
 ### How long an unpublished picture stays visible
 
@@ -181,56 +250,17 @@ Keys are content-hashed, so a new photo always gets a new URL. Long caching
 never shows an old photo. It only delays the removal of an **unpublished**
 one.
 
-| Where it is cached | How long it may still show an unpublished picture |
+| Layer | How long it may still show an unpublished picture |
 | --- | --- |
-| The route itself | Never. The check is not cached. |
-| A browser | Up to 5 minutes (`max-age=300`) |
-| A shared cache or CDN, if one is added | Up to 5 minutes (`s-maxage=300`). After that, at most one more stale response while it revalidates in the background (`stale-while-revalidate`). It then receives the uncacheable 404. Cloud Run has no CDN in front today. |
-| **The Next image optimiser (`/_next/image`)** | **A size that was already cached keeps being served until that instance's image cache is cleared** (see the gap below). A size not cached yet returns 404 at once. The cache lifetime is the larger of the upstream `s-maxage` (300) and `images.minimumCacheTTL`, which `next.config.ts` sets to 300; the Next 16 default is 14400, 4 hours. |
+| The origin (this route, every size) | **Never.** Visibility is checked on every request, before the resize cache. |
+| A browser | Up to 300 s (`max-age=300`) |
+| A shared cache or CDN, if one is added | Up to 300 s (`s-maxage=300`). After that, at most one more stale response while it revalidates in the background (`stale-while-revalidate`); it then receives the uncacheable 404. Cloud Run has no CDN in front today. |
+| The Next image optimiser (`/_next/image`) | Indefinitely for a size it has already cached (see above). This is why storefront photos must not go through it. |
 
-**Gap: the optimiser keeps serving a picture after it is unpublished.**
-When a cached size expires, the optimiser serves it as `STALE` and
-revalidates in the background. The upstream now answers 404, so the
-revalidation fails. Next 16's response cache (`retainPreviousCacheEntry`
-in `next/dist/server/response-cache/index.js`) then **keeps the previous
-image** and retries every 30 seconds. Image entries have no `expire`, so
-this goes on until that instance's `.next/cache/images` is cleared. On
-Cloud Run that happens when the instance is replaced. Lowering
-`minimumCacheTTL` and `s-maxage` does not fix it; they only set how soon
-the first retry happens.
-
-Production-build proof (`next build`, then `next start`, AUG-4 unpublished
-at 21:12:11 UTC):
-
-| Time (UTC) | `/_next/image?url=/api/images/public/<key>&w=640` |
-| --- | --- |
-| 21:12:00 | `200`, `Cache-Control: public, max-age=300, must-revalidate`, `X-Nextjs-Cache: MISS`, then `HIT` |
-| 21:12:11 | `200`, `HIT` (`/api/images/public/<key>` itself returns `404`) |
-| 21:17:36 | `200`, `STALE`; the server logs `internal image response failed ... 404` |
-| 21:17:38 to 21:18:24 | `200`, `Cache-Control: public, max-age=30, must-revalidate`, `HIT` |
-
-This needs a decision outside ZP-484. Possible fixes: a custom
-`images.loader` that points `next/image` at a resize route of our own,
-which checks visibility on every request; or pre-generated sizes. Until
-then, a picture that is unpublished after its sizes were cached stays
-reachable on an instance through those exact `/_next/image` URLs.
-`tests/next-image-config.test.ts` pins `minimumCacheTTL` to 300.
-
-### Responsive sizes
-
-Use `next/image` with `src="/api/images/public/<key>"`.
-`images.localPatterns` already allows `/api/images/**` with no query string.
-The optimiser fetches the picture internally without cookies, so it can
-only resize public pictures. A picture that is not public returns 404.
-
-- Widths must be one of the configured sizes. With the default
-  `deviceSizes`/`imageSizes` these are 16, 32, 48, 64, 96, 128, 256, 384,
-  640, 750, 828, 1080, 1200, 1920, 2048 and 3840. For example, `w=800`
-  returns 400. Pictures are never enlarged beyond their stored size (at most
-  1200px).
-- Pre-generated sizes in GCS were not chosen. They would need a schema or
-  storage change and a backfill, and the optimiser already caches each
-  variant.
+`s-maxage` is 300, not the 3600 the issue first proposed. It bounds shared
+caches to the same 5 minutes as browsers. The optimiser also reads
+`s-maxage` in preference to `max-age`, so with 3600 it cached sizes for an
+hour.
 
 ## `GET /api/public/products` (JSON)
 
