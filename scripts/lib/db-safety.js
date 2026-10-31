@@ -42,7 +42,7 @@ function checkUrl(name, value) {
  * @returns {{ allowed: boolean, reason: string }}
  */
 function checkDestructiveDbAllowed(env = process.env) {
-  if (env.NODE_ENV === 'production') {
+  if (String(env.NODE_ENV || '').trim().toLowerCase() === 'production') {
     return { allowed: false, reason: 'NODE_ENV=production.' };
   }
   const marker = CLOUD_RUN_MARKERS.find((key) => env[key]);

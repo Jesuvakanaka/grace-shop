@@ -59,8 +59,8 @@ add a data backfill or make a destructive rename safe.
 ## How deploys apply migrations
 
 Deploys run migrations as a separate step, before the new app revision gets
-traffic. The step is the Cloud Run job `grace-shop-uat-migrate`, which uses
-the same image as the app and runs this command:
+traffic. The planned step is a Cloud Run job, `grace-shop-uat-migrate`. It
+does not exist yet: ZP-470 creates it. The job will run this command:
 
 ```bash
 npm run migrate        # = prisma migrate deploy
@@ -87,22 +87,35 @@ data.
 
 1. Back up the database first (Cloud SQL backup or `pg_dump`).
 2. Point `DATABASE_URL` and `DIRECT_URL` at the database. Then check that
-   its schema matches `0_init` exactly:
+   its schema matches `0_init` exactly. Run this before
+   `migrate resolve --applied 0_init`. The shadow database must be an empty
+   scratch database on your machine, because Prisma wipes it:
 
    ```bash
+   docker exec grace-shop-postgres createdb -U grace grace_shop_shadow   # once
    npx prisma migrate diff \
      --from-url "$DATABASE_URL" \
-     --to-schema-datamodel prisma/schema.prisma \
+     --to-migrations prisma/migrations \
+     --shadow-database-url postgresql://grace:grace_local_dev@localhost:5433/grace_shop_shadow \
      --exit-code
    ```
 
    Exit code `0` and "No difference detected." mean you can continue. Exit
-   code `2` means there is drift, and the diff shows SQL. Stop and resolve
+   code `2` means there is drift, and the diff lists it. Stop and resolve
    the drift in a reviewed migration. Do not baseline over drift.
 
-   Run this check against the `schema.prisma` of the commit that contains
-   only `0_init`. Once later migrations exist, a database that only has the
-   baseline will (correctly) show those later changes as a difference.
+   `--to-migrations` compares against **all** migrations in the folder, so
+   this check only works while `0_init` is the only migration. Once later
+   migrations exist, compare against the schema as it was at the `0_init`
+   commit instead:
+
+   ```bash
+   git show <sha-of-0_init-commit>:prisma/schema.prisma > /tmp/schema-0_init.prisma
+   npx prisma migrate diff \
+     --from-url "$DATABASE_URL" \
+     --to-schema-datamodel /tmp/schema-0_init.prisma \
+     --exit-code
+   ```
 
 3. Record the baseline without running it:
 

@@ -31,6 +31,13 @@ describe('db-safety: destructive database operations guard', () => {
     assert.match(result.reason, /NODE_ENV=production/);
   });
 
+  test('refuses NODE_ENV=production in any letter case', () => {
+    for (const value of ['Production', 'PRODUCTION', ' production ']) {
+      const result = checkDestructiveDbAllowed({ DATABASE_URL: LOCAL_URL, NODE_ENV: value });
+      assert.strictEqual(result.allowed, false, `NODE_ENV=${JSON.stringify(value)}`);
+    }
+  });
+
   test('refuses a non-localhost DATABASE_URL', () => {
     const result = checkDestructiveDbAllowed({ DATABASE_URL: REMOTE_URL });
     assert.strictEqual(result.allowed, false);
