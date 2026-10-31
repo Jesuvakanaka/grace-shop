@@ -24,6 +24,7 @@ import {
   TrustStrip,
 } from "@/components/storefront";
 import { ClockIcon, MapPinIcon } from "@/components/storefront/icons";
+import { ASK_FOR_PRICE, formatPriceUsd, toImageData } from "@/components/storefront/product";
 import { ImageFrame, StorefrontImg } from "@/components/storefront/StorefrontImage";
 import {
   WHATSAPP_HREF,
@@ -64,6 +65,14 @@ function PreviewDivider({ id, label }: { id?: string; label: string }) {
   );
 }
 
+/** Preview links every card to the product section below. */
+const toProductSection = () => "#product";
+
+/** "XS, S, M" -> ["XS", "S", "M"] (the DTO keeps sizes and colours as free text). */
+function splitList(value: string | null): string[] {
+  return (value ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+}
+
 function Chip({ children, active = false }: { children: React.ReactNode; active?: boolean }) {
   return (
     <li
@@ -82,7 +91,7 @@ export default async function StorefrontDesignPreview() {
   await connection(); // read the env at request time, not at build
   if (!storefrontPreviewEnabled()) notFound();
 
-  const cardHref = "#product";
+  const featuredPrice = formatPriceUsd(featured.priceUsd);
 
   return (
     <div className="bg-brand-cream text-brand-ink">
@@ -122,7 +131,7 @@ export default async function StorefrontDesignPreview() {
         >
           {newArrivals.map((p) => (
             <li key={p.slug} className="w-[68%] shrink-0 sm:w-[42%] md:w-auto">
-              <ProductCard {...p} href={cardHref} />
+              <ProductCard product={p} hrefFor={toProductSection} />
             </li>
           ))}
         </ul>
@@ -226,7 +235,7 @@ export default async function StorefrontDesignPreview() {
         <ProductGrid columns={4}>
           {products.map((p) => (
             <li key={p.slug}>
-              <ProductCard {...p} href={cardHref} />
+              <ProductCard product={p} hrefFor={toProductSection} />
             </li>
           ))}
         </ProductGrid>
@@ -251,48 +260,49 @@ export default async function StorefrontDesignPreview() {
               </li>
               <li>
                 <Link href="#collection" className="sf-focus inline-flex min-h-11 items-center rounded-[2px] hover:text-brand-ink">
-                  {featured.category}
+                  {featured.category.name}
                 </Link>
               </li>
             </ol>
           </nav>
           <div className="grid gap-8 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:gap-16">
-            <Gallery images={featured.photos} label={featured.name} eager={false} />
+            <Gallery images={featured.images.map(toImageData)} label={featured.name} eager={false} />
             <div className="flex flex-col gap-6 lg:sticky lg:top-28 lg:self-start">
               <div className="flex flex-col gap-3">
                 <div className="flex items-center gap-3">
-                  <Badge tone="lime">New</Badge>
-                  <span className="sf-label text-brand-ink-soft">{featured.category}</span>
+                  {featured.isNew ? <Badge tone="lime">New</Badge> : null}
+                  <span className="sf-label text-brand-ink-soft">{featured.category.name}</span>
                 </div>
                 <h2 id="product-title" className="sf-product-title text-balance">
                   {featured.name}
                 </h2>
-                <p className="sf-price">{featured.price}</p>
+                {featuredPrice ? (
+                  <p className="sf-price">{featuredPrice}</p>
+                ) : (
+                  <p className="sf-label text-brand-olive-700">{ASK_FOR_PRICE}</p>
+                )}
               </div>
-              <p className="sf-body text-brand-ink-soft">
-                A fluid wrap dress in our signature lime, cut to sit softly at the waist and fall just below the knee.
-                Wear it with cream for daytime, or black for the evening.
-              </p>
-              <div className="flex flex-col gap-3">
-                <h3 className="sf-label text-brand-ink">Sizes in store</h3>
-                <ul role="list" className="flex flex-wrap gap-2">
-                  <Chip>XS</Chip>
-                  <Chip active>S</Chip>
-                  <Chip>M</Chip>
-                  <Chip>L</Chip>
-                  <li className="sf-label inline-flex min-h-11 min-w-11 items-center justify-center rounded-[2px] border border-brand-ink/10! px-3 text-brand-ink-soft line-through">
-                    XL<span className="sr-only"> (sold out)</span>
-                  </li>
-                </ul>
-              </div>
-              <div className="flex flex-col gap-3">
-                <h3 className="sf-label text-brand-ink">Colour</h3>
-                <ul role="list" className="flex flex-wrap gap-2">
-                  <Chip active>Lime</Chip>
-                  <Chip>Cream</Chip>
-                  <Chip>Black</Chip>
-                </ul>
-              </div>
+              {featured.description ? <p className="sf-body text-brand-ink-soft">{featured.description}</p> : null}
+              {splitList(featured.sizes).length > 0 ? (
+                <div className="flex flex-col gap-3">
+                  <h3 className="sf-label text-brand-ink">Sizes in store</h3>
+                  <ul role="list" className="flex flex-wrap gap-2">
+                    {splitList(featured.sizes).map((size) => (
+                      <Chip key={size}>{size}</Chip>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {splitList(featured.colours).length > 0 ? (
+                <div className="flex flex-col gap-3">
+                  <h3 className="sf-label text-brand-ink">Colours</h3>
+                  <ul role="list" className="flex flex-wrap gap-2">
+                    {splitList(featured.colours).map((colour) => (
+                      <Chip key={colour}>{colour}</Chip>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               <EnquiryButton href={WHATSAPP_HREF} className="hidden lg:block" />
               <p className="text-sm text-brand-ink-soft">
                 Ask us about sizes and fit, or reserve it to try on in store.
@@ -323,7 +333,7 @@ export default async function StorefrontDesignPreview() {
           <ProductGrid columns={4}>
             {related.map((p) => (
               <li key={p.slug}>
-                <ProductCard {...p} href={cardHref} />
+                <ProductCard product={p} hrefFor={toProductSection} />
               </li>
             ))}
           </ProductGrid>
@@ -333,7 +343,7 @@ export default async function StorefrontDesignPreview() {
 
       {/* ---------------------------------------------------------- STATES */}
       <PreviewDivider label="Empty, error and 404 states" />
-      <div className="grid divide-y divide-brand-ink/10! bg-brand-cream-100 lg:grid-cols-3 lg:divide-x lg:divide-y-0">
+      <div className="grid divide-y divide-brand-ink/10! bg-brand-cream lg:grid-cols-3 lg:divide-x lg:divide-y-0">
         <EmptyState
           title="No pieces match yet"
           message="Try another category, or ask us on WhatsApp. New pieces arrive often."

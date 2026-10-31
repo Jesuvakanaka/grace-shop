@@ -56,9 +56,9 @@ export function ErrorState({
   return <StateBlock title={title} message={message} role="alert" {...rest} />;
 }
 
-/** 404: "This piece has moved on." */
+/** 404: "This piece has moved on". */
 export function NotFoundState({
-  title = "This piece has moved on.",
+  title = "This piece has moved on",
   message = "It may have sold, or the link has changed. Take a look at what's new instead.",
   as = "h1",
   ...rest

@@ -3,9 +3,18 @@ import { storefrontPreviewEnabled } from "../../preview-gate";
 
 // ZP-481 design preview: placeholder art as SVG, e.g. /site/preview/art/dress.limeOnCream.svg.
 // Same gate as the preview page: 404 unless GRACE_STOREFRONT_PREVIEW=true.
+// Unknown or malformed names (extra segments, "dress.constructor.svg",
+// "__proto__", ...) are a plain 404, never a 500.
 export async function GET(_request: Request, ctx: { params: Promise<{ key: string }> }) {
   const { key } = await ctx.params;
-  const svg = storefrontPreviewEnabled() && key.endsWith(".svg") ? renderArt(key.slice(0, -4)) : null;
+  let svg: string | null = null;
+  if (storefrontPreviewEnabled()) {
+    try {
+      svg = renderArt(key);
+    } catch {
+      svg = null;
+    }
+  }
   if (svg === null) {
     return new Response("Not Found", {
       status: 404,

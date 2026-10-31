@@ -196,12 +196,20 @@ export function heroArt(alt: string): { desktop: StorefrontImageData; mobile: St
   };
 }
 
-/** SVG for an art key such as "dress.limeOnCream.detail" or "hero.mobile"; null if unknown. */
-export function renderArt(key: string): string | null {
-  if (key === "hero.desktop") return svgDoc(1600, 900, heroScene());
-  if (key === "hero.mobile") return svgDoc(800, 1000, heroScene(), "920 100 640 800");
-  const [kind, tone, extra] = key.split(".");
-  if (!GARMENTS.includes(kind as Garment) || !(tone in tones)) return null;
-  if (extra !== undefined && extra !== "detail") return null;
-  return productSvg(kind as Garment, tones[tone as ToneName], extra === "detail");
+/** Exact art file names: "<shape>.<tone>.svg", "<shape>.<tone>.detail.svg", "hero.desktop.svg", "hero.mobile.svg". */
+const ART_FILE = /^([a-z]+)\.([A-Za-z]+)(\.detail)?\.svg$/;
+
+/**
+ * SVG for an art file name such as "dress.limeOnCream.svg"; null for anything
+ * else. Lookups use Object.hasOwn so inherited keys ("constructor",
+ * "__proto__", ...) never match.
+ */
+export function renderArt(file: string): string | null {
+  if (file === "hero.desktop.svg") return svgDoc(1600, 900, heroScene());
+  if (file === "hero.mobile.svg") return svgDoc(800, 1000, heroScene(), "920 100 640 800");
+  const match = ART_FILE.exec(file);
+  if (!match) return null;
+  const [, kind, tone, detail] = match;
+  if (!GARMENTS.includes(kind as Garment) || !Object.hasOwn(tones, tone)) return null;
+  return productSvg(kind as Garment, tones[tone as ToneName], detail !== undefined);
 }

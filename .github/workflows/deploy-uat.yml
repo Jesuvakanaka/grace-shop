@@ -215,6 +215,9 @@ jobs:
       # comma-separated hostnames. Repository variables, default empty = admin
       # behaviour on every host (no change until a storefront domain exists).
       # Commas inside a value need gcloud's ^@^ delimiter syntax, used below.
+      # GRACE_STOREFRONT_PREVIEW (ZP-481): 'true' serves the storefront design
+      # preview at /site/preview (noindex). Repository variable, default 'false'
+      # (the preview is a 404).
       - name: Deploy web service
         env:
           IMAGE_REF: ${{ steps.image.outputs.image_ref }}
@@ -222,12 +225,17 @@ jobs:
           GRACE_QUICK_LOGIN: ${{ vars.GRACE_QUICK_LOGIN || 'false' }}
           GRACE_STOREFRONT_HOSTS: ${{ vars.GRACE_STOREFRONT_HOSTS || '' }}
           GRACE_ADMIN_HOSTS: ${{ vars.GRACE_ADMIN_HOSTS || '' }}
+          GRACE_STOREFRONT_PREVIEW: ${{ vars.GRACE_STOREFRONT_PREVIEW || 'false' }}
         run: |
           set -euo pipefail
           # Validate every repository variable that goes into --set-env-vars, so
           # none can smuggle in the ^@^ delimiter (i.e. extra env vars).
           if [[ ! "${GRACE_QUICK_LOGIN}" =~ ^(true|false)?$ ]]; then
             echo "::error::GRACE_QUICK_LOGIN must be 'true', 'false' or empty" >&2
+            exit 1
+          fi
+          if [[ ! "${GRACE_STOREFRONT_PREVIEW}" =~ ^(true|false)?$ ]]; then
+            echo "::error::GRACE_STOREFRONT_PREVIEW must be 'true', 'false' or empty" >&2
             exit 1
           fi
           for NAME in GRACE_STOREFRONT_HOSTS GRACE_ADMIN_HOSTS; do
@@ -243,7 +251,7 @@ jobs:
             --service-account="${RUNTIME_SERVICE_ACCOUNT}"
             --set-cloudsql-instances="${CLOUD_SQL_CONNECTION}"
             --set-secrets="${DB_SECRETS},JWT_SECRET=grace-shop-uat-jwt-secret:latest"
-            --set-env-vars="^@^NODE_ENV=production@GRACE_IMAGE_STORAGE=gcs@GRACE_IMAGE_BUCKET=${IMAGES_BUCKET}@GRACE_QUICK_LOGIN=${GRACE_QUICK_LOGIN}@GRACE_STOREFRONT_HOSTS=${GRACE_STOREFRONT_HOSTS}@GRACE_ADMIN_HOSTS=${GRACE_ADMIN_HOSTS}"
+            --set-env-vars="^@^NODE_ENV=production@GRACE_IMAGE_STORAGE=gcs@GRACE_IMAGE_BUCKET=${IMAGES_BUCKET}@GRACE_QUICK_LOGIN=${GRACE_QUICK_LOGIN}@GRACE_STOREFRONT_HOSTS=${GRACE_STOREFRONT_HOSTS}@GRACE_ADMIN_HOSTS=${GRACE_ADMIN_HOSTS}@GRACE_STOREFRONT_PREVIEW=${GRACE_STOREFRONT_PREVIEW}"
             --port=8080
             --startup-probe=httpGet.path=/api/health,httpGet.port=8080,periodSeconds=5,timeoutSeconds=3,failureThreshold=24
             --min-instances=0

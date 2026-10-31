@@ -115,7 +115,7 @@ The public VYRA site (ZP-481). Components live in `src/components/storefront/`, 
 
 | Role | Colour | Token | Rules |
 |---|---|---|---|
-| Page (about 70% of every page) | Cream `#EDE6D3`, plus cream-light `#F6F2E8` for alternating sections | `brand-cream`, `brand-cream-100` | The default ground. |
+| Page (about 70% of every page) | Cream `#EDE6D3` is the dominant ground. Cream-light `#F6F2E8` only for an occasional alternate section (one per page, e.g. "Shop by category") and image tiles | `brand-cream`, `brand-cream-100` | The default ground. |
 | Text, wordmark, footer | Ink `#1E1E1E` | `brand-ink` | Secondary text is ink-soft `#55514A` (`brand-ink-soft`). |
 | Primary buttons, links | Olive `#5F7A1F`, hover `#4A6018` | `brand-olive`, `brand-olive-700` | Buttons: white text on olive. **Text** links and olive labels on cream use olive-700, because olive text on cream is 3.93:1. |
 | Accent only | Lime `#9BB21E` | `brand-lime` | Thin rules, active states, badges with ink text, the NEW badge, focus rings, and occasional full-bleed colour blocks. **Never white text on lime.** |
@@ -129,7 +129,7 @@ All text meets WCAG AA. The hero overlay uses a deep-olive gradient (`#2A3610`, 
   - Hero: 72px on desktop, 40px on a 375px phone (`.sf-display`, fluid).
   - Section titles: 32–40px (`.sf-title`). Product name: 32px (`.sf-product-title`). Card names: 20–22px, clamped to 2 lines.
 - **Body:** Jost 16–17px, line-height 1.6, max 65 characters per line (`.sf-body`).
-- **Labels, buttons, nav:** Jost 12–13px, uppercase, 0.18–0.2em tracking (`.sf-label`, `.sf-label-lg`), e.g. "SHOP THE COLLECTION →".
+- **Labels, buttons, nav, badges:** Jost 12–13px (never smaller), uppercase, 0.18–0.2em tracking (`.sf-label`, `.sf-label-lg`), e.g. "SHOP THE COLLECTION →".
 - **Prices:** Jost 18px medium (`.sf-price`). No price shows "ASK FOR PRICE" in the olive-700 label style.
 - **Wordmark:** always the SVG paths (`<Wordmark>` in `Brand.tsx`, or the files above), never typed. In the header it is the letters only; "WEAR DIFFERENT" only appears at 200px wide and up (the footer).
 
@@ -146,8 +146,8 @@ All text meets WCAG AA. The hero overlay uses a deep-olive gradient (`#2A3610`, 
 
 - Product cards: 4:5 portrait, `object-fit: cover`, on cream-light.
 - Heroes: 16:9 on desktop with the text over a soft gradient, or a split layout. On phones the photo is 4:5 and the text sits below it on cream, so the photo is never hidden behind text.
-- Below-the-fold images load lazily and fade in (250ms). The hero photo loads eagerly with high fetch priority (it is the LCP element) and does not fade.
-- Never a broken image: every frame paints a cream tile with the VYRA mark first, and a photo that fails to load is hidden, leaving the tile (`ImageFrame` + `StorefrontImg`).
+- Photos are visible without JavaScript and before hydration. After hydration, a below-the-fold photo that is still loading is hidden and fades in when it loads (250ms); a photo that loaded earlier stays as it is. The hero photo loads eagerly with high fetch priority (it is the LCP element) and never fades.
+- Never a broken image: every frame (cards, tiles, hero, gallery, zoom) paints a cream tile with the VYRA mark first, and a photo that fails is hidden, leaving the tile (`ImageFrame` + `StorefrontImg`). Without JavaScript a CSS `::before` layer covers the browser broken-image icon.
 
 ### Components (`src/components/storefront/`)
 
@@ -158,7 +158,7 @@ All are presentational: they take props and fetch nothing (the data layer is ZP-
 | `Header` | Sticky cream bar; a hairline appears once the page scrolls. Phones: hamburger, centred wordmark, WhatsApp. Desktop: wordmark left, nav (Shop · Collections · New Arrivals · About · Visit Us), WhatsApp. The phone menu is a native modal `<dialog>`: full-screen cream, large serif links, focus trapped, Esc closes and focus returns to the hamburger. |
 | `Hero` | Serif headline, sub-line ("Premium fashion. Modern you."), olive primary and ghost secondary button. `layout="overlay"` or `"split"`; `as="h2"` for editorial blocks lower down. Art-directed `<picture>` (16:9 desktop, 4:5 phone). |
 | `SectionHeader` | Lime rule, serif title, optional intro and "VIEW ALL →" link. |
-| `ProductCard` / `ProductGrid` | 4:5 image, optional NEW badge, "Few left" / "Sold out" badges only in those states, serif name (2 lines), price or ASK FOR PRICE. Desktop hover zooms to 1.03× and swaps to the second photo. The whole card is one link. |
+| `ProductCard` / `ProductGrid` | Takes `product`: the public product DTO (`PublicProduct` in `types.ts`, structurally identical to ZP-484 `src/lib/storefront/dto.ts`; to be unified when ZP-484 merges). From it: link `hrefFor(slug)` (default `productHref` = `/site/p/<slug>`, which also works on the storefront host via its 308 to `/p/<slug>`), first photo, second photo on desktop hover (zoom 1.03×), NEW badge (`isNew`, not when sold out), "Few left" / "Sold out" badges (`availability` `FEW_LEFT` / `SOLD_OUT`), category name, serif name (2 lines), price `$NN` from `priceUsd` or ASK FOR PRICE when null. The whole card is one link. |
 | `CategoryTile` | Image with the category name in uppercase spaced type on a cream plate (ink on cream, AA over any photo). |
 | `FilterBar` | Scrollable chips (`aria-pressed`) plus a sort `<select>`. Controlled through callbacks, or local state when none are passed. Chips wrap on desktop. |
 | `Gallery` | CSS scroll-snap track (swipe on phones, with dots), thumbnail rail and arrows on desktop, arrow keys on the focused track, full-screen zoom in a native `<dialog>`. No dependencies. |
@@ -166,7 +166,7 @@ All are presentational: they take props and fetch nothing (the data layer is ZP-
 | `TrustStrip` | "Premium quality · Visit our store · Enquire on WhatsApp" with thin line icons. |
 | `ColourBlock` | Full-bleed lime (ink text, ink button) or olive (white text, cream button) section with one serif statement ("Confidence in every stitch") and one button. At most one per page. |
 | `Footer` | Ink ground, cream text, cream mono mark plus the cream wordmark with tagline, address and hours (placeholders until confirmed), social icons, link columns, "© VYRA". |
-| `EmptyState`, `ErrorState`, `NotFoundState` | Mark, lime rule, serif title, a short line and one or two buttons. The 404 says "This piece has moved on." |
+| `EmptyState`, `ErrorState`, `NotFoundState` | Mark, lime rule, serif title, a short line and one or two buttons. The 404 says "This piece has moved on" |
 | `Button` | `primary` (olive), `ghost` (ink outline), `ghost-light` (white outline on dark), `ink`, `cream`, `link` (olive-700 with arrow). 2px corners, 44px min height. Renders a `Link` with `href`, else a `<button>`. |
 | `Badge` | `lime` (NEW), `light` (Few left), `ink` (Sold out). |
 | `Mark`, `Wordmark` | Inline SVG brand marks that take `currentColor` (mono mark, wordmark) or the brand colours (colour mark). |

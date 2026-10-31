@@ -1,61 +1,64 @@
 import Link from "next/link";
 import { Badge } from "./Badge";
 import { cn } from "./cn";
+import { ASK_FOR_PRICE, availabilityLabel, cardImages, formatPriceUsd, productHref } from "./product";
 import { ImageFrame, StorefrontImg } from "./StorefrontImage";
-import type { StockState, StorefrontImageData } from "./types";
+import type { PublicProduct } from "./types";
 
 export type ProductCardProps = {
-  name: string;
-  href: string;
-  image: StorefrontImageData;
-  /** Second photo, shown on desktop hover. */
-  hoverImage?: StorefrontImageData;
-  /** Pre-formatted price ("$45"). Null or missing shows "ASK FOR PRICE". */
-  price?: string | null;
-  isNew?: boolean;
-  stock?: StockState;
-  /** Optional small line above the name, e.g. the category. */
-  eyebrow?: string;
+  /** The public product DTO (ZP-484 shape, see types.ts). */
+  product: PublicProduct;
+  /** Builds the link from the slug. Default: productHref → `/site/p/<slug>`. */
+  hrefFor?: (slug: string) => string;
+  /** Show the category name above the product name. */
+  showCategory?: boolean;
   /** Above the fold: load the photo eagerly. */
   eager?: boolean;
   sizes?: string;
   className?: string;
 };
 
-/** Portrait 4:5 card. The whole card is one link. */
+/**
+ * Portrait 4:5 card. The whole card is one link. Everything shown comes from
+ * the DTO: first photo, second photo on desktop hover, NEW badge (isNew, not
+ * when sold out), "Few left" / "Sold out" badges (availability), and the price
+ * or "ASK FOR PRICE" (priceUsd).
+ */
 export function ProductCard({
-  name,
-  href,
-  image,
-  hoverImage,
-  price,
-  isNew = false,
-  stock = "in-stock",
-  eyebrow,
+  product,
+  hrefFor = productHref,
+  showCategory = true,
   eager = false,
   sizes = "(min-width: 1024px) 280px, 50vw",
   className,
 }: ProductCardProps) {
-  const soldOut = stock === "sold-out";
+  const { primary, hover } = cardImages(product);
+  const soldOut = product.availability === "SOLD_OUT";
+  const stockLabel = availabilityLabel(product.availability);
+  const price = formatPriceUsd(product.priceUsd);
+  const showNew = product.isNew && !soldOut;
   return (
-    <Link href={href} className={cn("sf-card sf-focus group relative block rounded-[2px]", className)}>
+    <Link href={hrefFor(product.slug)} className={cn("sf-card sf-focus group relative block rounded-[2px]", className)}>
       <ImageFrame ratio="4 / 5" className="rounded-[2px]">
-        <div className="sf-card-media absolute inset-0">
-          <StorefrontImg image={image} eager={eager} sizes={sizes} className={cn(soldOut && "grayscale-[35%]")} />
-          {hoverImage ? <StorefrontImg image={hoverImage} sizes={sizes} decorative className="sf-card-alt" /> : null}
-        </div>
-        {isNew || stock !== "in-stock" ? (
+        {primary ? (
+          <div className="sf-card-media absolute inset-0">
+            <StorefrontImg image={primary} eager={eager} sizes={sizes} className={cn(soldOut && "grayscale-[35%]")} />
+            {hover ? <StorefrontImg image={hover} sizes={sizes} decorative className="sf-card-alt" /> : null}
+          </div>
+        ) : null}
+        {showNew || stockLabel ? (
           <div className="absolute left-2.5 top-2.5 flex flex-col items-start gap-1.5 sm:left-3 sm:top-3">
-            {isNew && !soldOut ? <Badge tone="lime">New</Badge> : null}
-            {stock === "few-left" ? <Badge tone="light">Few left</Badge> : null}
-            {soldOut ? <Badge tone="ink">Sold out</Badge> : null}
+            {showNew ? <Badge tone="lime">New</Badge> : null}
+            {stockLabel ? <Badge tone={soldOut ? "ink" : "light"}>{stockLabel}</Badge> : null}
           </div>
         ) : null}
       </ImageFrame>
       <div className="flex flex-col gap-1.5 pt-3.5 sm:pt-4">
-        {eyebrow ? <span className="sf-label text-[0.6875rem] text-brand-ink-soft">{eyebrow}</span> : null}
+        {showCategory && product.category.name ? (
+          <span className="sf-label text-brand-ink-soft">{product.category.name}</span>
+        ) : null}
         <h3 className="line-clamp-2 font-serif text-xl font-medium leading-[1.15] text-brand-ink sm:text-[1.375rem]">
-          {name}
+          {product.name}
         </h3>
         {price ? (
           <p className="sf-price text-brand-ink">
@@ -63,7 +66,7 @@ export function ProductCard({
             {price}
           </p>
         ) : (
-          <p className="sf-label pt-1 text-brand-olive-700">Ask for price</p>
+          <p className="sf-label pt-1 text-brand-olive-700">{ASK_FOR_PRICE}</p>
         )}
       </div>
     </Link>

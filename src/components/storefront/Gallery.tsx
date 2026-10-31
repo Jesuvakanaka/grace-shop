@@ -139,7 +139,7 @@ export function Gallery({ images, label, eager = true, className }: GalleryProps
                   onClick={() => goTo(i)}
                   aria-label={`Show photo ${i + 1} of ${count}`}
                   aria-current={i === active ? "true" : undefined}
-                  className="sf-focus group inline-flex h-11 w-8 items-center justify-center rounded-[2px]"
+                  className="sf-focus group inline-flex h-11 w-11 items-center justify-center rounded-[2px]"
                 >
                   <span
                     className={cn(
@@ -186,14 +186,10 @@ export function Gallery({ images, label, eager = true, className }: GalleryProps
         <div className="relative flex h-full w-full items-center justify-center">
           <div className="relative h-full max-h-full w-auto" style={{ aspectRatio: "4 / 5" }}>
             <ImageFallback />
-            {/* eslint-disable-next-line @next/next/no-img-element -- full-size zoom of a local photo */}
-            <img
-              src={images[active]?.src}
-              alt={images[active]?.alt ?? ""}
-              width={images[active]?.width}
-              height={images[active]?.height}
-              className="absolute inset-0 h-full w-full object-contain"
-            />
+            {images[active] ? (
+              // key: a fresh <img> per photo, so a failed photo's state never carries over.
+              <StorefrontImg key={`${active}-${images[active].src}`} image={images[active]} fit="contain" eager sizes="100vw" />
+            ) : null}
           </div>
           <button
             type="button"

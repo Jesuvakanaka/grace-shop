@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Button } from "./Button";
 import { cn } from "./cn";
 import { Container } from "./Section";
-import { ImageFallback } from "./StorefrontImage";
+import { ImageFallback, StorefrontImg } from "./StorefrontImage";
 import type { StorefrontImageData } from "./types";
 
 type HeroAction = { label: string; href: string };
@@ -33,6 +33,7 @@ type HeroProps = {
   className?: string;
 };
 
+/** Art-directed hero photo (16:9 from md, 4:5 below) with the cream-tile fallback behaviour of StorefrontImg. */
 function HeroPicture({
   image,
   mobileImage,
@@ -42,21 +43,13 @@ function HeroPicture({
   mobileImage?: StorefrontImageData;
   eager: boolean;
 }) {
-  const phone = mobileImage ?? image;
   return (
-    <picture>
-      {mobileImage ? <source media="(min-width: 768px)" srcSet={image.src} width={image.width} height={image.height} /> : null}
-      <img
-        src={phone.src}
-        alt={phone.alt}
-        width={phone.width}
-        height={phone.height}
-        loading={eager ? "eager" : "lazy"}
-        fetchPriority={eager ? "high" : undefined}
-        decoding="async"
-        className="absolute inset-0 h-full w-full object-cover"
-      />
-    </picture>
+    <StorefrontImg
+      image={mobileImage ?? image}
+      sources={mobileImage ? [{ media: "(min-width: 768px)", image }] : undefined}
+      eager={eager}
+      sizes="100vw"
+    />
   );
 }
 
@@ -99,7 +92,7 @@ export function Hero({
 }: HeroProps) {
   if (layout === "split") {
     return (
-      <section className={cn("bg-brand-cream-100 py-14 sm:py-16 lg:py-24", className)}>
+      <section className={cn("border-t border-brand-ink/10! bg-brand-cream py-14 sm:py-16 lg:py-24", className)}>
         <Container className="grid items-center gap-10 md:grid-cols-2 lg:gap-20">
           <div className={cn("relative aspect-[4/5] overflow-hidden rounded-[2px]", reverse ? "md:order-1" : "md:order-2")}>
             <ImageFallback />

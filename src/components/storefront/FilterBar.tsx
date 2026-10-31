@@ -66,22 +66,22 @@ export function FilterBar({
           })}
         </ul>
       </div>
-      <div className="flex items-center justify-between gap-6">
+      <div className="flex items-center justify-between gap-4">
         {resultLabel ? (
-          <p className="text-sm text-brand-ink-soft" aria-live="polite">
+          <p className="whitespace-nowrap text-sm text-brand-ink-soft" aria-live="polite">
             {resultLabel}
           </p>
         ) : null}
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <label htmlFor={sortId} className="sf-label text-brand-ink-soft">
             Sort
           </label>
-          <div className="relative">
+          <div className="relative min-w-0">
             <select
               id={sortId}
               value={currentSort}
               onChange={(e) => (onSortChange ? onSortChange(e.target.value) : setLocalSort(e.target.value))}
-              className="sf-focus sf-label min-h-11 cursor-pointer appearance-none rounded-[2px] border border-brand-ink/20! bg-white py-2 pl-4 pr-10 text-brand-ink hover:border-brand-ink!"
+              className="sf-focus sf-label min-h-11 w-full max-w-[11rem] cursor-pointer appearance-none truncate sm:max-w-none rounded-[2px] border border-brand-ink/20! bg-white py-2 pl-4 pr-10 text-brand-ink hover:border-brand-ink!"
             >
               {sortOptions.map((o) => (
                 <option key={o.value} value={o.value}>

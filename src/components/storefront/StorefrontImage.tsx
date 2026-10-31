@@ -6,46 +6,74 @@ import { cn } from "./cn";
 import type { StorefrontImageData } from "./types";
 
 // Images never show a broken icon: every frame paints a cream tile with the
-// VYRA mark first, and the photo fades in on top once it has loaded. If it
-// fails, the photo is hidden and the tile stays. State lives in data-*
-// attributes (no React state), so a photo that finished loading before
-// hydration is picked up by the ref callback.
+// VYRA mark first, and the photo sits on top of it.
+//
+// Photos are visible by default, so they show without JavaScript and before
+// hydration. Once hydrated, a photo that has not finished loading is marked
+// data-pending (hidden) and fades in when it loads; a photo that failed is
+// marked data-failed (hidden, so the tile shows). A photo that loaded before
+// hydration is left alone, so nothing flashes. State lives in data-*
+// attributes, not React state. Without JavaScript, a CSS ::before layer
+// covers the browser's broken-image icon (globals.css, `.sf-img::before`).
 
-function markLoaded(img: HTMLImageElement) {
+function settle(img: HTMLImageElement) {
+  delete img.dataset.pending;
   if (img.naturalWidth > 0) img.dataset.loaded = "";
   else img.dataset.failed = "";
 }
 
 function onLoad(event: SyntheticEvent<HTMLImageElement>) {
-  markLoaded(event.currentTarget);
+  settle(event.currentTarget);
 }
 
 function onError(event: SyntheticEvent<HTMLImageElement>) {
+  delete event.currentTarget.dataset.pending;
   event.currentTarget.dataset.failed = "";
 }
 
-function checkComplete(img: HTMLImageElement | null) {
-  if (img && img.complete) markLoaded(img);
+function lazyRef(img: HTMLImageElement | null) {
+  if (!img) return;
+  if (img.complete) settle(img);
+  else img.dataset.pending = "";
 }
+
+function eagerRef(img: HTMLImageElement | null) {
+  // Eager (LCP) photos never hide; only catch a failure that happened before hydration.
+  if (img && img.complete) settle(img);
+}
+
+export type ImageSource = { media: string; image: StorefrontImageData };
 
 type StorefrontImgProps = {
   image: StorefrontImageData;
-  /** Above the fold (hero, first gallery photo): load eagerly, no fade. */
+  /** Art direction: the first matching source wins, `image` is the fallback (renders a <picture>). */
+  sources?: ImageSource[];
+  /** Above the fold (hero, first gallery photo): load eagerly, high priority, no fade. */
   eager?: boolean;
   sizes?: string;
+  /** "cover" fills a fixed-ratio frame; "contain" shows the whole photo (zoom view). */
+  fit?: "cover" | "contain";
   className?: string;
   /** Render with empty alt (decorative duplicate, e.g. the hover photo). */
   decorative?: boolean;
 };
 
-/** A photo that fills its ImageFrame (object-fit cover). */
-export function StorefrontImg({ image, eager = false, sizes, className, decorative = false }: StorefrontImgProps) {
-  return (
-    // Plain <img>: sources are local files or inline SVG placeholders with
-    // explicit sizes; next/image can replace this once ZP-484 serves photos.
+/** A photo that fills its ImageFrame, with the no-broken-image behaviour above. */
+export function StorefrontImg({
+  image,
+  sources,
+  eager = false,
+  sizes,
+  fit = "cover",
+  className,
+  decorative = false,
+}: StorefrontImgProps) {
+  const img = (
+    // Plain <img>: sources are local files or preview SVGs; next/image can
+    // replace this once ZP-484 serves photos with known sizes.
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      ref={checkComplete}
+      ref={eager ? eagerRef : lazyRef}
       src={image.src}
       alt={decorative ? "" : image.alt}
       width={image.width}
@@ -53,12 +81,24 @@ export function StorefrontImg({ image, eager = false, sizes, className, decorati
       sizes={sizes}
       loading={eager ? "eager" : "lazy"}
       fetchPriority={eager ? "high" : undefined}
-      decoding={eager ? "sync" : "async"}
-      data-eager={eager ? "" : undefined}
+      decoding="async"
       onLoad={onLoad}
       onError={onError}
-      className={cn("sf-img absolute inset-0 h-full w-full object-cover", className)}
+      className={cn(
+        "sf-img absolute inset-0 h-full w-full",
+        fit === "cover" ? "object-cover" : "object-contain",
+        className,
+      )}
     />
+  );
+  if (!sources?.length) return img;
+  return (
+    <picture>
+      {sources.map((s) => (
+        <source key={s.media} media={s.media} srcSet={s.image.src} width={s.image.width} height={s.image.height} />
+      ))}
+      {img}
+    </picture>
   );
 }
 
