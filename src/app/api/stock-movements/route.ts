@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getStockMovements } from '@/lib/stock';
+import { authorize } from '@/lib/api-auth';
 
 export async function GET(request: Request) {
+  const auth = await authorize(request);
+  if (!auth.ok) return auth.response;
   try {
     const { searchParams } = new URL(request.url);
     const productIdStr = searchParams.get('productId');

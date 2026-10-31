@@ -3,8 +3,15 @@ import prisma from '@/lib/db';
 import { verifyPassword, createToken } from '@/lib/auth';
 
 export async function POST(request: Request) {
+  let body: { username?: string; password?: string };
   try {
-    const { username, password } = await request.json();
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+  }
+
+  try {
+    const { username, password } = body;
 
     if (!username || !password) {
       return NextResponse.json({ error: 'Username and password are required' }, { status: 400 });
@@ -44,7 +51,7 @@ export async function POST(request: Request) {
 
     return response;
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Internal Server Error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('[auth/login] failed:', error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

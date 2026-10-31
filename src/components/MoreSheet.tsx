@@ -12,6 +12,7 @@ const moreItems = [
   { label: 'Reports', href: '/reports', icon: '📊', testId: 'more-nav-reports' },
   { label: 'Import Data', href: '/import', icon: '📥', testId: 'more-nav-import', ownerOnly: true },
   { label: 'Exchange Rate', href: '/settings/exchange-rate', icon: '⚙️', testId: 'more-nav-exchange-rate', ownerOnly: true },
+  { label: 'Change Password', href: '/settings/password', icon: '🔑', testId: 'more-nav-change-password' },
 ];
 
 interface MoreSheetProps {

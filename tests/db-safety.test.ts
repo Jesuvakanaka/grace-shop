@@ -85,7 +85,7 @@ describe('db-safety: destructive database operations guard', () => {
   test('assertDestructiveDbAllowed throws with the reason and names the operation', () => {
     assert.throws(
       () => assertDestructiveDbAllowed('database reset', { DATABASE_URL: REMOTE_URL }),
-      /Refusing to run database reset.*db\.example\.com/s,
+      /Refusing to run database reset[\s\S]*db\.example\.com/,
     );
     assert.doesNotThrow(() => assertDestructiveDbAllowed('database reset', { DATABASE_URL: LOCAL_URL }));
   });
@@ -93,7 +93,7 @@ describe('db-safety: destructive database operations guard', () => {
   test('CLI exits non-zero and prints the reason for a remote URL', () => {
     const script = path.join(__dirname, '..', 'scripts', 'lib', 'db-safety.js');
     const run = spawnSync(process.execPath, [script, 'test op'], {
-      env: { PATH: process.env.PATH ?? '', DATABASE_URL: REMOTE_URL, DB_SAFETY_SKIP_DOTENV: '1' },
+      env: { PATH: process.env.PATH ?? '', DATABASE_URL: REMOTE_URL, DB_SAFETY_SKIP_DOTENV: '1' } as unknown as NodeJS.ProcessEnv, // Next's types make NODE_ENV required; the child must not inherit it
       encoding: 'utf8',
     });
     assert.notStrictEqual(run.status, 0);
@@ -103,7 +103,7 @@ describe('db-safety: destructive database operations guard', () => {
   test('CLI exits zero for a localhost URL', () => {
     const script = path.join(__dirname, '..', 'scripts', 'lib', 'db-safety.js');
     const run = spawnSync(process.execPath, [script, 'test op'], {
-      env: { PATH: process.env.PATH ?? '', DATABASE_URL: LOCAL_URL, DB_SAFETY_SKIP_DOTENV: '1' },
+      env: { PATH: process.env.PATH ?? '', DATABASE_URL: LOCAL_URL, DB_SAFETY_SKIP_DOTENV: '1' } as unknown as NodeJS.ProcessEnv, // Next's types make NODE_ENV required; the child must not inherit it
       encoding: 'utf8',
     });
     assert.strictEqual(run.status, 0, run.stderr);

@@ -1,15 +1,30 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { hashPassword, createToken } from '@/lib/auth';
+import { hashPassword, createToken, getJwtSecret } from '@/lib/auth';
+import { isSetupAllowed } from '@/lib/setup-guard';
 
 export async function POST(request: Request) {
+  if (!isSetupAllowed()) {
+    return NextResponse.json({ error: 'First-time setup is disabled on this server' }, { status: 403 });
+  }
+
+  let body: { username?: string; password?: string; fullName?: string };
   try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+  }
+
+  try {
+    // Fail before any side effect if sessions can't be issued (misconfigured JWT_SECRET).
+    getJwtSecret();
+
     const userCount = await prisma.user.count();
     if (userCount > 0) {
       return NextResponse.json({ error: 'Setup already completed. Users exist.' }, { status: 403 });
     }
 
-    const { username, password, fullName } = await request.json();
+    const { username, password, fullName } = body;
 
     if (!username || !password || !fullName) {
       return NextResponse.json({ error: 'Username, password, and full name are required' }, { status: 400 });
@@ -47,7 +62,7 @@ export async function POST(request: Request) {
 
     return response;
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Internal Server Error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('[auth/setup] failed:', error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
