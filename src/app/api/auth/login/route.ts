@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { verifyPassword, createToken } from '@/lib/auth';
+import { verifyPassword } from '@/lib/auth';
+import { signedInResponse } from '@/lib/session-cookie';
 
 export async function POST(request: Request) {
   let body: { username?: string; password?: string };
@@ -30,26 +31,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
-    const token = await createToken(user.id, user.username, user.role);
-
-    const response = NextResponse.json({
-      user: {
-        id: user.id,
-        username: user.username,
-        fullName: user.fullName,
-        role: user.role,
-      },
-    });
-
-    response.cookies.set('auth-token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 60 * 60 * 24, // 24 hours
-    });
-
-    return response;
+    return await signedInResponse(user);
   } catch (error: unknown) {
     console.error('[auth/login] failed:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

@@ -61,7 +61,9 @@ and skips **deploy**.
       - Runtime SA, Cloud SQL attached.
       - Secrets: `DATABASE_URL`, `DIRECT_URL`, `JWT_SECRET`, always `:latest`.
       - Env: `NODE_ENV=production`, `GRACE_IMAGE_STORAGE=gcs`,
-        `GRACE_IMAGE_BUCKET=grace-shop-uat-images-266452509449`.
+        `GRACE_IMAGE_BUCKET=grace-shop-uat-images-266452509449`,
+        `GRACE_QUICK_LOGIN` (repository variable, default `false`; see
+        [UAT quick sign-in](#uat-quick-sign-in)).
       - Port 8080, startup probe on `/api/health`.
       - `min-instances=0`, `max-instances=2`, 512Mi memory, 1 CPU, public.
 
@@ -147,6 +149,79 @@ the schema:
 That run does the normal migrate step, then deploys and executes
 `grace-shop-uat-seed` with `GRACE_OWNER_PASSWORD` and `GRACE_STAFF_PASSWORD`
 from Secret Manager. Then it deploys the web service as usual.
+
+The seed job also sets `GRACE_OWNER_USERNAME=margie` and
+`GRACE_OWNER_FULLNAME=Margaret`, so a fresh seed creates the owner as
+`margie` ("Margaret"). Locally both default to `owner` / `Business Owner`.
+The seed only creates a missing user: on a database that already has the old
+`owner` user, rename it first (below), or the seed adds a second OWNER called
+`margie`.
+
+### Renaming the owner (`owner` → `margie`)
+
+`scripts/set-user.js` renames a user and/or sets the full name. It never
+touches passwords and never prints secrets:
+
+```bash
+npm run user:set -- --from owner --to margie --full-name "Margaret"
+```
+
+It is idempotent: if `margie` already exists it only updates the full name and
+exits 0. If neither user exists it exits 1. The password stays the same (the
+`grace-shop-uat-owner-password` value, unless it was changed in the app).
+On UAT it has to run where `DATABASE_URL` points at Cloud SQL, for example as a
+one-off Cloud Run job from the deployed image (`--command=npm
+--args=run,user:set,--,--from,owner,--to,margie,--full-name,Margaret`, with the
+same service account, Cloud SQL attachment and `DB_SECRETS` as the migrate
+job, and a name starting with `grace-shop-`).
+
+## UAT quick sign-in
+
+**What it does.** When `GRACE_QUICK_LOGIN=true` is set on the web service, the
+login page shows a "UAT quick sign-in" section with one button per role, for
+example "Margaret — Owner" and "Shop Staff — Staff", plus an amber
+"UAT only" note. A button signs in straight away as the first **active** user
+of that role (lowest id), without a password. It sets the same session cookie
+as the normal sign-in (`HttpOnly`, `Secure`, `SameSite=lax`, 24 hours). The
+username/password form stays underneath. Every quick sign-in is logged as
+`[quick-login] <ROLE> <username>` in the Cloud Run logs.
+
+API: `GET /api/auth/quick-login` returns `{ enabled, setupAllowed, users? }`
+(role, username and full name only). `POST /api/auth/quick-login` with
+`{"role":"OWNER"|"STAFF"}` signs in. With the flag off, `GET` returns
+`{"enabled":false,...}` and `POST` returns 404 before reading the body or the
+database.
+
+**Risk.** Anyone who has the UAT URL can sign in as the owner and see or
+change every record. The owner accepted this for UAT on 2026-10-31 because
+UAT holds test data only (see `docs/security/zp-465-security-review.md`,
+section 6). It **must be OFF before any real data is entered and before
+go-live.**
+
+**Default.** Off everywhere. The app only enables it when the value is exactly
+the string `true`. The workflow passes the GitHub repository variable
+`GRACE_QUICK_LOGIN` and uses `false` when the variable is not set.
+
+**Turn it ON or OFF.**
+
+```bash
+# ON
+gh variable set GRACE_QUICK_LOGIN --body true -R Jesuvakanaka/grace-shop
+# OFF
+gh variable set GRACE_QUICK_LOGIN --body false -R Jesuvakanaka/grace-shop
+```
+
+Changing the variable does nothing until the next deploy. Then either re-run
+**deploy-uat** (Actions → deploy-uat → Run workflow, branch `master`, leave
+`run_seed` unticked), or merge to `master`. Check the login page afterwards:
+the quick sign-in section must appear (ON) or be gone (OFF), and with OFF
+`POST /api/auth/quick-login` returns 404.
+
+The smoke test is unaffected: `GET /api/dashboard` without a cookie is still
+401 either way.
+
+The "First time? Set up admin account" link is also hidden on UAT now, because
+first-time setup is disabled in production unless `ALLOW_SETUP=true`.
 
 ## Where the owner reads the UAT passwords
 
