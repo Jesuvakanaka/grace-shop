@@ -119,13 +119,12 @@ The browser caches pictures privately for a day, so a cached picture can still s
 - A changed stock value is recorded through the existing owner-only `POST /api/stock-movements/adjust`, as an `ADJUSTMENT` movement in the stock ledger.
 - The notes field shows the original spreadsheet remarks.
 
-## Cloud Run (ZP-472) prerequisites
+## Cloud Run (ZP-472)
 
-The runtime image does not yet contain `src/` or `tsconfig.json`. The CLI is a `tsx` script that imports `src/lib/...` through the `@/` path alias, so the Dockerfile runtime stage needs:
+The runtime image contains `src/` and `tsconfig.json`, because the CLI is a `tsx` script that imports `src/lib/...` through the `@/` path alias. `tsx` itself comes from the full `node_modules` copy in the image.
 
-```dockerfile
-COPY --from=build /app/src ./src
-COPY --from=build /app/tsconfig.json ./tsconfig.json
-```
+Run it as a job with the command override `npm run import:august -- gs://<bucket>/<object> [--dry-run]`. Set `DATABASE_URL`, `GRACE_IMAGE_STORAGE=gcs` and `GRACE_IMAGE_BUCKET`.
 
-Then run the job command `npm run import:august -- gs://<bucket>/<object> [--dry-run]`, with `GRACE_IMAGE_STORAGE=gcs` and `GRACE_IMAGE_BUCKET` set.
+`sharp` is loaded only when a picture is processed (upload or import). Serving pictures never needs the native binary.
+
+Next's standalone trace copies the sharp `.node` file but not the libvips libraries next to it. In the image, those libraries come from the full `node_modules` layer underneath. A bare `.next/standalone` copy without that layer cannot process uploads.

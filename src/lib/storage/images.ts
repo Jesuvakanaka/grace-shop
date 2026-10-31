@@ -13,7 +13,6 @@
 //   default credentials (Cloud Run runtime service account).
 import { createHash } from 'node:crypto'
 import path from 'node:path'
-import sharp from 'sharp'
 import { LocalImageStorage } from './local'
 import { GcsImageStorage } from './gcs'
 import {
@@ -78,6 +77,9 @@ export async function processProductImage(input: Uint8Array): Promise<ProcessedI
   const sourceType = sniffImageType(input)
   if (!sourceType) throw new ImageRejectedError('Only JPEG, PNG, GIF or WebP pictures are allowed.')
 
+  // Loaded on first use, so routes that only read pictures (GET /api/images)
+  // never depend on the native sharp binary.
+  const { default: sharp } = await import('sharp')
   let output: { data: Buffer; info: { width: number; height: number } }
   try {
     output = await sharp(input, { limitInputPixels: IMAGE_MAX_INPUT_PIXELS, failOn: 'error' })

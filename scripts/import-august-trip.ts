@@ -16,13 +16,19 @@ import { formatAugustReport } from '../src/lib/import/august-trip/report'
 import { getImageStorage, saveProductImage } from '../src/lib/storage/images'
 import { downloadGsObject, parseGsUri } from '../src/lib/storage/gcs'
 
+const USAGE = 'Usage: npm run import:august -- <path-or-gs://uri> [--dry-run] [--json] [--sheet <name>]'
+
 function usage(): never {
-  console.error('Usage: npm run import:august -- <path-or-gs://uri> [--dry-run] [--json] [--sheet <name>]')
+  console.error(USAGE)
   process.exit(1)
 }
 
 async function main() {
   const args = process.argv.slice(2)
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(USAGE)
+    return
+  }
   const dryRun = args.includes('--dry-run')
   const json = args.includes('--json')
   const sheetIdx = args.indexOf('--sheet')
