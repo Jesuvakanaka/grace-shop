@@ -292,7 +292,8 @@ export function WebsiteSection({
         <p className="text-xs text-slate-500 mt-2" data-testid="website-new-arrival">{newArrivalText(product)}</p>
       </div>
 
-      {error && (
+      {/* Field errors (slug, category) are shown under their field instead. */}
+      {error && error.field !== 'slug' && error.field !== 'categoryId' && (
         <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-sm" data-testid="website-error">
           {error.error}
         </div>
