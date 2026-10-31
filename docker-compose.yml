@@ -1,0 +1,23 @@
+# Local development database (synthetic data only).
+# Usage: docker compose up -d
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: grace-shop-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: grace
+      POSTGRES_PASSWORD: grace_local_dev
+      POSTGRES_DB: grace_shop
+    ports:
+      - "5433:5432"
+    volumes:
+      - grace-shop-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U grace -d grace_shop"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  grace-shop-pgdata:
