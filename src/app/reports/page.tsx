@@ -178,6 +178,8 @@ export default function ReportsHubPage() {
                     <th className="p-2 text-right">Cost (USD)</th>
                     <th className="p-2 text-right">Selling (RMB)</th>
                     <th className="p-2 text-right">Selling (USD)</th>
+                    <th className="p-2 text-right">Wholesale (USD)</th>
+                    <th className="p-2 text-right">Wholesale Min Qty</th>
                     <th className="p-2 text-right">Opening Stock</th>
                     <th className="p-2 text-right">Stock On Hand</th>
                   </tr>
@@ -191,6 +193,8 @@ export default function ReportsHubPage() {
                       <td className="p-2 text-right font-mono">{formatCurrency(p.unitCostUsd)}</td>
                       <td className="p-2 text-right font-mono">{p.sellingPriceRmb}</td>
                       <td className="p-2 text-right font-mono">{formatCurrency(p.sellingPriceUsd)}</td>
+                      <td className="p-2 text-right font-mono">{p.wholesalePriceUsd == null ? '—' : formatCurrency(p.wholesalePriceUsd)}</td>
+                      <td className="p-2 text-right font-mono">{p.wholesaleMinQuantity ?? '—'}</td>
                       <td className="p-2 text-right font-mono">{p.openingQuantity}</td>
                       <td className="p-2 text-right font-mono font-bold">{p.currentQuantity}</td>
                     </tr>

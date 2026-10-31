@@ -22,6 +22,8 @@ export async function createProduct(data: {
   unitCostRmb: number
   unitCostUsd: number
   openingQuantity?: number
+  wholesalePriceUsd?: number | null
+  wholesaleMinQuantity?: number | null
   notes?: string
   createdBy?: string
 }) {
@@ -45,6 +47,8 @@ export async function createProduct(data: {
         unitCostUsd: data.unitCostUsd,
         sellingPriceRmb,
         sellingPriceUsd,
+        wholesalePriceUsd: data.wholesalePriceUsd ?? null,
+        wholesaleMinQuantity: data.wholesaleMinQuantity ?? null,
         openingQuantity,
         currentQuantity: openingQuantity,
         notes: data.notes,
@@ -72,19 +76,48 @@ export async function createProduct(data: {
   })
 }
 
-export async function updateProduct(id: number, data: {
+export type ProductUpdateData = {
   productName?: string
   imageUrl?: string | null
   unitCostRmb?: number
   unitCostUsd?: number
   sellingPriceRmb?: number
   sellingPriceUsd?: number
-  notes?: string
+  wholesalePriceUsd?: number | null
+  wholesaleMinQuantity?: number | null
+  notes?: string | null
   updatedBy?: string
-}) {
+}
+
+const PRODUCT_UPDATE_FIELDS = [
+  'productName',
+  'imageUrl',
+  'unitCostRmb',
+  'unitCostUsd',
+  'sellingPriceRmb',
+  'sellingPriceUsd',
+  'wholesalePriceUsd',
+  'wholesaleMinQuantity',
+  'notes',
+  'updatedBy',
+] as const satisfies readonly (keyof ProductUpdateData)[]
+
+/**
+ * Keep only the fields an edit may change. Stops request bodies from writing
+ * columns such as itemNumber, currentQuantity or id through updateProduct.
+ */
+export function pickProductUpdateFields(data: Record<string, unknown>): ProductUpdateData {
+  const picked: Record<string, unknown> = {}
+  for (const key of PRODUCT_UPDATE_FIELDS) {
+    if (data[key] !== undefined) picked[key] = data[key]
+  }
+  return picked as ProductUpdateData
+}
+
+export async function updateProduct(id: number, data: ProductUpdateData) {
   return prisma.product.update({
     where: { id },
-    data
+    data: pickProductUpdateFields(data)
   })
 }
 

@@ -1,0 +1,4 @@
+# Prisma checksums migration files byte-for-byte: keep LF on every OS so a
+# Windows checkout and the Linux deploy image compute the same checksum.
+prisma/migrations/** text eol=lf
+*.sql text eol=lf
