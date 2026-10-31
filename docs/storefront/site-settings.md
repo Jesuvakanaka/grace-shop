@@ -13,6 +13,7 @@ the "few left" threshold and whether item numbers are public.
   - `schema.ts`: types, defaults, limits, the field allow-list (pure, client-safe)
   - `validate.ts`: `validateSiteSettingsInput` and helpers (pure, client-safe)
   - `whatsapp.ts`: `buildWhatsAppLink` (pure, client-safe)
+  - `diff.ts`: `changedSettings`, used by the form to send only changed fields (pure, client-safe)
   - `dto.ts`: `toPublicSiteSettings`, `publicSettingsImageUrl`, `settingsImageKeys` (pure)
   - `db.ts`: `readSiteSettings`, `updateSiteSettings` (server only)
   - `public.ts`: `getPublicSiteSettings()` (cached), `loadPublicSiteSettings(db)` (server only)
@@ -78,9 +79,21 @@ the "few left" threshold and whether item numbers are public.
 | Availability | `fewLeftThreshold` | 3 | Whole number from 1 to 50. Pass it to `getAvailability(qty, threshold)`. |
 | | `showItemNumber` | false | Show the internal item number publicly ("Ref AUG-45"). |
 
-All URLs must be `https://` with a host and no `user:password@`. Text is
-trimmed. An optional field that is blank is saved as `null`. A required
-field that is blank is an error.
+All URLs must be `https://` with a host and no `user:password@`. They are
+stored in normalised form (`new URL(value).href`): the host is lower case,
+the default port is dropped, and the path is encoded. For example,
+`https://WWW.Instagram.COM/vyra` is stored as `https://www.instagram.com/vyra`.
+Text is trimmed. An optional field that is blank is saved as `null`. A
+required field that is blank is an error.
+
+**Characters.** Every string field rejects control characters, including NUL,
+tab, DEL and the C1 controls. It also rejects the bidi embedding, override
+and isolate characters U+202A–U+202E and U+2066–U+2069, which can make public
+text display differently from what was typed. Either gives a 400 field error.
+Line breaks are allowed only in the multi-line fields `address`, `aboutStory`
+and `holidayNote` (`MULTI_LINE_FIELDS`), where CRLF and CR are saved as LF.
+Every other field must be a single line. Raw URLs are checked before parsing,
+because `new URL()` silently strips tabs and newlines.
 
 The featured-products order is not here. Featured flags and `sortOrder` live
 on each product (ZP-482/ZP-483).
@@ -116,8 +129,9 @@ const href = buildWhatsAppLink(settings, { product: name, url, colour, size }) /
 ```
 
 `getPublicSiteSettings()` is server only (it imports Prisma). It is cached
-with `unstable_cache` and the tag `storefront:settings`. The project does
-not enable Cache Components, so `'use cache'` is not available. It returns
+with `unstable_cache`, the tag `storefront:settings` and `revalidate: 60`.
+The project does not enable Cache Components, so `'use cache'` is not
+available. It returns
 an allow-listed DTO (`PublicSiteSettings` in `dto.ts`):
 
 ```
@@ -138,7 +152,10 @@ It never includes `updatedBy`, timestamps or raw storage keys.
   `null` when no usable number is set (fewer than 8 or more than 15 digits).
 - With `product`, it uses `enquiryTemplate`. The placeholders are filled in
   one pass, so text in a product name such as `{url}` is never expanded
-  again. A `()` left empty by a missing `url` is removed. Colour and size that
+  again. Without a `url`, only the `({url})` wrapper in the template is
+  removed, before the values are filled in. Other parentheses, in the
+  template or in the product name (`Tee (Kids)`), are kept. A bare `{url}`
+  becomes empty. Colour and size that
   the template does not mention are added on their own lines
   (`Colour: Black`, `Size: M`).
 - Without `product`, it uses `generalEnquiryMessage`.
@@ -153,6 +170,20 @@ fresh data instead of being served stale content. The call never throws,
 because the save has already happened. Outside a Next.js request (tests,
 scripts) `revalidateTag` throws an invariant error, which is logged and
 ignored.
+
+**Several instances: 60-second backstop.** `revalidateTag` clears only the
+cache of the instance that handled the `PUT`. Cloud Run runs up to 2
+instances, each with its own cache, so the other instance would keep the old
+settings. `getPublicSiteSettings()` therefore also has `revalidate: 60`
+(`PUBLIC_SETTINGS_REVALIDATE_SECONDS`). The instance that saved shows the
+change on its next request. Every other instance shows it within a minute,
+which meets "the storefront reflects it within a minute". Storefront pages
+that embed the settings in their own cache (ZP-481/ZP-484) need the same
+60-second backstop, or a shared cache handler, to keep this promise.
+
+The admin form validates every field, but it sends only the fields that
+changed (`changedSettings` in `src/lib/site-settings/diff.ts`, with latitude
+and longitude always sent together).
 
 **TODO (consolidate):** `src/lib/site-settings/revalidate.ts` calls
 `revalidateTag` directly so that it does not edit ZP-484's

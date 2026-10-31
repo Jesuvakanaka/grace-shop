@@ -29,6 +29,26 @@ const TIME = /^([01]\d|2[0-3]):[0-5]\d$/
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PHONE = /^\+?[0-9][0-9 ()-]{5,28}[0-9]$/
 
+/** Text fields that may contain line breaks. Every other field is a single line. */
+export const MULTI_LINE_FIELDS: ReadonlySet<SiteSettingsField> = new Set<SiteSettingsField>(['address', 'aboutStory', 'holidayNote'])
+
+// C0 controls except LF/CR (handled separately), DEL, C1 controls, and the
+// bidi embedding/override/isolate characters (U+202A-U+202E, U+2066-U+2069),
+// which can make public text display differently from what was typed.
+const UNSAFE_CHAR = /[\u0000-\u0009\u000B\u000C\u000E-\u001F\u007F-\u009F‪-‮⁦-⁩]/
+const LINE_BREAK = /[\r\n]/
+
+/**
+ * Character check run on every string before its field rule. Multi-line
+ * fields get CRLF / CR normalised to LF. Returns the (normalised) string or an error.
+ */
+export function checkCharacters(value: string, multiline: boolean): { value: string } | { error: string } {
+  const s = multiline ? value.replace(/\r\n?/g, '\n') : value
+  if (!multiline && LINE_BREAK.test(s)) return { error: 'Must be a single line (no line breaks).' }
+  if (UNSAFE_CHAR.test(s)) return { error: 'Contains a character that is not allowed (control or text-direction character).' }
+  return { value: s }
+}
+
 /** "+263 77 123-4567" -> "+263771234567". Null unless it is E.164 (8 to 15 digits). */
 export function normalizeE164(value: string): string | null {
   const compact = value.trim().replace(/[\s().-]/g, '')
@@ -123,7 +143,10 @@ const httpsUrl = (domains?: readonly string[]): Check =>
     if (s.length > MAX_LENGTH.url) return fail(`At most ${MAX_LENGTH.url} characters.`)
     if (!isHttpsUrl(s)) return fail('Must be a full https:// link.')
     if (domains && !isHttpsUrl(s, domains)) return fail(`Must be a link on ${domains.join(' or ')}.`)
-    return { value: s }
+    // Store the parsed form (lower-case host, default port dropped, encoded path).
+    const href = new URL(s).href
+    if (href.length > MAX_LENGTH.url) return fail(`At most ${MAX_LENGTH.url} characters.`)
+    return { value: href }
   })
 
 const template: Check = (v) => {
@@ -218,7 +241,16 @@ export function validateSiteSettingsInput(input: unknown): ValidationResult {
       else Object.assign(errors, r.errors)
       continue
     }
-    const r = CHECKS[field](raw)
+    let input = raw
+    if (typeof raw === 'string') {
+      const c = checkCharacters(raw, MULTI_LINE_FIELDS.has(field))
+      if ('error' in c) {
+        errors[field] = c.error
+        continue
+      }
+      input = c.value
+    }
+    const r = CHECKS[field](input)
     if ('error' in r) errors[field] = r.error
     else value[field] = r.value
   }

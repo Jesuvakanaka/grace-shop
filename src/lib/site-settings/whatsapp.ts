@@ -20,8 +20,9 @@ const PLACEHOLDER = /\{(product|url|colour|size)\}/g
  *
  * - With `product`: the enquiry template, with {product}, {url}, {colour} and
  *   {size} filled in (one pass, so text in a product name is never expanded
- *   again). An unused "()" left by a missing {url} is removed. Colour and size
- *   the template does not mention are appended on their own lines.
+ *   again). Without a url, only the "({url})" wrapper in the template is
+ *   removed (other parentheses stay) and a bare {url} becomes "". Colour and
+ *   size the template does not mention are appended on their own lines.
  * - Without `product`: the general enquiry message.
  */
 export function buildWhatsAppLink(
@@ -41,10 +42,10 @@ export function buildWhatsAppLink(
       colour: enquiry.colour?.trim() ?? '',
       size: enquiry.size?.trim() ?? '',
     }
-    message = template
-      .replace(PLACEHOLDER, (_, name: string) => values[name])
-      .replace(/\s*\(\s*\)/g, '')
-      .trim()
+    // Without a url, drop the "({url})" wrapper from the TEMPLATE before filling
+    // it in, so parentheses in the product name or elsewhere in the template stay.
+    const parts = values.url ? template : template.replace(/[ \t]*\(\s*\{url\}\s*\)/g, '')
+    message = parts.replace(PLACEHOLDER, (_, name: string) => values[name]).trim()
     const extra: string[] = []
     if (values.colour && !template.includes('{colour}')) extra.push(`Colour: ${values.colour}`)
     if (values.size && !template.includes('{size}')) extra.push(`Size: ${values.size}`)

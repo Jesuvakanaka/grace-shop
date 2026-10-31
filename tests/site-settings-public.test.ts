@@ -72,6 +72,20 @@ describe('buildWhatsAppLink', () => {
     assert.strictEqual(inline, 'Blazer in Black, size M: https://vyra.example/p/blazer')
   })
 
+  test('only the "()" left by a missing {url} is removed, not other parentheses (review fix 4)', () => {
+    const c = contacts('+263771234567', { enquiryTemplate: 'Hi () about {product} ({url}) thanks' })
+    assert.strictEqual(textOf(buildWhatsAppLink(c, { product: 'Tee (Kids) ()' })), 'Hi () about Tee (Kids) () thanks')
+    assert.strictEqual(
+      textOf(buildWhatsAppLink(c, { product: 'Tee ()', url: 'https://vyra.example/p/t' })),
+      'Hi () about Tee () (https://vyra.example/p/t) thanks',
+    )
+    // Default template, product name ending in "()": kept.
+    assert.strictEqual(textOf(buildWhatsAppLink(contacts('+263771234567'), { product: 'Mystery box ()' })), "Hi VYRA, I'm interested in Mystery box ()")
+    // A bare {url} with no url just disappears.
+    const bare = contacts('+263771234567', { enquiryTemplate: '{product} - {url}' })
+    assert.strictEqual(textOf(buildWhatsAppLink(bare, { product: 'Blazer' })), 'Blazer -')
+  })
+
   test('placeholder-looking text in a product name is not re-expanded', () => {
     const t = textOf(buildWhatsAppLink(contacts('+263771234567'), { product: 'Tee {url}', url: 'https://vyra.example/p/t' }))
     assert.strictEqual(t, "Hi VYRA, I'm interested in Tee {url} (https://vyra.example/p/t)")
@@ -113,6 +127,27 @@ describe('public DTO', () => {
   test('the DTO works with buildWhatsAppLink', () => {
     const dto = toPublicSiteSettings({ ...SITE_SETTINGS_DEFAULTS, whatsappNumber: '+263771234567' })
     assert.ok(buildWhatsAppLink(dto)!.startsWith('https://wa.me/263771234567?text='))
+  })
+})
+
+describe('changedSettings (admin form sends only changed fields)', () => {
+  test('returns only the fields that differ; latitude/longitude travel together', async () => {
+    const { changedSettings } = await import('../src/lib/site-settings/diff')
+    const base = { ...SITE_SETTINGS_DEFAULTS } as Record<string, unknown>
+    assert.deepStrictEqual(changedSettings(base, base), {})
+    assert.deepStrictEqual(changedSettings({ ...base, heroHeadline: 'New' }, base), { heroHeadline: 'New' })
+    assert.deepStrictEqual(changedSettings({ ...base, latitude: 1 }, base), { latitude: 1, longitude: null })
+    const hours = { mon: { closed: true } }
+    assert.deepStrictEqual(changedSettings({ ...base, openingHours: hours }, base), { openingHours: hours })
+    assert.deepStrictEqual(changedSettings({ ...base, openingHours: { mon: { closed: true } } }, { ...base, openingHours: hours }), {})
+  })
+})
+
+describe('public cache options (review fix 1)', () => {
+  test('tagged storefront:settings with a 60s time-based backstop (multi-instance Cloud Run)', async () => {
+    const { PUBLIC_SETTINGS_CACHE_OPTIONS, PUBLIC_SETTINGS_REVALIDATE_SECONDS } = await import('../src/lib/site-settings/public')
+    assert.strictEqual(PUBLIC_SETTINGS_REVALIDATE_SECONDS, 60)
+    assert.deepStrictEqual(PUBLIC_SETTINGS_CACHE_OPTIONS, { tags: ['storefront:settings'], revalidate: 60 })
   })
 })
 

@@ -20,6 +20,7 @@ import {
 } from '@/lib/site-settings/schema';
 import { normalizeE164, validateSiteSettingsInput, type FieldErrors } from '@/lib/site-settings/validate';
 import { buildWhatsAppLink } from '@/lib/site-settings/whatsapp';
+import { changedSettings } from '@/lib/site-settings/diff';
 import { imageUrlForKey, isValidImageKey, PRODUCT_IMAGE_PREFIX, IMAGE_URL_PREFIX } from '@/lib/storage/keys';
 
 type DayForm = { closed: boolean; open: string; close: string };
@@ -116,6 +117,8 @@ function Field({
 export default function WebsiteSettingsPage() {
   const toast = useToast();
   const [form, setForm] = useState<FormState | null>(null);
+  // The settings as last loaded or saved, to send only the changed fields.
+  const [baseline, setBaseline] = useState<Record<string, unknown> | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'forbidden' | 'error'>('loading');
   const [errors, setErrors] = useState<FieldErrors>({});
   const [saving, setSaving] = useState(false);
@@ -130,7 +133,9 @@ export default function WebsiteSettingsPage() {
       }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not load the settings');
-      setForm(toForm(data.settings));
+      const loaded = toForm(data.settings);
+      setForm(loaded);
+      setBaseline(toPayload(loaded));
       setStatus('ready');
     } catch {
       setStatus('error');
@@ -164,11 +169,17 @@ export default function WebsiteSettingsPage() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form) return;
-    const payload = toPayload(form);
-    const check = validateSiteSettingsInput(payload);
+    // Validate the whole form (so every problem shows), send only what changed.
+    const full = toPayload(form);
+    const check = validateSiteSettingsInput(full);
     if (!check.ok) {
       setErrors(check.errors);
       toast.error('Please fix the highlighted fields');
+      return;
+    }
+    const payload = baseline ? changedSettings(full, baseline) : full;
+    if (Object.keys(payload).length === 0) {
+      toast.info('No changes to save');
       return;
     }
     setSaving(true);
@@ -185,7 +196,9 @@ export default function WebsiteSettingsPage() {
         return;
       }
       setErrors({});
-      setForm(toForm(data.settings));
+      const saved = toForm(data.settings);
+      setForm(saved);
+      setBaseline(toPayload(saved));
       toast.success('Saved');
     } catch {
       toast.error('Could not save the settings');
@@ -261,7 +274,7 @@ export default function WebsiteSettingsPage() {
         title="Website settings"
         subtitle="Contacts, opening hours and words on the VYRA website."
         actions={
-          <button type="submit" className="btn btn-primary" disabled={saving} data-testid="settings-save-top">
+          <button type="submit" className="btn btn-primary" disabled={saving || uploading !== null} data-testid="settings-save-top">
             {saving ? 'Saving…' : 'Save'}
           </button>
         }
@@ -285,10 +298,10 @@ export default function WebsiteSettingsPage() {
           error={errors.enquiryTemplate}
           hint="Use {product} and {url}; {colour} and {size} are optional."
         >
-          {textarea('enquiryTemplate', 2, MAX_LENGTH.enquiryTemplate)}
+          {input('enquiryTemplate', { maxLength: MAX_LENGTH.enquiryTemplate })}
         </Field>
         <Field label="General enquiry message" name="generalEnquiryMessage" error={errors.generalEnquiryMessage}>
-          {textarea('generalEnquiryMessage', 2, MAX_LENGTH.generalEnquiryMessage)}
+          {input('generalEnquiryMessage', { maxLength: MAX_LENGTH.generalEnquiryMessage })}
         </Field>
         <p className="text-xs text-slate-500 break-all" data-testid="whatsapp-preview">
           {preview ? (
@@ -447,7 +460,7 @@ export default function WebsiteSettingsPage() {
           {input('seoTitle', { maxLength: MAX_LENGTH.seoTitle })}
         </Field>
         <Field label="Meta description" name="seoDescription" error={errors.seoDescription}>
-          {textarea('seoDescription', 2, MAX_LENGTH.seoDescription)}
+          {input('seoDescription', { maxLength: MAX_LENGTH.seoDescription })}
         </Field>
         <ImagePicker field="seoShareImageKey" label="Default share picture" form={form} errors={errors} set={set} uploading={uploading} setUploading={setUploading} />
       </Section>

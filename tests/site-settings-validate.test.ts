@@ -198,3 +198,57 @@ describe('site settings: other fields', () => {
     assert.deepStrictEqual(Object.keys(errs).sort(), ['fewLeftThreshold', 'instagramUrl', 'whatsappNumber'])
   })
 })
+
+describe('site settings: unsafe characters (review fix 2)', () => {
+  const SINGLE_LINE = [
+    'heroHeadline',
+    'heroSubline',
+    'statement',
+    'trustLabel1',
+    'seoTitle',
+    'seoDescription',
+    'aboutHeadline',
+    'enquiryTemplate',
+    'generalEnquiryMessage',
+  ] as const
+  const MULTI_LINE = ['address', 'aboutStory', 'holidayNote'] as const
+  const BAD = ['\u0000', '\u0007', '\t', '\u001B', '\u007F', '\u0085', '‪', '‮', '⁦', '⁩']
+
+  test('control characters (incl. NUL) and bidi overrides are rejected in every text field', () => {
+    for (const field of [...SINGLE_LINE, ...MULTI_LINE]) {
+      for (const ch of BAD) {
+        const errs = errorsOf({ [field]: `Hello${ch}World` })
+        assert.match(errs[field] ?? '', /character/i, `${field} with U+${ch.codePointAt(0)!.toString(16)}`)
+      }
+    }
+  })
+  test('newlines only in the multi-line fields', () => {
+    for (const field of SINGLE_LINE) {
+      for (const nl of ['\n', '\r']) assert.match(errorsOf({ [field]: `Line one${nl}Line two` })[field] ?? '', /line/i, field)
+    }
+    for (const field of MULTI_LINE) {
+      assert.strictEqual(valueOf({ [field]: 'Line one\nLine two' })[field], 'Line one\nLine two')
+      assert.strictEqual(valueOf({ [field]: 'Line one\r\nLine two' })[field], 'Line one\nLine two', `${field} CRLF -> LF`)
+    }
+  })
+  test('phone, email, WhatsApp and URLs reject them too', () => {
+    assert.ok(errorsOf({ phone: '+263\u0000242123456' }).phone)
+    assert.ok(errorsOf({ email: 'a‮@b.co' }).email)
+    assert.ok(errorsOf({ whatsappNumber: '+263⁦771234567' }).whatsappNumber)
+    // new URL() silently strips tabs and newlines; the raw input must be refused.
+    assert.ok(errorsOf({ mapUrl: 'https://maps.example/\tq' }).mapUrl)
+    assert.ok(errorsOf({ instagramUrl: 'https://instagram.com/\nvyra' }).instagramUrl)
+  })
+  test('ordinary accents, emoji and punctuation are fine', () => {
+    assert.strictEqual(valueOf({ heroHeadline: 'Crème — Été ✨ “Style”' }).heroHeadline, 'Crème — Été ✨ “Style”')
+  })
+})
+
+describe('site settings: URLs are stored normalised (review fix 3)', () => {
+  test('the parsed href is stored', () => {
+    assert.strictEqual(valueOf({ instagramUrl: 'https://WWW.Instagram.COM/vyra' }).instagramUrl, 'https://www.instagram.com/vyra')
+    assert.strictEqual(valueOf({ mapUrl: 'https://maps.example' }).mapUrl, 'https://maps.example/')
+    assert.strictEqual(valueOf({ mapUrl: 'https://maps.example:443/a b' }).mapUrl, 'https://maps.example/a%20b')
+    assert.strictEqual(valueOf({ tiktokUrl: 'https://www.tiktok.com/@vyra' }).tiktokUrl, 'https://www.tiktok.com/@vyra')
+  })
+})
