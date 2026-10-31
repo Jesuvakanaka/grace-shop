@@ -118,6 +118,14 @@ That is 146 tests including the consistent-body and unknown-role checks. Mutatin
 
 Red: 64 of 146 failed against the original handlers. Green: all pass.
 
+### 4a. Audit fields and mass assignment (review fix)
+
+- `POST /api/sales` and `POST /api/expenses` used to spread `...rest` after `createdBy: session.username`. A STAFF user could post `"createdBy":"owner"`.
+- `src/lib/expenses.ts` passed `{...data}` straight into `prisma.expense.create`, so a client could set any column (`id`, `createdAt`, …).
+- Now both routes allow-list the body fields, and `createdBy` always comes from the session. `createExpense` writes explicit columns only.
+- `POST /api/products` now sets `createdBy` after `...rest`. `src/lib/products.ts` was left alone because ZP-475 owns it. Its `create` already writes explicit columns.
+- Tests: section 6 of `tests/business-rules.test.ts` posts `createdBy: 'owner'` (plus `id`/`createdAt` for expenses) as STAFF, or `createdBy: 'someone-else'` as OWNER for products, and checks the stored row. Red: all 3 tests stored the spoofed value. Green: all 3 store the session username.
+
 ## 5. xlsx (SheetJS)
 
 npm `xlsx@0.18.5` has advisories with no fix on npm: prototype pollution (GHSA-4r6h-8v6p-xvw6) and ReDoS (GHSA-5pgg-2g8v-p4x9). It has been replaced with the maintained SheetJS build from the official CDN:
@@ -146,8 +154,8 @@ The rest are outside this issue: `next` (critical, fix is `next@16.4.x`), `sharp
 | Session revocation | JWTs are stateless and valid for 24h. Changing a password or deactivating a user does not revoke existing tokens, and `/api/auth/session` doesn't check `active`. Accepted for UAT (two users). Follow-up: a token version or `passwordChangedAt` claim. |
 | `proxy` (formerly middleware) | Not used. Checks live in each handler through `authorize()`, so they are unit-testable and can't be skipped by a matcher mistake. Pages are client components and all data comes from the protected APIs. |
 | CSRF | The cookie is `httpOnly`, `sameSite=lax`, and `secure` in production. Mutating APIs are POST/PUT/DELETE with JSON bodies, and SameSite=Lax stops cross-site cookie sending for those. No extra token for now. |
-| Error messages | Many handlers return `error.message` on 500, which can expose internal errors such as Prisma messages. Not a credential leak. Follow-up: generic 500 bodies. |
-| `/api/upload` file extension | OWNER-only. It checks MIME type and size, but takes the extension from the client filename, so an owner could store e.g. `.html` under `/uploads`. Follow-up: derive the extension from a MIME allow-list. |
+| Error messages | **Fixed for the auth paths:** `auth/login` and `auth/setup` now return a generic `500 {"error":"Internal Server Error"}` and `console.error` the detail; malformed JSON is a 400. `authorize()` returns a generic `500 {"error":"Server misconfigured"}`. Other business handlers still return `error.message` on 500; most of those are business-rule messages the UI shows (e.g. "Insufficient stock"). Follow-up: split user-facing errors from internal ones. |
+| `/api/upload` file extension | **Recorded follow-up for ZP-468 (upload rewrite).** OWNER-only. It checks MIME type and size, but takes the extension from the client-supplied filename, so an owner could store e.g. `.html` under `/uploads` (stored XSS risk). Fix: derive the extension from a MIME allow-list and never trust `file.name`. |
 | `prisma/seed.js` | Still creates and prints `owner / owner123`. `prisma/` was outside this issue's owned paths. Follow-up: align it with `init-system.js`, or delete it in favour of `npm run init`. |
 | Other docs | `docs/business-control/03-implementation-walkthrough.md` and the header comment of `scripts/init-system.js` still mention the local dev defaults. They describe local development only and were left alone to avoid conflicts with ZP-464. |
 | `src/app/api/products/[id]/route.ts` | Creates its own `PrismaClient` instead of using `@/lib/db`. Not security-relevant, left as is. |
