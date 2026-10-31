@@ -45,7 +45,7 @@ export function FileUpload({ onFileSelect, accept = '.xlsx,.xls', label = 'Drop 
   return (
     <div 
       className={`w-full p-8 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-center cursor-pointer transition-colors ${
-        isDragging ? 'border-brand-olive bg-brand-lime/10' : 'border-slate-700 bg-slate-800/50 hover:bg-slate-800 hover:border-slate-600'
+        isDragging ? 'border-brand-olive bg-brand-lime/10' : 'bg-brand-cream-50 hover:bg-brand-olive-50'
       }`}
       onClick={() => fileInputRef.current?.click()}
       onDragOver={handleDragOver}
@@ -59,10 +59,10 @@ export function FileUpload({ onFileSelect, accept = '.xlsx,.xls', label = 'Drop 
         onChange={handleChange} 
         accept={accept}
       />
-      <div className="w-12 h-12 mb-4 rounded-full bg-slate-700/50 flex items-center justify-center text-2xl text-slate-400">
+      <div className="w-12 h-12 mb-4 rounded-full bg-brand-olive-100 flex items-center justify-center text-2xl text-slate-500">
         📄
       </div>
-      <p className="text-slate-300 font-medium mb-1">
+      <p className="text-slate-900 font-medium mb-1">
         {fileName ? `Selected: ${fileName}` : label}
       </p>
       {!fileName && (

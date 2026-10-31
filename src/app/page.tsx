@@ -123,6 +123,7 @@ export default function Dashboard() {
                         alt={item.productName}
                         width={48}
                         height={48}
+                        unoptimized
                         className="rounded-lg object-cover shrink-0"
                       />
                     ) : (

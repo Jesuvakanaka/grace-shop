@@ -13,11 +13,11 @@ export function StatusBadge({ status }: StatusBadgeProps) {
     switch (status) {
       case 'OPEN':
       case 'PENDING':
-        return 'bg-amber-500/10 text-amber-500 border-amber-500/20';
+        return 'bg-amber-50 text-amber-800 border-amber-200';
       case 'PART_PAID':
       case 'WARNING':
       case 'DRAFT':
-        return 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20';
+        return 'bg-yellow-50 text-yellow-800 border-yellow-200';
       case 'PAID':
       case 'CLOSED':
       case 'COMPLETED':
@@ -25,11 +25,11 @@ export function StatusBadge({ status }: StatusBadgeProps) {
         return 'bg-brand-olive-50 text-brand-olive-700 border-brand-olive-200';
       case 'FAILED':
       case 'ERROR':
-        return 'bg-rose-500/10 text-rose-500 border-rose-500/20';
+        return 'bg-rose-50 text-rose-700 border-rose-200';
       case 'CANCELLED':
-        return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+        return 'bg-slate-100 text-slate-600 border-slate-200';
       default:
-        return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+        return 'bg-slate-100 text-slate-600 border-slate-200';
     }
   };
 

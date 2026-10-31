@@ -427,7 +427,7 @@ export default function ProductsPage() {
               ))}
               {!filtered.length && (
                 <tr>
-                  <td colSpan={desktopColumnCount} className="p-4 text-center text-gray-400">
+                  <td colSpan={desktopColumnCount} className="p-4 text-center text-slate-500">
                     No products found
                   </td>
                 </tr>
@@ -674,13 +674,13 @@ export default function ProductsPage() {
 
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="card p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4 text-red-400">Delete Product?</h2>
-            <p className="text-slate-300 mb-4">
+        <div className="fixed inset-0 bg-brand-ink/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="card p-6 w-full max-w-md shadow-2xl">
+            <h2 className="text-2xl mb-4 text-rose-700">Delete Product?</h2>
+            <p className="text-slate-700 mb-4">
               Are you sure you want to delete <strong>{deleteConfirm.productName}</strong> (Item #{deleteConfirm.itemNumber})?
             </p>
-            <p className="text-sm text-slate-400 mb-6">
+            <p className="text-sm text-slate-500 mb-6">
               This action cannot be undone. Stock movements and sales referencing this product may be affected.
             </p>
             <div className="flex justify-end space-x-2">
