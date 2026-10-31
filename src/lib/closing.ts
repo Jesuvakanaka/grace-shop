@@ -1,4 +1,5 @@
 import prisma from '@/lib/db'
+import { Prisma } from '@prisma/client'
 import { startOfDay, endOfDay } from 'date-fns'
 
 export async function getDayClosingSummary(date: Date) {
@@ -70,12 +71,22 @@ export async function createOrUpdateDayClosing(date: Date, data: {
       data: updateData
     })
   } else {
-    return prisma.dayClosing.create({
-      data: {
-        ...updateData,
-        createdBy: data.createdBy
+    try {
+      return await prisma.dayClosing.create({
+        data: {
+          ...updateData,
+          createdBy: data.createdBy
+        }
+      })
+    } catch (err) {
+      // Another request created this day's closing between our read and create
+      // (closingDate is unique). Re-run once: the row now exists, so it takes the
+      // update path (including the "already closed" check).
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        return createOrUpdateDayClosing(date, data)
       }
-    })
+      throw err
+    }
   }
 }
 

@@ -1,5 +1,5 @@
 import prisma from '@/lib/db'
-import { startOfDay } from 'date-fns'
+import { ensureCashPosition } from '@/lib/cash-position'
 
 export async function getAllCreditors() {
   return prisma.creditor.findMany({
@@ -62,29 +62,12 @@ export async function recordCreditorPayment(creditorId: number, amount: number, 
       }
     })
 
-    const now = new Date()
-    const cashDate = startOfDay(now)
-    let cashPos = await tx.cashPosition.findUnique({ where: { cashDate } })
-    if (!cashPos) {
-      const prev = await tx.cashPosition.findFirst({
-        where: { cashDate: { lt: cashDate } },
-        orderBy: { cashDate: 'desc' }
-      })
-      const openingCash = prev?.actualCountedCash ?? prev?.expectedClosingCash ?? 0
-      cashPos = await tx.cashPosition.create({
-        data: {
-          cashDate,
-          openingCash,
-          expectedClosingCash: openingCash
-        }
-      })
-    }
-    
+    const cashPos = await ensureCashPosition(tx, new Date())
     await tx.cashPosition.update({
       where: { id: cashPos.id },
       data: {
-        creditorPaymentsMade: cashPos.creditorPaymentsMade + amount,
-        expectedClosingCash: cashPos.expectedClosingCash - amount
+        creditorPaymentsMade: { increment: amount },
+        expectedClosingCash: { decrement: amount }
       }
     })
 
