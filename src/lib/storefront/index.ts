@@ -13,7 +13,12 @@ import { unstable_cache } from 'next/cache'
 import prisma from '@/lib/db'
 import { isValidSlug } from '@/lib/storefront-model'
 import * as queries from './queries'
-import { STOREFRONT_TAGS, storefrontCategoryTag, storefrontProductTag } from './cache-tags'
+import {
+  STOREFRONT_REVALIDATE_SECONDS,
+  STOREFRONT_TAGS,
+  storefrontCategoryTag,
+  storefrontProductTag,
+} from './cache-tags'
 import type { PublicCategory, PublicProduct } from './dto'
 
 export { publicImageUrl, PUBLIC_IMAGE_URL_PREFIX } from './dto'
@@ -37,15 +42,9 @@ export {
   STOREFRONT_TAGS,
   storefrontProductTag,
   storefrontCategoryTag,
+  STOREFRONT_REVALIDATE_SECONDS,
   type RevalidateScope,
 } from './cache-tags'
-
-/**
- * Backstop lifetime of every entry. On-demand revalidation does the real
- * work; this bounds a missed revalidation and keeps the derived `isNew`
- * flag (30 days after first publish) at most an hour late.
- */
-export const STOREFRONT_REVALIDATE_SECONDS = 3600
 
 const PRODUCT_TAGS = [STOREFRONT_TAGS.all, STOREFRONT_TAGS.products, STOREFRONT_TAGS.categories]
 const CATEGORY_TAGS = [STOREFRONT_TAGS.all, STOREFRONT_TAGS.categories]

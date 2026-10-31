@@ -12,7 +12,16 @@ export const STOREFRONT_TAGS = {
   categories: 'storefront:categories',
 } as const
 
-export const storefrontProductTag = (slug: string) => `storefront:product:${slug}`
+/**
+ * Backstop lifetime (seconds) of every storefront cache entry.
+ * revalidateTag only clears the Next data cache of the instance that handled
+ * the admin request; other Cloud Run instances (UAT runs up to 2) only see
+ * the change when their entry expires. 60 s bounds that, any missed
+ * revalidation, and how late the derived `isNew` flag can be.
+ */
+export const STOREFRONT_REVALIDATE_SECONDS = 60
+
+export const storefrontProductTag =(slug: string) => `storefront:product:${slug}`
 export const storefrontCategoryTag = (slug: string) => `storefront:category:${slug}`
 
 export type RevalidateScope = {

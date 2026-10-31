@@ -13,6 +13,7 @@ import { sortProductRows, normalisePaging, PUBLIC_PRODUCT_SORTS } from '../src/l
 import {
   revalidateStorefront,
   STOREFRONT_TAGS,
+  STOREFRONT_REVALIDATE_SECONDS,
   storefrontProductTag,
   storefrontCategoryTag,
 } from '../src/lib/storefront/cache-tags'
@@ -305,6 +306,10 @@ describe('revalidation helpers', () => {
     const calls: [string, unknown][] = []
     return { calls, deps: { revalidateTag: (tag: string, profile: unknown) => void calls.push([tag, profile]) } }
   }
+
+  test('backstop is 60 s: revalidateTag only clears the instance that handled the write', () => {
+    assert.strictEqual(STOREFRONT_REVALIDATE_SECONDS, 60)
+  })
 
   test('tag names', () => {
     assert.strictEqual(STOREFRONT_TAGS.all, 'storefront')

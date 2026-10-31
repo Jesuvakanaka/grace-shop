@@ -110,13 +110,31 @@ Components" describes.
 
 Product entries also carry `storefront:categories`, because they embed the
 category name and depend on whether the category is published. Every entry
-also has `revalidate: 3600` as a backstop. It bounds a missed revalidation
-and keeps `isNew` at most an hour late.
+also has `revalidate: 60` (`STOREFRONT_REVALIDATE_SECONDS`) as a backstop.
+
+**The Next data cache is per instance.** `revalidateTag` only clears the
+cache of the Cloud Run instance that handled the admin request, and UAT runs
+up to 2 instances. Other instances see a change only when their entry
+reaches the 60 s backstop.
+
+| Change (publish, unpublish, edit) | When public data reflects it |
+| --- | --- |
+| On the instance that handled the change | Immediately, once the admin calls `revalidateStorefront` |
+| On other instances | ≤60 s across instances. An entry older than 60 s is refreshed in the background, so the first request after that may still get the old data once. |
+| No `revalidateStorefront` call (a missed call, or a stock change from sales) | ≤60 s on every instance |
+| `isNew` turning false 30 days after the first publish | ≤60 s late |
+| `GET /api/public/products` in a browser or CDN | Up to another 60 s (`max-age=60, s-maxage=60`) on top of the above |
+
+In short: ≤60 s across instances; immediate on the instance that handled
+the change. Public **images** are not in this cache. Their visibility is
+checked on every request (see below).
 
 **The admin (ZP-483) must call `revalidateStorefront` from its Route
 Handlers after every write that can change public data.** Without that
-call, the cached lists keep showing an unpublished product for up to an
-hour. The manual proof below confirms this.
+call, even the instance that handled the write keeps showing an
+unpublished product until the 60 s backstop. A production-build check
+confirmed that the cached list still showed the product right after it
+was unpublished.
 
 ```ts
 import { revalidateStorefront } from '@/lib/storefront'
@@ -139,7 +157,7 @@ expired.
 
 Stock changes (sales, stock movements) change `availability`. Until those
 routes call `revalidateStorefront({ productSlugs })`, availability can lag
-by up to an hour.
+by up to 60 s.
 
 ## Public images: `GET /api/images/public/<32 hex>.webp[?w=<width>]`
 
