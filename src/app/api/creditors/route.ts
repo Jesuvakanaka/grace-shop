@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getAllCreditors, createCreditor } from '@/lib/creditors';
-import { getSession, requireRole } from '@/lib/auth';
+import { authorize, OWNER_ONLY } from '@/lib/api-auth';
 
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = await authorize(request);
+  if (!auth.ok) return auth.response;
   try {
     const creditors = await getAllCreditors();
     return NextResponse.json(creditors);
@@ -12,15 +14,10 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const auth = await authorize(request, OWNER_ONLY);
+  if (!auth.ok) return auth.response;
+  const { session } = auth;
   try {
-    const session = await getSession(request);
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    try {
-      await requireRole(request, ['OWNER']);
-    } catch {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-
     const body = await request.json();
     const { creditorName, phoneNumber, description, totalAmountOwed, dueDate, notes } = body;
     

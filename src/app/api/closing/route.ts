@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getSession } from '@/lib/auth';
+import { authorize } from '@/lib/api-auth';
 import { getDayClosing, getDayClosingSummary, createOrUpdateDayClosing } from '@/lib/closing';
 
 export async function GET(request: Request) {
+  const auth = await authorize(request);
+  if (!auth.ok) return auth.response;
   try {
     const { searchParams } = new URL(request.url);
     const dateStr = searchParams.get('date');
@@ -24,8 +26,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await authorize(request);
+  if (!auth.ok) return auth.response;
+  const { session } = auth;
   try {
-    const session = await getSession(request);
     const body = await request.json();
     
     const { dateStr, actualCountedCash, stockNotes, signOffName, closingNotes } = body;
@@ -36,7 +40,7 @@ export async function POST(request: Request) {
       stockNotes,
       signOffName,
       closingNotes,
-      createdBy: session?.username || 'system'
+      createdBy: session.username
     });
     
     return NextResponse.json(closing);

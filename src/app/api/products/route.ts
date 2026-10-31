@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getAllProducts, createProduct } from '@/lib/products';
-import { getSession, requireRole } from '@/lib/auth';
+import { authorize, OWNER_ONLY } from '@/lib/api-auth';
 import { parseWholesaleFields } from '@/lib/validation/product';
 
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = await authorize(request);
+  if (!auth.ok) return auth.response;
   try {
     const products = await getAllProducts();
     return NextResponse.json(products);
@@ -13,15 +15,10 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const auth = await authorize(request, OWNER_ONLY);
+  if (!auth.ok) return auth.response;
+  const { session } = auth;
   try {
-    const session = await getSession(request);
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    try {
-      await requireRole(request, ['OWNER']);
-    } catch {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== 'object') return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
     const { itemNumber, productName, unitCostRmb, openingQuantity, ...rest } = body;

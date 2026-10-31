@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { hashPassword, createToken } from '@/lib/auth';
+import { isSetupAllowed } from '@/lib/setup-guard';
 
 export async function POST(request: Request) {
+  if (!isSetupAllowed()) {
+    return NextResponse.json({ error: 'First-time setup is disabled on this server' }, { status: 403 });
+  }
+
   try {
     const userCount = await prisma.user.count();
     if (userCount > 0) {

@@ -6,15 +6,15 @@ This script allows the business owner to verify that all business control module
 
 ## Testing Instructions
 1. Run the local development server (`npm run dev`) or access the production build.
-2. Sign in as `owner` (password: `owner123`).
+2. Sign in as `owner`. The UAT `owner` and `staff` passwords are provided separately (held in Secret Manager); they are not written in this script or shown on the login page. Local development only falls back to `owner123` / `staff123`.
 3. Follow the steps sequentially and mark **Pass / Fail**.
 
 ---
 
 | Step | Section | Action | Expected Result | Pass / Fail | Notes |
 |---|---|---|---|---|---|
-| **1** | Auth | Log in as `staff` / `staff123` | - Logged in successfully<br>- Cannot see 'Import Data' or 'Exchange Rate Settings' links | | |
-| **2** | Auth | Log out and log in as `owner` / `owner123` | - Logged in successfully<br>- Can see all pages | | |
+| **1** | Auth | Log in as `staff` (password provided separately) | - Logged in successfully<br>- Cannot see 'Import Data' or 'Exchange Rate Settings' links | | |
+| **2** | Auth | Log out and log in as `owner` (password provided separately) | - Logged in successfully<br>- Can see all pages | | |
 | **3** | Exchange Rate | Navigate to `Settings -> Exchange Rate Settings` and set RMB to USD rate to `0.14` | - New exchange rate saved successfully<br>- History table shows the new rate | | |
 | **4** | Import | Navigate to `Import Data`, upload `business_product_list_with_selling_prices.xlsx` (scaffold preview) | - Excel parsed successfully<br>- Detected type: PRODUCT_LIST<br>- Show preview table with Status: READY / WARNING / ERROR | | |
 | **5** | Import | Confirm the import preview | - Records written to database<br>- Navigation redirects to Product Master showing imported rows | | |

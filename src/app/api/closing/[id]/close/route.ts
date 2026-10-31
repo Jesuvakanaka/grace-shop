@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
-import { requireRole } from '@/lib/auth';
+import { authorize, OWNER_ONLY } from '@/lib/api-auth';
 import { closeDayClosing } from '@/lib/closing';
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await authorize(request, OWNER_ONLY);
+  if (!auth.ok) return auth.response;
+  const { session } = auth;
   try {
-    const session = await requireRole(request, ['OWNER']);
     const { id } = await params;
     const body = await request.json();
     

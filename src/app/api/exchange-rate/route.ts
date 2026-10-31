@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
-import { requireRole } from '@/lib/auth';
+import { authorize, OWNER_ONLY } from '@/lib/api-auth';
 import { getActiveExchangeRate, getAllExchangeRates, createExchangeRate } from '@/lib/exchange-rate';
 
 export async function GET(request: Request) {
+  const auth = await authorize(request);
+  if (!auth.ok) return auth.response;
   try {
     const rates = await getAllExchangeRates();
     const mappedRates = rates.map(r => ({
@@ -22,8 +24,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await authorize(request, OWNER_ONLY);
+  if (!auth.ok) return auth.response;
+  const { session } = auth;
   try {
-    const session = await requireRole(request, ['OWNER']);
     const body = await request.json();
     const { rate, effectiveDate, notes } = body;
     

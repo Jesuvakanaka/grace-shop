@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
-import { requireRole } from '@/lib/auth';
+import { authorize, OWNER_ONLY } from '@/lib/api-auth';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 
 export async function POST(request: Request) {
+  const auth = await authorize(request, OWNER_ONLY);
+  if (!auth.ok) return auth.response;
   try {
-    await requireRole(request, ['OWNER']);
-    
     const formData = await request.formData();
     const file = formData.get('file') as File;
     
