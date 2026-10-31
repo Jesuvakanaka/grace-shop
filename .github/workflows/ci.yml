@@ -1,0 +1,23 @@
+# CI for pull requests (ZP-470). Also runnable by hand on any branch.
+# The steps live in checks.yml so deploy-uat.yml runs exactly the same gate.
+# No `push` trigger: it would run every PR branch twice.
+name: ci
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: checks
+    uses: ./.github/workflows/checks.yml
+    with:
+      # PR: compare with the PR's base branch. Manual run: compare with master.
+      lint-base: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'origin/master' }}

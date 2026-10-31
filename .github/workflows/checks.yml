@@ -1,0 +1,86 @@
+# Shared quality gate (ZP-470): lint (no new errors in changed files), migrate + unit tests
+# against Postgres 16, and a production build.
+#
+# Called by ci.yml (pull requests) and by deploy-uat.yml (the `test` job that
+# must pass before anything is deployed), so both run exactly the same steps.
+# All credentials below are synthetic, CI-only values for a throwaway service
+# container; none of them is used anywhere else.
+name: checks
+
+on:
+  workflow_call:
+    inputs:
+      lint-base:
+        description: >-
+          Git ref/SHA to diff against for the changed-files lint
+          (e.g. origin/master for a PR, github.event.before for a push).
+          Empty skips the lint step.
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  checks:
+    name: lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: grace
+          POSTGRES_PASSWORD: grace_ci_only
+          POSTGRES_DB: grace_shop_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U grace -d grace_shop_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://grace:grace_ci_only@localhost:5432/grace_shop_ci
+      DIRECT_URL: postgresql://grace:grace_ci_only@localhost:5432/grace_shop_ci
+      # Test-only literal (>= 32 chars). Never used outside CI.
+      JWT_SECRET: grace_shop_ci_only_dummy_jwt_secret_0123456789
+      NEXT_TELEMETRY_DISABLED: "1"
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history so the changed-files lint can diff against the base.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # TODO(lint backlog): `npm run lint` currently fails on master with ~144
+      # pre-existing errors. Until that backlog is fixed, CI enforces "no new
+      # lint errors": a changed JS/TS file may not gain ESLint errors compared
+      # with its base version, and a new file must have 0 errors. Once
+      # `npm run lint` is clean, replace this step with `npm run lint`.
+      # See .github/scripts/lint-no-new-errors.mjs and docs/deployment/deploy-uat.md.
+      - name: Lint (no new errors in changed files)
+        env:
+          LINT_BASE: ${{ inputs.lint-base }}
+        run: node .github/scripts/lint-no-new-errors.mjs "${LINT_BASE}"
+
+      - name: Apply migrations (prisma migrate deploy)
+        run: npm run migrate
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
