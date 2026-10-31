@@ -22,7 +22,7 @@ export function StatusBadge({ status }: StatusBadgeProps) {
       case 'CLOSED':
       case 'COMPLETED':
       case 'READY':
-        return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
+        return 'bg-brand-olive-50 text-brand-olive-700 border-brand-olive-200';
       case 'FAILED':
       case 'ERROR':
         return 'bg-rose-500/10 text-rose-500 border-rose-500/20';

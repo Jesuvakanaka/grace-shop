@@ -238,7 +238,7 @@ export default function DailyLogPage() {
             key={tab}
             type="button"
             onClick={() => { setActiveTab(tab); setError(''); setMessage(''); }}
-            className={`flex-1 min-w-[80px] py-2 px-3 rounded-lg text-sm font-medium whitespace-nowrap ${
+            className={`flex-1 min-w-fit py-2 px-3 rounded-lg text-sm font-medium whitespace-nowrap ${
               activeTab === tab ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
             }`}
           >
@@ -248,12 +248,12 @@ export default function DailyLogPage() {
       </div>
 
       {error && <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-500 rounded-lg text-sm max-w-lg">{error}</div>}
-      {message && <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 rounded-lg text-sm max-w-lg">{message}</div>}
+      {message && <div className="p-3 bg-brand-olive-50 border border-brand-olive-200 text-brand-olive-700 rounded-lg text-sm max-w-lg">{message}</div>}
 
       <div className="card p-6 max-w-lg">
         {activeTab === 'sales' && (
           <form onSubmit={handleSaleSubmit} className="space-y-4" data-testid="daily-log-sale-form">
-            <h2 className="text-lg font-semibold text-slate-200">Record a New Sale</h2>
+            <h2 className="text-xl font-semibold text-slate-900">Record a New Sale</h2>
             <div>
               <label className="label">Select Product</label>
               <select 
@@ -343,7 +343,7 @@ export default function DailyLogPage() {
 
         {activeTab === 'expenses' && (
           <form onSubmit={handleExpenseSubmit} className="space-y-4" data-testid="expense-form">
-            <h2 className="text-lg font-semibold text-slate-200">Record a Business Expense</h2>
+            <h2 className="text-xl font-semibold text-slate-900">Record a Business Expense</h2>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="label">Category</label>
@@ -415,7 +415,7 @@ export default function DailyLogPage() {
 
         {activeTab === 'debtors' && (
           <form onSubmit={handleDebtorSubmit} className="space-y-4" data-testid="debtor-payment-form">
-            <h2 className="text-lg font-semibold text-slate-200">Record Debtor Payment Received</h2>
+            <h2 className="text-xl font-semibold text-slate-900">Record Debtor Payment Received</h2>
             <div>
               <label className="label">Select Debtor</label>
               <select 
@@ -460,7 +460,7 @@ export default function DailyLogPage() {
 
         {activeTab === 'creditors' && (
           <form onSubmit={handleCreditorSubmit} className="space-y-4" data-testid="creditor-payment-form">
-            <h2 className="text-lg font-semibold text-slate-200">Record Creditor Payment Made</h2>
+            <h2 className="text-xl font-semibold text-slate-900">Record Creditor Payment Made</h2>
             <div>
               <label className="label">Select Creditor</label>
               <select 

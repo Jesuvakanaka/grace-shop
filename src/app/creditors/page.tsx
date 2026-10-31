@@ -145,7 +145,7 @@ export default function CreditorsPage() {
       </div>
       <MoneyNav />
 
-      {message && <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg text-sm max-w-xl">{message}</div>}
+      {message && <div className="p-3 bg-brand-olive-50 border border-brand-olive-200 text-brand-olive-700 rounded-lg text-sm max-w-xl">{message}</div>}
 
       <div className="card table-container">
         {/* Mobile card list */}
@@ -159,7 +159,7 @@ export default function CreditorsPage() {
                   <p className="text-xs text-slate-500">{c.phoneNumber || 'No phone'}</p>
                 </div>
                 <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase shrink-0 ${
-                  c.status === 'PAID' ? 'bg-emerald-50 text-emerald-700' :
+                  c.status === 'PAID' ? 'bg-brand-olive-50 text-brand-olive-700' :
                   c.status === 'PART_PAID' ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'
                 }`}>
                   {c.status}
@@ -207,7 +207,7 @@ export default function CreditorsPage() {
                 </td>
                 <td className="p-2 text-center">
                   <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${
-                    c.status === 'PAID' ? 'bg-emerald-50 text-emerald-700' :
+                    c.status === 'PAID' ? 'bg-brand-olive-50 text-brand-olive-700' :
                     c.status === 'PART_PAID' ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'
                   }`}>
                     {c.status}

@@ -387,7 +387,7 @@ export default function ProductsPage() {
                     {p.imageUrl ? (
                       <ProductPicture src={p.imageUrl} alt={p.productName} size={48} className="rounded" />
                     ) : (
-                      <div className="w-10 h-10 bg-slate-700 rounded flex items-center justify-center text-slate-500 text-xs">
+                      <div className="w-10 h-10 bg-brand-cream-100 rounded flex items-center justify-center text-slate-500 text-xs">
                         No img
                       </div>
                     )}

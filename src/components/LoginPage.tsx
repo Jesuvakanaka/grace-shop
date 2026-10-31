@@ -102,20 +102,25 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-slate-50 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-brand-cream px-4 py-10">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-100 border border-emerald-200 rounded-2xl mb-4">
-            <span className="text-3xl">📊</span>
-          </div>
-          <h1 className="text-2xl font-bold text-slate-900">Grace Shop</h1>
-          <p className="text-slate-500 mt-1">Stock, Cash & Credit Management</p>
+          <h1 className="sr-only">VYRA – Wear Different</h1>
+          {/* eslint-disable-next-line @next/next/no-img-element -- static brand SVG lockup, no optimisation needed */}
+          <img
+            src="/brand/vyra-lockup.svg"
+            alt=""
+            width={236}
+            height={204}
+            className="mx-auto w-48 sm:w-56 h-auto"
+          />
+          <p className="mt-5 text-xs font-medium uppercase tracking-[0.22em] text-slate-600">Stock, Cash &amp; Credit</p>
         </div>
 
         <div className="card">
           {!isSetup && quickUsers.length > 0 && (
             <div className="mb-6 pb-6 border-b border-slate-200" data-testid="quick-login">
-              <h2 className="text-lg font-semibold text-slate-900 mb-3">UAT quick sign-in</h2>
+              <h2 className="text-2xl text-slate-900 mb-3">UAT quick sign-in</h2>
               <div className="space-y-2">
                 {quickUsers.map((u) => (
                   <button
@@ -123,7 +128,7 @@ export function LoginPage() {
                     type="button"
                     onClick={() => handleQuickLogin(u.role)}
                     disabled={busy}
-                    className="btn btn-secondary w-full"
+                    className="w-full min-h-[44px] flex items-center gap-2 px-4 py-2.5 rounded-lg text-[0.9375rem] font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-lime focus-visible:ring-offset-2 bg-brand-cream-50 text-slate-900 border shadow-[inset_3px_0_0_var(--color-brand-lime)] hover:enabled:bg-brand-olive-50"
                     data-testid={`quick-login-${u.role.toLowerCase()}`}
                   >
                     <span className="truncate">
@@ -138,7 +143,7 @@ export function LoginPage() {
             </div>
           )}
 
-          <h2 className="text-lg font-semibold text-slate-900 mb-6">
+          <h2 className="text-3xl text-slate-900 mb-6">
             {isSetup ? 'First Time Setup' : 'Sign In'}
           </h2>
 
@@ -209,7 +214,7 @@ export function LoginPage() {
                   setIsSetup(!isSetup);
                   setError('');
                 }}
-                className="text-sm text-slate-500 hover:text-emerald-600 transition-colors"
+                className="text-sm text-slate-500 hover:text-brand-olive-700 transition-colors"
               >
                 {isSetup ? '← Back to Sign In' : 'First time? Set up admin account →'}
               </button>

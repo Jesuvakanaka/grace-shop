@@ -50,11 +50,11 @@ export default function ImportHistoryPage() {
                 <td className="p-2 text-slate-400">{new Date(h.createdAt).toLocaleString()}</td>
                 <td className="p-2 text-slate-200 font-mono text-xs">{h.filename}</td>
                 <td className="p-2 text-slate-300 font-bold uppercase">{h.documentType?.replace('_', ' ')}</td>
-                <td className="p-2 text-right text-emerald-400 font-bold">{h.importedRows}</td>
+                <td className="p-2 text-right text-brand-olive font-bold">{h.importedRows}</td>
                 <td className="p-2 text-right text-rose-400 font-bold">{h.skippedRows}</td>
                 <td className="p-2 text-center">
                   <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${
-                    h.status === 'COMPLETED' ? 'bg-emerald-500/10 text-emerald-400' :
+                    h.status === 'COMPLETED' ? 'bg-brand-olive-50 text-brand-olive-700' :
                     h.status === 'DRAFT' ? 'bg-amber-500/10 text-amber-400' : 'bg-red-500/10 text-red-400'
                   }`}>
                     {h.status}

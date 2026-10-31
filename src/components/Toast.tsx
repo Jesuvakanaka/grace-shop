@@ -51,7 +51,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             key={toast.id}
             className={`
               min-w-[300px] px-4 py-3 rounded-lg shadow-lg border backdrop-blur-md transform transition-all duration-300 animate-in slide-in-from-top-5 fade-in pointer-events-auto
-              ${toast.type === 'success' ? 'bg-emerald-900/80 border-emerald-500/50 text-emerald-100' : ''}
+              ${toast.type === 'success' ? 'bg-brand-olive-900/95 border-brand-lime/60 text-brand-olive-50' : ''}
               ${toast.type === 'error' ? 'bg-rose-900/80 border-rose-500/50 text-rose-100' : ''}
               ${toast.type === 'info' ? 'bg-slate-800/90 border-slate-600 text-slate-100' : ''}
             `}

@@ -14,7 +14,7 @@ interface SummaryCardProps {
 export function SummaryCard({ title, value, subtitle, trend, icon, variant = 'default' }: SummaryCardProps) {
   const getVariantStyles = () => {
     switch (variant) {
-      case 'success': return 'text-emerald-500';
+      case 'success': return 'text-brand-olive';
       case 'warning': return 'text-amber-500';
       case 'danger': return 'text-rose-500';
       default: return 'text-slate-100';
@@ -33,7 +33,7 @@ export function SummaryCard({ title, value, subtitle, trend, icon, variant = 'de
         </div>
         {trend && (
           <span className={`text-xs flex items-center font-medium ${
-            trend === 'up' ? 'text-emerald-500' : 
+            trend === 'up' ? 'text-brand-olive' : 
             trend === 'down' ? 'text-rose-500' : 
             'text-slate-500'
           }`}>

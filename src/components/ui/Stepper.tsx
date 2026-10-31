@@ -22,7 +22,7 @@ export function Stepper({ value, onChange, min = 1, max = 9999, testId }: Steppe
       <span className="w-10 text-center font-semibold text-slate-900">{value}</span>
       <button
         type="button"
-        className="w-10 h-10 flex items-center justify-center text-emerald-600 hover:bg-emerald-50 rounded-r-full"
+        className="w-10 h-10 flex items-center justify-center text-brand-olive hover:bg-brand-olive-50 rounded-r-full"
         onClick={() => onChange(Math.min(max, value + 1))}
         aria-label="Increase"
       >

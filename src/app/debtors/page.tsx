@@ -85,7 +85,7 @@ export default function DebtorsPage() {
       <h1 className="text-xl lg:text-2xl font-bold text-slate-900">Debtors Directory</h1>
       <MoneyNav />
 
-      {message && <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg text-sm max-w-xl">{message}</div>}
+      {message && <div className="p-3 bg-brand-olive-50 border border-brand-olive-200 text-brand-olive-700 rounded-lg text-sm max-w-xl">{message}</div>}
 
       <div className="card table-container">
         {/* Mobile card list */}
@@ -98,7 +98,7 @@ export default function DebtorsPage() {
                   <p className="text-sm text-slate-500">{d.customerPhone || 'No phone'}</p>
                 </div>
                 <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase shrink-0 ${
-                  d.status === 'PAID' ? 'bg-emerald-50 text-emerald-700' :
+                  d.status === 'PAID' ? 'bg-brand-olive-50 text-brand-olive-700' :
                   d.status === 'PART_PAID' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'
                 }`}>
                   {d.status}
@@ -144,7 +144,7 @@ export default function DebtorsPage() {
                 </td>
                 <td className="p-2 text-center">
                   <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${
-                    d.status === 'PAID' ? 'bg-emerald-50 text-emerald-700' :
+                    d.status === 'PAID' ? 'bg-brand-olive-50 text-brand-olive-700' :
                     d.status === 'PART_PAID' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'
                   }`}>
                     {d.status}

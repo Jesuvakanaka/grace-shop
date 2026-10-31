@@ -37,7 +37,7 @@ export function ConfirmDialog({ open, title, message, onConfirm, onCancel, confi
             className={`px-4 py-2 rounded-lg text-white transition-colors ${
               variant === 'danger' 
                 ? 'bg-rose-600 hover:bg-rose-500' 
-                : 'bg-emerald-600 hover:bg-emerald-500'
+                : 'bg-brand-olive hover:bg-brand-olive-700'
             }`}
           >
             {confirmText}

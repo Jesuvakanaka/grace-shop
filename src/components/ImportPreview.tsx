@@ -46,7 +46,7 @@ export function ImportPreview({ rows, onConfirm, onCancel, loading = false }: Im
         </div>
         <div className="flex flex-col border-l border-slate-700 pl-4">
           <span className="text-slate-500 text-sm">Ready</span>
-          <span className="text-emerald-500 font-medium" data-testid="import-ready-rows">{readyRows}</span>
+          <span className="text-brand-olive font-medium" data-testid="import-ready-rows">{readyRows}</span>
         </div>
         <div className="flex flex-col border-l border-slate-700 pl-4">
           <span className="text-slate-500 text-sm">Warnings</span>
@@ -118,7 +118,7 @@ export function ImportPreview({ rows, onConfirm, onCancel, loading = false }: Im
         <button 
           onClick={onConfirm}
           disabled={loading || (readyRows === 0 && warningRows === 0)}
-          className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          className="px-4 py-2 rounded-lg bg-brand-olive text-white hover:bg-brand-olive-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           data-testid="import-confirm-button"
         >
           {loading && <span className="animate-spin inline-block w-4 h-4 border-2 border-white/20 border-t-white rounded-full"></span>}

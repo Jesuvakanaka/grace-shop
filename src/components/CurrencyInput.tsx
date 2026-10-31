@@ -34,7 +34,7 @@ export function CurrencyInput({ value, onChange, currency = 'USD', placeholder =
         onChange={handleChange}
         disabled={disabled}
         placeholder={placeholder}
-        className={`bg-slate-900 border border-slate-700 text-slate-100 text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block w-full pl-8 p-2.5 placeholder-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
+        className={`bg-slate-900 border border-slate-700 text-slate-100 text-sm rounded-lg focus:ring-brand-lime focus:border-brand-olive block w-full pl-8 p-2.5 placeholder-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
       />
     </div>
   );

@@ -45,7 +45,7 @@ export function FileUpload({ onFileSelect, accept = '.xlsx,.xls', label = 'Drop 
   return (
     <div 
       className={`w-full p-8 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-center cursor-pointer transition-colors ${
-        isDragging ? 'border-emerald-500 bg-emerald-500/5' : 'border-slate-700 bg-slate-800/50 hover:bg-slate-800 hover:border-slate-600'
+        isDragging ? 'border-brand-olive bg-brand-lime/10' : 'border-slate-700 bg-slate-800/50 hover:bg-slate-800 hover:border-slate-600'
       }`}
       onClick={() => fileInputRef.current?.click()}
       onDragOver={handleDragOver}

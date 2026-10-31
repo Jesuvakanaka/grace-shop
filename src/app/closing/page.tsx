@@ -156,68 +156,68 @@ export default function DayClosingPage() {
       </div>
 
       {error && <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-500 rounded-lg text-sm max-w-xl">{error}</div>}
-      {message && <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 rounded-lg text-sm max-w-xl">{message}</div>}
+      {message && <div className="p-3 bg-brand-olive-50 border border-brand-olive-200 text-brand-olive-700 rounded-lg text-sm max-w-xl">{message}</div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 card p-6 space-y-6">
-          <h2 className="text-lg font-semibold text-slate-200">Daily Totals Summary (USD)</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Daily Totals Summary (USD)</h2>
           
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="p-3 bg-slate-800/40 rounded-lg border border-slate-700">
-              <span className="text-slate-400 text-xs">Opening Cash</span>
-              <div className="text-lg font-bold font-mono text-slate-200 mt-1">{formatCurrency(data?.openingCash)}</div>
+            <div className="p-3 bg-brand-cream-100 rounded-lg border border-slate-700">
+              <span className="text-slate-500 text-xs">Opening Cash</span>
+              <div className="text-lg font-bold font-mono text-slate-900 mt-1">{formatCurrency(data?.openingCash)}</div>
             </div>
             
-            <div className="p-3 bg-slate-800/40 rounded-lg border border-slate-700">
-              <span className="text-slate-400 text-xs">Cash Sales</span>
-              <div className="text-lg font-bold font-mono text-emerald-400 mt-1">+{formatCurrency(data?.totalCashSales)}</div>
+            <div className="p-3 bg-brand-cream-100 rounded-lg border border-slate-700">
+              <span className="text-slate-500 text-xs">Cash Sales</span>
+              <div className="text-lg font-bold font-mono text-brand-olive mt-1">+{formatCurrency(data?.totalCashSales)}</div>
             </div>
             
-            <div className="p-3 bg-slate-800/40 rounded-lg border border-slate-700">
-              <span className="text-slate-400 text-xs">Credit Sales</span>
-              <div className="text-lg font-bold font-mono text-amber-400 mt-1">{formatCurrency(data?.totalCreditSales)}</div>
+            <div className="p-3 bg-brand-cream-100 rounded-lg border border-slate-700">
+              <span className="text-slate-500 text-xs">Credit Sales</span>
+              <div className="text-lg font-bold font-mono text-amber-700 mt-1">{formatCurrency(data?.totalCreditSales)}</div>
             </div>
             
-            <div className="p-3 bg-slate-800/40 rounded-lg border border-slate-700">
-              <span className="text-slate-400 text-xs">Expenses Paid</span>
-              <div className="text-lg font-bold font-mono text-rose-400 mt-1">-{formatCurrency(data?.totalExpenses)}</div>
+            <div className="p-3 bg-brand-cream-100 rounded-lg border border-slate-700">
+              <span className="text-slate-500 text-xs">Expenses Paid</span>
+              <div className="text-lg font-bold font-mono text-rose-600 mt-1">-{formatCurrency(data?.totalExpenses)}</div>
             </div>
 
-            <div className="p-3 bg-slate-800/40 rounded-lg border border-slate-700">
-              <span className="text-slate-400 text-xs">Debtors Received</span>
-              <div className="text-lg font-bold font-mono text-emerald-400 mt-1">+{formatCurrency(data?.debtorPaymentsReceived)}</div>
+            <div className="p-3 bg-brand-cream-100 rounded-lg border border-slate-700">
+              <span className="text-slate-500 text-xs">Debtors Received</span>
+              <div className="text-lg font-bold font-mono text-brand-olive mt-1">+{formatCurrency(data?.debtorPaymentsReceived)}</div>
             </div>
 
-            <div className="p-3 bg-slate-800/40 rounded-lg border border-slate-700">
-              <span className="text-slate-400 text-xs">Creditors Paid</span>
-              <div className="text-lg font-bold font-mono text-rose-400 mt-1">-{formatCurrency(data?.creditorPaymentsMade)}</div>
+            <div className="p-3 bg-brand-cream-100 rounded-lg border border-slate-700">
+              <span className="text-slate-500 text-xs">Creditors Paid</span>
+              <div className="text-lg font-bold font-mono text-rose-600 mt-1">-{formatCurrency(data?.creditorPaymentsMade)}</div>
             </div>
 
-            <div className="p-3 bg-slate-800/40 rounded-lg border border-slate-700">
-              <span className="text-slate-400 text-xs">Items Sold Count</span>
-              <div className="text-lg font-bold text-slate-200 mt-1">{data?.totalItemsSold || 0}</div>
+            <div className="p-3 bg-brand-cream-100 rounded-lg border border-slate-700">
+              <span className="text-slate-500 text-xs">Items Sold Count</span>
+              <div className="text-lg font-bold text-slate-900 mt-1">{data?.totalItemsSold || 0}</div>
             </div>
           </div>
 
           <div className="border-t border-slate-700 pt-6 grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
-              <span className="text-slate-400 text-sm">Expected Closing Cash</span>
-              <div className="text-2xl font-extrabold text-emerald-500 font-mono mt-1" data-testid="closing-expected-cash">
+              <span className="text-slate-500 text-sm">Expected Closing Cash</span>
+              <div className="text-2xl font-extrabold text-brand-olive font-mono mt-1" data-testid="closing-expected-cash">
                 {formatCurrency(data?.expectedClosingCash)}
               </div>
             </div>
 
             <div>
-              <span className="text-slate-400 text-sm">Actual Counted Cash</span>
-              <div className="text-2xl font-extrabold text-blue-400 font-mono mt-1">
+              <span className="text-slate-500 text-sm">Actual Counted Cash</span>
+              <div className="text-2xl font-extrabold text-sky-700 font-mono mt-1">
                 {formatCurrency(data?.actualCountedCash)}
               </div>
             </div>
 
             <div>
-              <span className="text-slate-400 text-sm">Variance</span>
+              <span className="text-slate-500 text-sm">Variance</span>
               <div className={`text-2xl font-extrabold font-mono mt-1 ${
-                (data?.cashVariance || 0) < 0 ? 'text-rose-500' : (data?.cashVariance || 0) > 0 ? 'text-amber-400' : 'text-green-500'
+                (data?.cashVariance || 0) < 0 ? 'text-rose-500' : (data?.cashVariance || 0) > 0 ? 'text-amber-400' : 'text-brand-olive'
               }`} data-testid="closing-variance">
                 {formatCurrency(data?.cashVariance)}
               </div>
@@ -226,7 +226,7 @@ export default function DayClosingPage() {
         </div>
 
         <div className="card p-6" data-testid="closing-form">
-          <h2 className="text-lg font-semibold text-slate-200 mb-4">{isClosed ? 'Signoff Details (🔒 Locked)' : 'Finalize Day Closing'}</h2>
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">{isClosed ? 'Signoff Details (🔒 Locked)' : 'Finalize Day Closing'}</h2>
           
           <div className="space-y-4">
             <div>
