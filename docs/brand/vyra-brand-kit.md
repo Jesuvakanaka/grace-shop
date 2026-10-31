@@ -83,6 +83,7 @@ App icons in `src/app/`:
 - Keep clear space around the mark of at least the width of one arm (about a fifth of the mark's width).
 - Put the colour mark on cream or white. On near-black, use the mono mark in cream.
 - Use `vyra-mark-small.svg` or the mono mark below 40 px.
+- Use the wordmark and lockup at least 200 px wide. Below that, "VYRA" still reads but "WEAR DIFFERENT" does not, so use the mark alone, as the app header does.
 - Keep the left arm olive and the right arm lime.
 
 ### Don't
