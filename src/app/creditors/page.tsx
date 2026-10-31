@@ -182,8 +182,10 @@ export default function CreditorsPage() {
           )}
         </div>
 
-        {/* Desktop table */}
-        <table className="table w-full hidden md:table" data-testid="creditors-table">
+        {/* Desktop table. Visibility lives on a wrapper: the `table` class is also
+            Tailwind's display:table utility, which overrode `hidden` on the table itself. */}
+        <div className="hidden md:block">
+        <table className="table w-full" data-testid="creditors-table">
           <thead>
             <tr className="bg-slate-50 text-slate-600">
               <th className="p-2 text-left">Supplier/Creditor</th>
@@ -230,6 +232,7 @@ export default function CreditorsPage() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {showAddModal && (
