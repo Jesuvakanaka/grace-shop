@@ -490,7 +490,10 @@ describe('8. UAT quick sign-in with the flag on', () => {
     const quick = await import('../src/app/api/auth/quick-login/route');
     const login = await import('../src/app/api/auth/login/route');
     const flags = (res: Response) =>
-      (res.headers.get('set-cookie') ?? '').split(';').slice(1).map((s) => s.trim().toLowerCase()).sort();
+      // Expires is a wall-clock timestamp that can tick over between the two
+      // responses; Max-Age carries the same lifetime, so compare everything else.
+      (res.headers.get('set-cookie') ?? '').split(';').slice(1).map((s) => s.trim().toLowerCase())
+        .filter((s) => !s.startsWith('expires=')).sort();
     const q = await quick.POST(quickPost(JSON.stringify({ role: 'STAFF' })));
     const l = await login.POST(quickPost(JSON.stringify({ username: 'ql-staff', password: 'quick-login-unused-password' })));
     assert.strictEqual(l.status, 200);
