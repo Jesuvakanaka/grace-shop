@@ -257,7 +257,9 @@ office, exactly as before. The storefront is still reachable for preview at
 
 - `/` serves the storefront home (`/site`) and `/shop` serves `/site/shop`.
   The address bar keeps the clean path.
-- `/site/...` redirects (308) to the clean path.
+- `/site/...` redirects (308) to the clean path. `/site/` takes two hops:
+  Next.js first strips the trailing slash (308 to `/site`), then the proxy
+  sends `/site` to `/`.
 - `/_next/*`, `/brand/*`, top-level public files (favicon, icons, manifest,
   `robots.txt`, `sitemap.xml`), `/api/public/*` and `/api/images/public/*`
   pass through.
