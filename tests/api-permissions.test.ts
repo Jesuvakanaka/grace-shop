@@ -46,6 +46,7 @@ import * as stockAdjust from '../src/app/api/stock-movements/adjust/route';
 import * as stockMovements from '../src/app/api/stock-movements/route';
 import * as upload from '../src/app/api/upload/route';
 import * as imageByKey from '../src/app/api/images/[key]/route';
+import * as websiteSettings from '../src/app/api/website/settings/route';
 
 // PUBLIC: no session needed (sign-in routes). "Allowed" for every caller, including no cookie.
 type Policy = 'PUBLIC' | 'SESSION' | 'OWNER';
@@ -121,6 +122,10 @@ const cases: Case[] = [
 
   // ZP-468: product pictures. A key that is never stored, so allowed calls end in 404.
   { method: 'GET', path: `/api/images/${'0'.repeat(32)}.webp`, handler: h(imageByKey.GET), policy: 'SESSION', params: { key: `${'0'.repeat(32)}.webp` } },
+
+  // ZP-486: website site settings. OWNER-only for reading too (the public site uses getPublicSiteSettings()).
+  { method: 'GET', path: '/api/website/settings', handler: h(websiteSettings.GET), policy: 'OWNER' },
+  { method: 'PUT', path: '/api/website/settings', handler: h(websiteSettings.PUT), policy: 'OWNER' },
 ];
 
 function makeRequest(c: Case, token?: string): Request {

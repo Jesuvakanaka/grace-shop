@@ -366,3 +366,60 @@ model ImportError {
   importDocument ImportDocument @relation(fields: [importDocumentId], references: [id])
   importRow      ImportRow?     @relation(fields: [importRowId], references: [id])
 }
+
+// ─── Website: site settings (ZP-486) ───────────────────────────────────────────
+// Single row (id = 1, enforced by a CHECK constraint in the migration). Edited
+// by the OWNER at /website/settings; read publicly via getPublicSiteSettings().
+// Validation: src/lib/site-settings/validate.ts. See docs/storefront/site-settings.md.
+
+model SiteSettings {
+  id Int @id @default(1)
+
+  // Contacts
+  whatsappNumber        String? // E.164, e.g. +263771234567
+  enquiryTemplate       String  @default("Hi VYRA, I'm interested in {product} ({url})")
+  generalEnquiryMessage String  @default("Hi VYRA, I'd like to ask about your collection.")
+  phone                 String?
+  email                 String?
+
+  // Visit us
+  address      String?
+  openingHours Json? // { mon: { closed, open: "HH:MM", close: "HH:MM" }, ... sun }; null = not set
+  holidayNote  String?
+  mapUrl       String?
+  latitude     Float?
+  longitude    Float?
+
+  // Social
+  instagramUrl String?
+  facebookUrl  String?
+  tiktokUrl    String?
+
+  // About
+  aboutHeadline String?
+  aboutStory    String?
+  aboutImageKey String?
+
+  // Home
+  heroHeadline        String  @default("Style Your Way")
+  heroSubline         String  @default("Premium fashion. Modern you.")
+  heroImageKeyDesktop String?
+  heroImageKeyMobile  String?
+  statement           String  @default("Confidence in every stitch")
+  trustLabel1         String  @default("Premium Quality")
+  trustLabel2         String  @default("Visit Our Store")
+  trustLabel3         String  @default("Enquire on WhatsApp")
+
+  // SEO defaults
+  seoTitle         String  @default("VYRA")
+  seoDescription   String  @default("Premium fashion. Modern you.")
+  seoShareImageKey String?
+
+  // Availability / product display
+  fewLeftThreshold Int     @default(3)
+  showItemNumber   Boolean @default(false)
+
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
