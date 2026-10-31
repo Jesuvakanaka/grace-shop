@@ -166,8 +166,12 @@ touches passwords and never prints secrets:
 npm run user:set -- --from owner --to margie --full-name "Margaret"
 ```
 
-It is idempotent: if `margie` already exists it only updates the full name and
-exits 0. If neither user exists it exits 1. The password stays the same (the
+It is idempotent: if only `margie` exists (already renamed) it only updates
+the full name, when `--full-name` is given and differs, and exits 0. If both
+`owner` and `margie` exist as different users it changes nothing and exits 1,
+naming both users and their ids ("Both 'owner' (id 1) and 'margie' (id 3)
+exist; resolve manually"). If neither exists it exits 1. `--full-name` with no
+value is rejected. The password stays the same (the
 `grace-shop-uat-owner-password` value, unless it was changed in the app).
 On UAT it has to run where `DATABASE_URL` points at Cloud SQL, for example as a
 one-off Cloud Run job from the deployed image (`--command=npm

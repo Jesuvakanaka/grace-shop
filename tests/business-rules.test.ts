@@ -581,6 +581,19 @@ describe('9. set-user script (rename owner -> margie)', () => {
     assert.strictEqual(margie?.password, originalHash);
   });
 
+  test('both --from and --to exist as different users: exit 1, nothing changes', async () => {
+    const { hashPassword } = await import('../src/lib/auth');
+    const other = await prisma.user.create({
+      data: { username: 'set-user-other', password: await hashPassword('set-user-other-password'), fullName: 'Other', role: 'STAFF' },
+    });
+    const margie = await prisma.user.findUnique({ where: { username: 'margie' } });
+    const result = await setUser(prisma, { from: 'set-user-other', to: 'margie', fullName: 'Changed' });
+    assert.strictEqual(result.exitCode, 1);
+    assert.strictEqual(result.message, `Both 'set-user-other' (id ${other.id}) and 'margie' (id ${margie!.id}) exist; resolve manually. Nothing changed.`);
+    assert.strictEqual((await prisma.user.findUnique({ where: { id: margie!.id } }))?.fullName, margie!.fullName);
+    assert.strictEqual((await prisma.user.findUnique({ where: { id: other.id } }))?.username, 'set-user-other');
+  });
+
   test('neither user exists: exit 1, nothing changes', async () => {
     const countBefore = await prisma.user.count();
     const result = await setUser(prisma, { from: 'nobody', to: 'nobody-else' });

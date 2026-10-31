@@ -36,6 +36,9 @@ describe('set-user parseArgs', () => {
 
   test('rejects an empty --full-name and unknown options (e.g. a password flag)', () => {
     assert.throws(() => parseArgs(['--from', 'owner', '--to', 'margie', '--full-name', '  ']), /--full-name/);
+    assert.throws(() => parseArgs(['--from', 'owner', '--to', 'margie', '--full-name']), /--full-name/);
+    assert.throws(() => parseArgs(['--from', 'owner', '--to', 'margie', '--full-name=']), /--full-name/);
+    assert.throws(() => parseArgs(['--from', 'owner', '--full-name', '--to', 'margie']), /--full-name/);
     assert.throws(() => parseArgs(['--from', 'owner', '--to', 'margie', '--password', 'x']), /Unknown option/);
   });
 });
@@ -84,8 +87,21 @@ describe('set-user planUserChange', () => {
     }
   });
 
-  test('--to exists and --from also exists: never renames onto a taken username', () => {
-    const plan = planUserChange({ from: 'owner', to: 'margie' }, { fromUser: owner, toUser: { ...margie, id: 2 } });
+  test('--from and --to both exist as different users: error, exit 1, names both, changes nothing', () => {
+    for (const fullName of [undefined, 'Margaret']) {
+      const plan = planUserChange(
+        { from: 'owner', to: 'margie', fullName },
+        { fromUser: owner, toUser: { ...margie, id: 3 } }
+      );
+      assert.strictEqual(plan.action, 'error');
+      assert.strictEqual(plan.exitCode, 1);
+      assert.strictEqual(plan.data, undefined);
+      assert.strictEqual(plan.message, "Both 'owner' (id 1) and 'margie' (id 3) exist; resolve manually. Nothing changed.");
+    }
+  });
+
+  test('--from and --to name the same user (same id): treated as --to exists', () => {
+    const plan = planUserChange({ from: 'margie', to: 'margie', fullName: 'Margaret' }, { fromUser: margie, toUser: margie });
     assert.strictEqual(plan.action, 'noop');
     assert.strictEqual(plan.exitCode, 0);
   });

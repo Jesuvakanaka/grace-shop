@@ -8,6 +8,7 @@
  *   npm run user:set -- --from owner --to margie --full-name "Margaret"
  *
  * Idempotent:
+ *   - `--from` and `--to` both exist (different users) -> exit 1, nothing changes.
  *   - `--to` already exists  -> only its full name changes (if --full-name is given); exit 0.
  *   - `--from` exists        -> renamed to `--to` (id, role, password and active flag kept).
  *   - neither exists         -> exit 1 with a message.
@@ -30,6 +31,7 @@ const KNOWN_OPTIONS = { '--from': 'from', '--to': 'to', '--full-name': 'fullName
  */
 function parseArgs(argv) {
   const out = {};
+  const seen = new Set();
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const eq = arg.indexOf('=');
@@ -46,14 +48,16 @@ function parseArgs(argv) {
       if (value === undefined || value.startsWith('--')) value = undefined;
       else i++;
     }
+    seen.add(key);
     out[key] = value === undefined ? undefined : value.trim();
   }
 
   for (const [flag, key] of [['--from', 'from'], ['--to', 'to']]) {
     if (!out[key]) throw new Error(`${flag} <username> is required`);
   }
-  if (out.fullName !== undefined && out.fullName === '') {
-    throw new Error('--full-name must not be empty');
+  // Given with no value (`--full-name`, `--full-name=`, or followed by another flag) or blank.
+  if (seen.has('fullName') && !out.fullName) {
+    throw new Error('--full-name needs a non-empty value');
   }
   return { from: out.from, to: out.to, fullName: out.fullName };
 }
@@ -67,6 +71,15 @@ function parseArgs(argv) {
  * @returns {SetUserPlan}
  */
 function planUserChange({ from, to, fullName }, { fromUser, toUser }) {
+  // Two different accounts: renaming or editing either could be wrong. Never guess.
+  if (fromUser && toUser && fromUser.id !== toUser.id) {
+    return {
+      action: 'error',
+      exitCode: 1,
+      message: `Both '${from}' (id ${fromUser.id}) and '${to}' (id ${toUser.id}) exist; resolve manually. Nothing changed.`,
+    };
+  }
+
   if (toUser) {
     if (fullName !== undefined && fullName !== toUser.fullName) {
       return {
