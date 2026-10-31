@@ -60,8 +60,10 @@ export default function SalesPage() {
           )}
         </div>
 
-        {/* Desktop table */}
-        <table className="table w-full hidden md:table" data-testid="sidebar-sales-table">
+        {/* Desktop table. Visibility lives on a wrapper: the `table` class is also
+            Tailwind's display:table utility, which overrode `hidden` on the table itself. */}
+        <div className="hidden md:block">
+        <table className="table w-full" data-testid="sidebar-sales-table">
           <thead>
             <tr className="bg-slate-50 text-slate-600">
               <th className="p-2 text-left">Date</th>
@@ -104,6 +106,7 @@ export default function SalesPage() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );
