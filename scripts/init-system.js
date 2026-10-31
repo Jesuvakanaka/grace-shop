@@ -25,9 +25,19 @@ const prisma = new PrismaClient();
 const RESET_FLAG = process.argv.includes('--reset') || process.argv.includes('--fresh');
 
 async function resetDatabase() {
-  console.log('\n🗑️  Resetting database...');
+  // Refuse BEFORE touching the database unless it is a local, non-production DB.
+  // (scripts/lib/db-safety.js exits non-zero and prints the reason when refused.)
   try {
-    execSync('npx prisma db push --force-reset --accept-data-loss', { 
+    execSync(`node "${path.join(__dirname, 'lib', 'db-safety.js')}" "init:fresh (database reset)"`, {
+      stdio: 'inherit',
+    });
+  } catch {
+    process.exit(1);
+  }
+
+  console.log('\n🗑️  Resetting database (drop + re-apply prisma/migrations)...');
+  try {
+    execSync('npx prisma migrate reset --force --skip-seed', {
       stdio: 'inherit',
       env: { ...process.env, PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION: 'user requested reset via init script' }
     });

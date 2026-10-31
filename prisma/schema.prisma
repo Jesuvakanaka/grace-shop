@@ -1,5 +1,5 @@
 // Prisma schema for Business Control MVP
-// Database: PostgreSQL (Supabase)
+// Database: PostgreSQL
 
 generator client {
   provider = "prisma-client-js"
