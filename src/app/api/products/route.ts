@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAllProducts, createProduct } from '@/lib/products';
 import { getSession, requireRole } from '@/lib/auth';
+import { parseWholesaleFields } from '@/lib/validation/product';
 
 export async function GET() {
   try {
@@ -27,6 +28,8 @@ export async function POST(request: Request) {
     if (!itemNumber || !productName || unitCostRmb === undefined || openingQuantity === undefined) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
+    const wholesale = parseWholesaleFields(body);
+    if (!wholesale.ok) return NextResponse.json({ error: wholesale.error }, { status: 400 });
 
     const newProduct = await createProduct({
       itemNumber,
@@ -35,6 +38,7 @@ export async function POST(request: Request) {
       openingQuantity,
       createdBy: session.username,
       ...rest,
+      ...wholesale.data,
     });
 
     return NextResponse.json(newProduct, { status: 201 });

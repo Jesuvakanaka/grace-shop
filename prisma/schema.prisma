@@ -46,6 +46,11 @@ model Product {
   unitCostUsd      Float    @default(0)
   sellingPriceRmb  Float    @default(0)
   sellingPriceUsd  Float    @default(0)
+  // Wholesale (ZP-475). Float to match the other money columns. No default:
+  // NULL means "not set yet", which must not be confused with a price of 0.
+  wholesalePriceUsd    Float?
+  // Minimum quantity at which wholesalePriceUsd applies (>= 1 when set).
+  wholesaleMinQuantity Int?
   openingQuantity  Int      @default(0)
   currentQuantity  Int      @default(0)
   notes            String?

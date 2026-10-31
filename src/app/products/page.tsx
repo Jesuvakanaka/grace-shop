@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import Image from 'next/image';
 import { QuantityPill } from '@/components/ui/QuantityPill';
+import { getMissingProductDetails } from '@/lib/product-completeness';
 
 interface Product {
   id: number;
@@ -13,6 +14,8 @@ interface Product {
   unitCostUsd: number;
   sellingPriceRmb: number;
   sellingPriceUsd: number;
+  wholesalePriceUsd: number | null;
+  wholesaleMinQuantity: number | null;
   openingQuantity: number;
   currentQuantity: number;
   notes: string | null;
@@ -23,6 +26,7 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [needsDetailsOnly, setNeedsDetailsOnly] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Product | null>(null);
@@ -34,6 +38,8 @@ export default function ProductsPage() {
     productName: '',
     unitCostRmb: '',
     unitCostUsd: '',
+    wholesalePriceUsd: '',
+    wholesaleMinQuantity: '',
     openingQuantity: '0',
     notes: '',
     imageUrl: '' as string | null
@@ -60,6 +66,8 @@ export default function ProductsPage() {
       productName: '',
       unitCostRmb: '',
       unitCostUsd: '',
+      wholesalePriceUsd: '',
+      wholesaleMinQuantity: '',
       openingQuantity: '0',
       notes: '',
       imageUrl: null
@@ -80,6 +88,8 @@ export default function ProductsPage() {
       productName: product.productName,
       unitCostRmb: String(product.unitCostRmb),
       unitCostUsd: String(product.unitCostUsd),
+      wholesalePriceUsd: product.wholesalePriceUsd == null ? '' : String(product.wholesalePriceUsd),
+      wholesaleMinQuantity: product.wholesaleMinQuantity == null ? '' : String(product.wholesaleMinQuantity),
       openingQuantity: String(product.openingQuantity),
       notes: product.notes || '',
       imageUrl: product.imageUrl
@@ -141,6 +151,9 @@ export default function ProductsPage() {
         unitCostRmb: Number(formData.unitCostRmb || 0),
         unitCostUsd: Number(formData.unitCostUsd || 0),
         openingQuantity: Number(formData.openingQuantity || 0),
+        // Sent as typed; the server validates it and stores empty as null (not set).
+        wholesalePriceUsd: formData.wholesalePriceUsd.trim() || null,
+        wholesaleMinQuantity: formData.wholesaleMinQuantity.trim() || null,
         notes: formData.notes || null,
         imageUrl: formData.imageUrl
       };
@@ -200,13 +213,37 @@ export default function ProductsPage() {
     }
   };
 
-  const filtered = products.filter(p => 
-    p.productName?.toLowerCase().includes(search.toLowerCase()) || 
-    p.itemNumber?.includes(search)
+  // "Needs details" is shown to owners only: they are the ones who can fix it.
+  const missingFor = (p: Product) => (isOwner ? getMissingProductDetails(p) : []);
+  const needsDetailsCount = isOwner ? products.filter(p => missingFor(p).length > 0).length : 0;
+
+  const filtered = products.filter(p =>
+    (p.productName?.toLowerCase().includes(search.toLowerCase()) ||
+    p.itemNumber?.includes(search)) &&
+    (!needsDetailsOnly || missingFor(p).length > 0)
   );
 
-  const formatCurrency = (val: number) => 
+  const formatCurrency = (val: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val || 0);
+
+  // Wholesale price is optional: show a dash when it has not been set.
+  const formatWholesale = (val: number | null) => (val == null ? '—' : formatCurrency(val));
+
+  const needsDetailsBadge = (p: Product) => {
+    const missing = missingFor(p);
+    if (!missing.length) return null;
+    return (
+      <span
+        className="badge badge-warning"
+        title={`Missing: ${missing.join(', ')}`}
+        data-testid="product-needs-details"
+      >
+        Needs details
+      </span>
+    );
+  };
+
+  const desktopColumnCount = isOwner ? 12 : 11;
 
   return (
     <div className="p-6">
@@ -219,14 +256,25 @@ export default function ProductsPage() {
         )}
       </div>
       
-      <div className="mb-4">
-        <input 
-          type="text" 
-          placeholder="Search products..." 
-          className="input w-full max-w-md" 
-          value={search} 
-          onChange={e => setSearch(e.target.value)} 
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <input
+          type="text"
+          placeholder="Search products..."
+          className="input w-full max-w-md"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
         />
+        {isOwner && (
+          <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={needsDetailsOnly}
+              onChange={e => setNeedsDetailsOnly(e.target.checked)}
+              data-testid="filter-needs-details"
+            />
+            Needs details only ({needsDetailsCount})
+          </label>
+        )}
       </div>
 
       {loading ? (
@@ -254,6 +302,11 @@ export default function ProductsPage() {
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-slate-900 truncate">{p.productName}</p>
                   <p className="text-sm text-slate-500">#{p.itemNumber} · {formatCurrency(p.sellingPriceUsd)}</p>
+                  <p className="text-xs text-slate-500" data-testid="product-wholesale">
+                    Wholesale {formatWholesale(p.wholesalePriceUsd)}
+                    {p.wholesaleMinQuantity != null && ` · min ${p.wholesaleMinQuantity}`}
+                  </p>
+                  {needsDetailsBadge(p)}
                   <span className="sr-only" data-testid="product-selling-price-rmb">{p.sellingPriceRmb}</span>
                   <span className="sr-only" data-testid="product-selling-price-usd">{formatCurrency(p.sellingPriceUsd)}</span>
                   <span className="sr-only" data-testid="product-opening-quantity">{p.openingQuantity}</span>
@@ -277,6 +330,8 @@ export default function ProductsPage() {
                 <th className="text-right p-2">Unit Cost (USD)</th>
                 <th className="text-right p-2">Selling (RMB)</th>
                 <th className="text-right p-2">Selling (USD)</th>
+                <th className="text-right p-2">Wholesale (USD)</th>
+                <th className="text-right p-2">Wholesale Min Qty</th>
                 <th className="text-right p-2">Opening Qty</th>
                 <th className="text-right p-2">Current Stock</th>
                 {isOwner && <th className="text-center p-2">Actions</th>}
@@ -301,11 +356,16 @@ export default function ProductsPage() {
                     )}
                   </td>
                   <td className="p-2">{p.itemNumber}</td>
-                  <td className="p-2">{p.productName}</td>
+                  <td className="p-2">
+                    {p.productName}
+                    {needsDetailsBadge(p) && <div className="mt-1">{needsDetailsBadge(p)}</div>}
+                  </td>
                   <td className="text-right p-2">{p.unitCostRmb}</td>
                   <td className="text-right p-2">{formatCurrency(p.unitCostUsd)}</td>
                   <td className="text-right p-2" data-testid="product-selling-price-rmb">{p.sellingPriceRmb}</td>
                   <td className="text-right p-2" data-testid="product-selling-price-usd">{formatCurrency(p.sellingPriceUsd)}</td>
+                  <td className="text-right p-2" data-testid="product-wholesale-price-usd">{formatWholesale(p.wholesalePriceUsd)}</td>
+                  <td className="text-right p-2" data-testid="product-wholesale-min-qty">{p.wholesaleMinQuantity ?? '—'}</td>
                   <td className="text-right p-2" data-testid="product-opening-quantity">{p.openingQuantity}</td>
                   <td className="text-right p-2 font-bold" data-testid="product-current-stock" data-stock={p.currentQuantity}>
                     {p.currentQuantity}
@@ -330,7 +390,7 @@ export default function ProductsPage() {
               ))}
               {!filtered.length && (
                 <tr>
-                  <td colSpan={isOwner ? 10 : 9} className="p-4 text-center text-gray-400">
+                  <td colSpan={desktopColumnCount} className="p-4 text-center text-gray-400">
                     No products found
                   </td>
                 </tr>
@@ -453,6 +513,42 @@ export default function ProductsPage() {
                 </div>
               </div>
               
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label" htmlFor="product-form-wholesale-price">Wholesale Price (USD)</label>
+                  <input
+                    id="product-form-wholesale-price"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    inputMode="decimal"
+                    placeholder="Not set"
+                    className="input w-full"
+                    value={formData.wholesalePriceUsd}
+                    onChange={e => setFormData(prev => ({ ...prev, wholesalePriceUsd: e.target.value }))}
+                    data-testid="product-form-wholesale-price"
+                  />
+                </div>
+                <div>
+                  <label className="label" htmlFor="product-form-wholesale-min-qty">Wholesale Min Qty</label>
+                  <input
+                    id="product-form-wholesale-min-qty"
+                    type="number"
+                    step="1"
+                    min="1"
+                    inputMode="numeric"
+                    placeholder="Not set"
+                    className="input w-full"
+                    value={formData.wholesaleMinQuantity}
+                    onChange={e => setFormData(prev => ({ ...prev, wholesaleMinQuantity: e.target.value }))}
+                    data-testid="product-form-wholesale-min-qty"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 -mt-2">
+                Leave empty if not set yet. The wholesale price applies from the minimum quantity up.
+              </p>
+
               {!editingProduct && (
                 <div>
                   <label className="label">Opening Quantity</label>
