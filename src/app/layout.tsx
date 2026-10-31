@@ -1,9 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Cormorant_Garamond, Jost } from "next/font/google";
 import "./globals.css";
-import { AuthProvider } from "@/components/AuthProvider";
-import { ToastProvider } from "@/components/Toast";
-import { AppShell } from "@/components/AppShell";
 
 // VYRA type: high-contrast serif for headings, geometric sans for body and labels.
 const cormorant = Cormorant_Garamond({
@@ -33,6 +30,9 @@ export const viewport: Viewport = {
   themeColor: "#5F7A1F",
 };
 
+// ZP-485: shared shell only (html, fonts, globals.css). Each front door adds its
+// own wrapper: src/app/(admin)/layout.tsx (session, login screen, admin chrome)
+// and src/app/site/layout.tsx (public storefront, no session fetch).
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -40,13 +40,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${jost.variable} ${cormorant.variable}`}>
-      <body className="font-sans antialiased min-h-screen">
-        <ToastProvider>
-          <AuthProvider>
-            <AppShell>{children}</AppShell>
-          </AuthProvider>
-        </ToastProvider>
-      </body>
+      <body className="font-sans antialiased min-h-screen">{children}</body>
     </html>
   );
 }

@@ -63,7 +63,12 @@ and skips **deploy**.
       - Env: `NODE_ENV=production`, `GRACE_IMAGE_STORAGE=gcs`,
         `GRACE_IMAGE_BUCKET=grace-shop-uat-images-266452509449`,
         `GRACE_QUICK_LOGIN` (repository variable, default `false`; see
-        [UAT quick sign-in](#uat-quick-sign-in)).
+        [UAT quick sign-in](#uat-quick-sign-in)),
+        `GRACE_STOREFRONT_HOSTS` and `GRACE_ADMIN_HOSTS` (repository
+        variables, default empty; see
+        [Storefront and admin hosts](#storefront-and-admin-hosts-two-front-doors)).
+        The list is passed with gcloud's `^@^` delimiter so the commas inside
+        a host list survive.
       - Port 8080, startup probe on `/api/health`.
       - `min-instances=0`, `max-instances=2`, 512Mi memory, 1 CPU, public.
 
@@ -226,6 +231,76 @@ The smoke test is unaffected: `GET /api/dashboard` without a cookie is still
 
 The "First time? Set up admin account" link is also hidden on UAT now, because
 first-time setup is disabled in production unless `ALLOW_SETUP=true`.
+
+## Storefront and admin hosts (two front doors)
+
+One web service serves two sites (ZP-485):
+
+- **Back office (admin).** Every admin page, the login screen and all of
+  `/api/*`. This is what UAT serves today.
+- **VYRA storefront.** The public site. Its pages live in `src/app/site/**`.
+
+`src/proxy.ts` picks the site from the request's `Host` header, using two
+repository variables. Each is a comma-separated list of hostnames, without
+`https://`. Case and port are ignored, and `www.` + a listed host matches too.
+
+| Variable | Example | Default |
+| --- | --- | --- |
+| `GRACE_STOREFRONT_HOSTS` | `vyra.co.zw` | empty |
+| `GRACE_ADMIN_HOSTS` | `admin.vyra.co.zw` | empty |
+
+**Default (both empty): nothing changes.** Every host behaves as the back
+office, exactly as before. The storefront is still reachable for preview at
+`/site` on the UAT URL, for example `https://grace-shop-uat-….run.app/site`.
+
+**On a storefront host:**
+
+- `/` serves the storefront home (`/site`) and `/shop` serves `/site/shop`.
+  The address bar keeps the clean path.
+- `/site/...` redirects (308) to the clean path.
+- `/_next/*`, `/brand/*`, top-level public files (favicon, icons, manifest,
+  `robots.txt`, `sitemap.xml`), `/api/public/*` and `/api/images/public/*`
+  pass through.
+- Every other `/api/*` (including `/api/auth/*`, `/api/auth/quick-login` and
+  `/api/health`) and every admin page (`/products`, `/settings/...`, ...) is a
+  plain **404**. There is no redirect to the back office.
+
+**On any other host** (a listed admin host, the `*.run.app` service and tag
+URLs, the startup probe): back office, unchanged. An unlisted host falls back
+to the back office, so the run.app URL and `/api/health` keep working. A host
+listed in both variables is treated as storefront. Today `GRACE_ADMIN_HOSTS`
+documents the admin domain; the routing only acts on the storefront list.
+
+**Search engines.** Every back-office response, and `/site` previewed from the
+admin host, carries `X-Robots-Tag: noindex, nofollow`. Storefront pages carry
+`<meta name="robots" content="noindex, nofollow">` until launch.
+
+**Session cookie.** `auth-token` is host-only (no `Domain` attribute), so a
+back-office sign-in is never sent to the storefront host
+(`tests/session-cookie-host-only.test.ts`).
+
+**Set the hosts** (only once the domain is mapped to `grace-shop-uat`):
+
+```bash
+gh variable set GRACE_STOREFRONT_HOSTS --body "vyra.co.zw" -R Jesuvakanaka/grace-shop
+gh variable set GRACE_ADMIN_HOSTS --body "admin.vyra.co.zw" -R Jesuvakanaka/grace-shop
+# Back to "admin everywhere"
+gh variable delete GRACE_STOREFRONT_HOSTS -R Jesuvakanaka/grace-shop
+```
+
+As with `GRACE_QUICK_LOGIN`, a change takes effect on the next deploy. The
+deploy step rejects a value with anything other than hostname characters,
+commas, colons and spaces.
+
+**Check after a deploy**, with the storefront host set:
+
+```bash
+curl -sI https://<storefront-host>/                  # 200, storefront
+curl -sI https://<storefront-host>/products          # 404
+curl -sI https://<storefront-host>/api/auth/session  # 404
+curl -sI https://<storefront-host>/site              # 308, location: /
+curl -sI https://<admin-host>/                       # 200, x-robots-tag: noindex, nofollow
+```
 
 ## Where the owner reads the UAT passwords
 
