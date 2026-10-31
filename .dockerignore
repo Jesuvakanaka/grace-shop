@@ -1,0 +1,44 @@
+# ZP-463: keep the Docker build context small and secret-free.
+
+# Secrets / local env (never baked into the image)
+.env*
+
+# Installed / built artefacts (rebuilt inside the image)
+node_modules
+.next
+out
+build
+coverage
+*.tsbuildinfo
+next-env.d.ts
+
+# VCS, editor, agent tooling
+.git
+.gitignore
+.claude
+.cursor
+.vercel
+.DS_Store
+*.pem
+npm-debug.log*
+
+# Test output / e2e artefacts
+playwright-report
+test-results
+prisma/dev.db
+
+# Local user uploads
+public/uploads
+
+# Docker files themselves
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Large spreadsheets under docs/ (e.g. the untracked 16 MB docs/august-trip/
+# workbook) are excluded ...
+docs/august-trip
+docs/**/*.xlsx
+# ... EXCEPT the seed inputs: `npm run init` (scripts/init-system.js), run as a
+# Cloud Run Job from this same image, reads these at runtime.
+!docs/business-control-inputs/*.xlsx
