@@ -186,13 +186,35 @@ one.
 | The route itself | Never. The check is not cached. |
 | A browser | Up to 5 minutes (`max-age=300`) |
 | A shared cache or CDN, if one is added | Up to 5 minutes (`s-maxage=300`). After that, at most one more stale response while it revalidates in the background (`stale-while-revalidate`). It then receives the uncacheable 404. Cloud Run has no CDN in front today. |
-| The Next image optimiser (`/_next/image`) | Up to 5 minutes for each size that was already cached. A size not cached yet returns 404 at once. The lifetime is the larger of the upstream `s-maxage` (300) and `images.minimumCacheTTL`, which `next.config.ts` sets to 300; the Next 16 default is 14400, 4 hours. Next cannot invalidate this cache, so keep both values low. |
+| **The Next image optimiser (`/_next/image`)** | **A size that was already cached keeps being served until that instance's image cache is cleared** (see the gap below). A size not cached yet returns 404 at once. The cache lifetime is the larger of the upstream `s-maxage` (300) and `images.minimumCacheTTL`, which `next.config.ts` sets to 300; the Next 16 default is 14400, 4 hours. |
 
-Proof on a production build (`next build` then `next start`): a cached size
-answered `Cache-Control: public, max-age=300, must-revalidate`,
-`X-Nextjs-Cache: HIT`. Straight after an unpublish it was still a `HIT`.
-More than 300 s later it was no longer served. `tests/next-image-config.test.ts`
-pins `minimumCacheTTL` to 300.
+**Gap: the optimiser keeps serving a picture after it is unpublished.**
+When a cached size expires, the optimiser serves it as `STALE` and
+revalidates in the background. The upstream now answers 404, so the
+revalidation fails. Next 16's response cache (`retainPreviousCacheEntry`
+in `next/dist/server/response-cache/index.js`) then **keeps the previous
+image** and retries every 30 seconds. Image entries have no `expire`, so
+this goes on until that instance's `.next/cache/images` is cleared. On
+Cloud Run that happens when the instance is replaced. Lowering
+`minimumCacheTTL` and `s-maxage` does not fix it; they only set how soon
+the first retry happens.
+
+Production-build proof (`next build`, then `next start`, AUG-4 unpublished
+at 21:12:11 UTC):
+
+| Time (UTC) | `/_next/image?url=/api/images/public/<key>&w=640` |
+| --- | --- |
+| 21:12:00 | `200`, `Cache-Control: public, max-age=300, must-revalidate`, `X-Nextjs-Cache: MISS`, then `HIT` |
+| 21:12:11 | `200`, `HIT` (`/api/images/public/<key>` itself returns `404`) |
+| 21:17:36 | `200`, `STALE`; the server logs `internal image response failed ... 404` |
+| 21:17:38 to 21:18:24 | `200`, `Cache-Control: public, max-age=30, must-revalidate`, `HIT` |
+
+This needs a decision outside ZP-484. Possible fixes: a custom
+`images.loader` that points `next/image` at a resize route of our own,
+which checks visibility on every request; or pre-generated sizes. Until
+then, a picture that is unpublished after its sizes were cached stays
+reachable on an instance through those exact `/_next/image` URLs.
+`tests/next-image-config.test.ts` pins `minimumCacheTTL` to 300.
 
 ### Responsive sizes
 
