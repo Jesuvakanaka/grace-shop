@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 
 interface User {
   id: number;
@@ -32,6 +33,8 @@ export function useAuth() {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const pathname = usePathname();
 
   const checkSession = useCallback(async () => {
     try {
@@ -49,9 +52,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Initialize auth state once on mount. The setState calls happen after the async
+  // fetch resolves, not synchronously. This is the standard pattern for session checks.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     checkSession();
   }, [checkSession]);
+
+  // Redirect authenticated users away from /login (which isn't a real route)
+  useEffect(() => {
+    if (user && pathname === '/login') {
+      router.replace('/');
+    }
+  }, [user, pathname, router]);
 
   const login = async (username: string, password: string) => {
     const res = await fetch('/api/auth/login', {

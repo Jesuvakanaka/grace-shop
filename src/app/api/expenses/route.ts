@@ -1,28 +1,41 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { createExpense, getExpenses } from '@/lib/expenses';
+import { getSession } from '@/lib/auth';
 
 export async function GET(request: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const date = searchParams.get('date');
-    const where = date ? { date: { gte: new Date(date), lt: new Date(new Date(date).getTime() + 86400000) } } : {};
-    
-    const expenses = await prisma.expense.findMany({ where, orderBy: { date: 'desc' } });
+    const url = new URL(request.url);
+    const dateStr = url.searchParams.get('date');
+    const date = dateStr ? new Date(dateStr) : undefined;
+    const expenses = await getExpenses(date);
     return NextResponse.json(expenses);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   try {
+    const session = await getSession(request);
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const body = await request.json();
-    if (!body.description || !body.amount || body.amount <= 0) {
-      return NextResponse.json({ error: 'Invalid expense data' }, { status: 400 });
+    const { expenseDate, category, description, amount, ...rest } = body;
+
+    if (!description || typeof amount !== 'number' || amount <= 0 || !category) {
+      return NextResponse.json({ error: 'Invalid fields: description, category and amount > 0 are required' }, { status: 400 });
     }
-    const expense = await prisma.expense.create({ data: body });
-    return NextResponse.json(expense);
+
+    const newExpense = await createExpense({
+      expenseDate: expenseDate ? new Date(expenseDate) : new Date(),
+      category,
+      description,
+      amount,
+      createdBy: session.username,
+      ...rest,
+    });
+    return NextResponse.json(newExpense, { status: 201 });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

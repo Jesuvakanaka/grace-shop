@@ -1,16 +1,13 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { getCreditorById } from '@/lib/creditors';
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const creditor = await prisma.creditor.findUnique({
-      where: { id },
-      include: { transactions: { orderBy: { date: 'desc' } } }
-    });
+    const creditor = await getCreditorById(Number(id));
     if (!creditor) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     return NextResponse.json(creditor);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

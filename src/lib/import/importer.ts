@@ -28,11 +28,11 @@ export async function processImport(buffer: Buffer, filename: string, userId: st
       filename,
       documentType: detection.documentType,
       status: 'DRAFT',
-      userId
+      importedBy: userId
     }
   });
 
-  const rowResults = [];
+  const rowResults: any[] = [];
   let summary = { total: 0, ready: 0, warnings: 0, errors: 0 };
 
   const processSheetRows = async (sheetName: string, mapFn: any, validateFn: any, type: string) => {
@@ -60,7 +60,7 @@ export async function processImport(buffer: Buffer, filename: string, userId: st
           importDocumentId: importDocument.id,
           rowNumber: i + 2,
           sheetName,
-          rowType: type,
+          detectedRecordType: type,
           status,
           rawData: JSON.stringify(raw),
           mappedData: mapped ? JSON.stringify(mapped) : null
@@ -72,9 +72,10 @@ export async function processImport(buffer: Buffer, filename: string, userId: st
       for (const msg of allErrors) {
         await prisma.importError.create({
           data: {
+            importDocumentId: importDocument.id,
             importRowId: importRow.id,
             errorType: 'ERROR',
-            message: msg
+            errorMessage: msg
           }
         });
       }
@@ -82,9 +83,10 @@ export async function processImport(buffer: Buffer, filename: string, userId: st
       for (const msg of allWarnings) {
         await prisma.importError.create({
           data: {
+            importDocumentId: importDocument.id,
             importRowId: importRow.id,
             errorType: 'WARNING',
-            message: msg
+            errorMessage: msg
           }
         });
       }
@@ -146,88 +148,125 @@ export async function confirmImport(importDocumentId: number, exchangeRate?: num
 
       try {
         if (document.documentType === DOCUMENT_TYPES.PRODUCT_LIST) {
-          const unitCostRmb = mapped.unitCostRmb || (exchangeRate && mapped.unitCostUsd ? mapped.unitCostUsd * exchangeRate : 0);
+          const unitCostRmb = mapped.unitCostRmb || 0;
+          const unitCostUsd = mapped.unitCostUsd || (exchangeRate ? unitCostRmb * exchangeRate : 0);
           const sellingPriceRmb = mapped.sellingPriceRmb || unitCostRmb * 2;
-          
+          const sellingPriceUsd = mapped.sellingPriceUsd || unitCostUsd * 2;
+          const openingQuantity = mapped.openingQuantity || 0;
+
           const product = await tx.product.upsert({
             where: { itemNumber: mapped.itemNumber },
             update: {
-              name: mapped.productName,
-              costPrice: unitCostRmb,
-              sellingPrice: sellingPriceRmb,
-              sourceFilename: document.filename
+              productName: mapped.productName,
+              unitCostRmb,
+              unitCostUsd,
+              sellingPriceRmb,
+              sellingPriceUsd,
+              sourceImportId: document.id,
+              sourceFilename: document.filename,
+              sourceSheetName: row.sheetName,
+              sourceRowNumber: row.rowNumber
             },
             create: {
               itemNumber: mapped.itemNumber,
-              name: mapped.productName,
-              costPrice: unitCostRmb,
-              sellingPrice: sellingPriceRmb,
-              sourceFilename: document.filename
+              productName: mapped.productName,
+              unitCostRmb,
+              unitCostUsd,
+              sellingPriceRmb,
+              sellingPriceUsd,
+              openingQuantity,
+              currentQuantity: openingQuantity,
+              sourceImportId: document.id,
+              sourceFilename: document.filename,
+              sourceSheetName: row.sheetName,
+              sourceRowNumber: row.rowNumber
             }
           });
 
-          if (mapped.openingQuantity) {
+          if (openingQuantity > 0) {
             await tx.stockMovement.create({
               data: {
                 productId: product.id,
-                quantity: mapped.openingQuantity,
-                type: 'OPENING_BALANCE',
-                date: new Date(),
-                sourceFilename: document.filename
+                movementDate: new Date(),
+                movementType: 'OPENING_BALANCE',
+                quantity: openingQuantity,
+                openingBalance: 0,
+                closingBalance: openingQuantity,
+                notes: 'Opening stock from product list import',
+                sourceImportId: document.id
               }
             });
           }
         } else if (document.documentType === DOCUMENT_TYPES.OPENING_STOCK) {
           const product = await tx.product.findFirst({
-            where: { OR: [{ itemNumber: mapped.itemNumber }, { name: mapped.productName }] }
+            where: { OR: [{ itemNumber: mapped.itemNumber }, { productName: mapped.productName }] }
           });
           if (product) {
+            const addedQty = mapped.openingQuantity || 0;
             await tx.stockMovement.create({
               data: {
                 productId: product.id,
-                quantity: mapped.openingQuantity,
-                type: 'OPENING_BALANCE',
-                date: mapped.date ? new Date(mapped.date) : new Date(),
-                sourceFilename: document.filename
+                movementDate: mapped.date ? new Date(mapped.date) : new Date(),
+                movementType: 'OPENING_BALANCE',
+                quantity: addedQty,
+                openingBalance: product.currentQuantity,
+                closingBalance: product.currentQuantity + addedQty,
+                notes: 'Opening stock import',
+                sourceImportId: document.id
               }
+            });
+            await tx.product.update({
+              where: { id: product.id },
+              data: { currentQuantity: product.currentQuantity + addedQty }
             });
           }
         } else if (document.documentType === DOCUMENT_TYPES.BUSINESS_CONTROL) {
-          if (row.rowType === 'SALE') {
+          if (row.detectedRecordType === 'SALE') {
             await tx.sale.create({
               data: {
-                productName: mapped.productName || mapped.itemNumber,
-                quantity: mapped.quantity,
-                amount: mapped.amount,
-                date: mapped.date ? new Date(mapped.date) : new Date(),
-                sourceFilename: document.filename
+                saleDate: mapped.saleDate ? new Date(mapped.saleDate) : new Date(),
+                paymentType: mapped.paymentType || 'CASH',
+                customerName: mapped.customerName,
+                customerPhone: mapped.customerPhone,
+                totalAmount: mapped.totalAmount || 0,
+                cashAmount: mapped.cashAmount || 0,
+                creditAmount: mapped.creditAmount || 0,
+                notes: mapped.notes
               }
             });
-          } else if (row.rowType === 'EXPENSE') {
+          } else if (row.detectedRecordType === 'EXPENSE') {
             await tx.expense.create({
               data: {
+                expenseDate: mapped.expenseDate ? new Date(mapped.expenseDate) : new Date(),
+                category: mapped.category || 'Other',
                 description: mapped.description,
-                amount: mapped.amount,
-                date: mapped.date ? new Date(mapped.date) : new Date(),
-                sourceFilename: document.filename
+                amount: mapped.amount || 0,
+                paymentMethod: mapped.paymentMethod || 'CASH',
+                paidTo: mapped.paidTo,
+                notes: mapped.notes
               }
             });
-          } else if (row.rowType === 'DEBTOR') {
+          } else if (row.detectedRecordType === 'DEBTOR') {
             await tx.debtor.create({
               data: {
                 customerName: mapped.customerName,
-                amount: mapped.amount,
-                date: mapped.date ? new Date(mapped.date) : new Date(),
-                sourceFilename: document.filename
+                phoneNumber: mapped.phoneNumber,
+                totalCreditAmount: mapped.totalCreditAmount || 0,
+                totalPaid: mapped.totalPaid || 0,
+                outstandingBalance: mapped.outstandingBalance || 0,
+                status: mapped.status || 'OPEN'
               }
             });
-          } else if (row.rowType === 'CREDITOR') {
+          } else if (row.detectedRecordType === 'CREDITOR') {
             await tx.creditor.create({
               data: {
                 creditorName: mapped.creditorName,
-                amount: mapped.amount,
-                date: mapped.date ? new Date(mapped.date) : new Date(),
-                sourceFilename: document.filename
+                phoneNumber: mapped.phoneNumber,
+                description: mapped.description,
+                totalAmountOwed: mapped.totalAmountOwed || 0,
+                totalPaid: mapped.totalPaid || 0,
+                outstandingBalance: mapped.outstandingBalance || 0,
+                status: mapped.status || 'OPEN'
               }
             });
           }
@@ -241,8 +280,11 @@ export async function confirmImport(importDocumentId: number, exchangeRate?: num
 
     await tx.importDocument.update({
       where: { id: importDocumentId },
-      data: { status: 'COMPLETED' }
+      data: { status: 'COMPLETED', completedAt: new Date(), importedRows, skippedRows }
     });
+  }, {
+    maxWait: 10_000,
+    timeout: 120_000
   });
 
   return { importedRows, skippedRows, errors };

@@ -1,25 +1,22 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { getStockMovements } from '@/lib/stock';
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const productId = searchParams.get('productId');
-    const startDate = searchParams.get('startDate');
-    const endDate = searchParams.get('endDate');
+    const productIdStr = searchParams.get('productId');
+    const startDateStr = searchParams.get('startDate');
+    const endDateStr = searchParams.get('endDate');
     
-    const where: any = {};
-    if (productId) where.productId = productId;
-    if (startDate || endDate) {
-      where.date = {};
-      if (startDate) where.date.gte = new Date(startDate);
-      if (endDate) where.date.lte = new Date(endDate);
+    if (!productIdStr) {
+      return NextResponse.json({ error: 'productId is required' }, { status: 400 });
     }
     
-    const movements = await prisma.stockMovement.findMany({
-      where,
-      orderBy: { date: 'desc' }
-    });
+    const productId = Number(productIdStr);
+    const startDate = startDateStr ? new Date(startDateStr) : undefined;
+    const endDate = endDateStr ? new Date(endDateStr) : undefined;
+    
+    const movements = await getStockMovements(productId, startDate, endDate);
     return NextResponse.json(movements);
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });

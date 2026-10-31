@@ -1,31 +1,26 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { recordCreditorPayment } from '@/lib/creditors';
+import { getSession } from '@/lib/auth';
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const session = await getSession(request);
     const { id } = await params;
     const body = await request.json();
     const { amount, notes } = body;
     
-    if (!amount || amount <= 0) {
+    if (amount === undefined || amount <= 0) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
     }
     
-    const tx = await prisma.creditorTransaction.create({
-      data: {
-        creditorId: id,
-        type: 'PAYMENT',
-        amount,
-        notes
-      }
-    });
+    const transaction = await recordCreditorPayment(
+      Number(id),
+      Number(amount),
+      notes || undefined,
+      session?.username || 'system'
+    );
     
-    await prisma.creditor.update({
-      where: { id },
-      data: { balance: { decrement: amount } }
-    });
-    
-    return NextResponse.json(tx);
+    return NextResponse.json(transaction);
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
   }

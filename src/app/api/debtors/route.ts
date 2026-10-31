@@ -1,25 +1,28 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { getAllDebtors, findOrCreateDebtor } from '@/lib/debtors';
+import { getSession } from '@/lib/auth';
 
 export async function GET() {
   try {
-    const debtors = await prisma.debtor.findMany({
-      include: { transactions: true }
-    });
+    const debtors = await getAllDebtors();
     return NextResponse.json(debtors);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   try {
+    const session = await getSession(request);
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const body = await request.json();
-    if (!body.name) return NextResponse.json({ error: 'Name required' }, { status: 400 });
-    
-    const debtor = await prisma.debtor.create({ data: body });
-    return NextResponse.json(debtor);
+    const { customerName, phoneNumber } = body;
+    if (!customerName) return NextResponse.json({ error: 'customerName is required' }, { status: 400 });
+
+    const debtor = await findOrCreateDebtor(customerName, phoneNumber);
+    return NextResponse.json(debtor, { status: 201 });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

@@ -39,3 +39,16 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local sqlite (e2e); production uses Postgres
+prisma/dev.db
+
+# playwright
+/playwright-report/
+/test-results/
+
+# editor
+.cursor/
+
+# user-uploaded product images (local dev)
+/public/uploads/

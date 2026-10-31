@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
@@ -11,8 +11,15 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Business Control - Stock, Cash & Credit Management",
+  title: "Grace Shop - Stock, Cash & Credit",
   description: "Simple business control system for managing stock, cash, debtors, creditors, and daily operations.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#059669",
 };
 
 export default function RootLayout({
@@ -21,8 +28,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${inter.variable} font-sans antialiased bg-slate-950 text-slate-100 min-h-screen`}>
+    <html lang="en" className={inter.variable}>
+      <body className="font-sans antialiased min-h-screen">
         <ToastProvider>
           <AuthProvider>
             <AppShell>{children}</AppShell>

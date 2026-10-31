@@ -1,16 +1,24 @@
 import { NextResponse } from 'next/server';
 import { requireRole } from '@/lib/auth';
-import prisma from '@/lib/db';
+import { closeDayClosing } from '@/lib/closing';
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole(request, ['OWNER']);
+    const session = await requireRole(request, ['OWNER']);
     const { id } = await params;
+    const body = await request.json();
     
-    const closing = await prisma.dayClosing.update({
-      where: { id },
-      data: { status: 'FINALIZED', finalizedAt: new Date() }
-    });
+    const { signOffName, actualCountedCash } = body;
+    if (!signOffName || actualCountedCash === undefined) {
+      return NextResponse.json({ error: 'Missing signOffName or actualCountedCash' }, { status: 400 });
+    }
+
+    const closing = await closeDayClosing(
+      Number(id),
+      signOffName,
+      Number(actualCountedCash),
+      session.username
+    );
     
     return NextResponse.json(closing);
   } catch (error: any) {

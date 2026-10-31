@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
+import { getExpenseCategories } from '@/lib/expenses';
 
 export async function GET() {
   try {
-    const categories = ['Rent', 'Utilities', 'Salaries', 'Office Supplies', 'Marketing', 'Other'];
+    const categories = await getExpenseCategories();
     return NextResponse.json(categories);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

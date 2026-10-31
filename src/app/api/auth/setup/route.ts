@@ -1,34 +1,53 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import bcrypt from 'bcryptjs';
+import { hashPassword, createToken } from '@/lib/auth';
 
 export async function POST(request: Request) {
   try {
-    const usersCount = await prisma.user.count();
-    if (usersCount > 0) {
-      return NextResponse.json({ error: 'Setup already complete' }, { status: 403 });
+    const userCount = await prisma.user.count();
+    if (userCount > 0) {
+      return NextResponse.json({ error: 'Setup already completed. Users exist.' }, { status: 403 });
     }
-    
-    const body = await request.json();
-    const { username, password, fullName } = body;
-    
+
+    const { username, password, fullName } = await request.json();
+
     if (!username || !password || !fullName) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+      return NextResponse.json({ error: 'Username, password, and full name are required' }, { status: 400 });
     }
-    
-    const hashedPassword = await bcrypt.hash(password, 10);
-    
+
+    const hashedPassword = await hashPassword(password);
+
     const user = await prisma.user.create({
       data: {
         username,
-        passwordHash: hashedPassword,
+        password: hashedPassword,
         fullName,
-        role: 'OWNER'
-      }
+        role: 'OWNER',
+      },
     });
-    
-    return NextResponse.json({ success: true, user: { id: user.id, username: user.username, role: user.role } });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+
+    const token = await createToken(user.id, user.username, user.role);
+
+    const response = NextResponse.json({
+      user: {
+        id: user.id,
+        username: user.username,
+        fullName: user.fullName,
+        role: user.role,
+      },
+    });
+
+    response.cookies.set('auth-token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24,
+    });
+
+    return response;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Internal Server Error';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

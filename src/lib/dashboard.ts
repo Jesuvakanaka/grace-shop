@@ -45,14 +45,15 @@ export async function getDashboardData() {
   const estimatedGrossProfit = totalPotentialSalesUsd - totalStockCostUsd
 
   return {
-    totalStockQuantity,
-    totalStockCostUsd,
-    totalPotentialSalesUsd,
+    totalStockQty: totalStockQuantity,
+    totalStockValue: totalStockCostUsd,
+    totalPotentialSales: totalPotentialSalesUsd,
     todaySales,
     todayExpenses,
-    todayCashPosition,
-    totalDebtorsOutstanding,
-    totalCreditorsOutstanding,
+    expectedCash: todayCashPosition.expectedClosingCash,
+    cashVariance: todayCashPosition.variance || 0,
+    creditOutstanding: totalDebtorsOutstanding,
+    creditorsOutstanding: totalCreditorsOutstanding,
     estimatedGrossProfit,
     lowStockItems,
     todayCreditSales

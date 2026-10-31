@@ -1,21 +1,21 @@
 import { NextResponse } from 'next/server';
 import { requireRole } from '@/lib/auth';
-import prisma from '@/lib/db';
+import { confirmImport } from '@/lib/import/importer';
 
 export async function POST(request: Request) {
   try {
     await requireRole(request, ['OWNER']);
     const body = await request.json();
-    const { importDocumentId } = body;
+    const { importDocumentId, exchangeRate } = body;
     
     if (!importDocumentId) {
       return NextResponse.json({ error: 'Import ID required' }, { status: 400 });
     }
     
-    const doc = await prisma.importDocument.update({
-      where: { id: importDocumentId },
-      data: { status: 'CONFIRMED' }
-    });
+    const doc = await confirmImport(
+      Number(importDocumentId),
+      exchangeRate ? Number(exchangeRate) : undefined
+    );
     
     return NextResponse.json(doc);
   } catch (error: any) {

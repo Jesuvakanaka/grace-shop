@@ -21,6 +21,7 @@ export async function createProduct(data: {
   productName: string
   unitCostRmb: number
   unitCostUsd: number
+  openingQuantity?: number
   notes?: string
   createdBy?: string
 }) {
@@ -33,18 +34,47 @@ export async function createProduct(data: {
 
   const sellingPriceRmb = calculateSellingPrice(data.unitCostRmb)
   const sellingPriceUsd = calculateSellingPrice(data.unitCostUsd)
+  const openingQuantity = data.openingQuantity || 0
 
-  return prisma.product.create({
-    data: {
-      ...data,
-      sellingPriceRmb,
-      sellingPriceUsd
+  return prisma.$transaction(async (tx) => {
+    const product = await tx.product.create({
+      data: {
+        itemNumber: data.itemNumber,
+        productName: data.productName,
+        unitCostRmb: data.unitCostRmb,
+        unitCostUsd: data.unitCostUsd,
+        sellingPriceRmb,
+        sellingPriceUsd,
+        openingQuantity,
+        currentQuantity: openingQuantity,
+        notes: data.notes,
+        createdBy: data.createdBy
+      }
+    })
+
+    if (openingQuantity > 0) {
+      await tx.stockMovement.create({
+        data: {
+          productId: product.id,
+          movementDate: new Date(),
+          movementType: 'OPENING_BALANCE',
+          quantity: openingQuantity,
+          openingBalance: 0,
+          closingBalance: openingQuantity,
+          notes: 'Initial opening stock',
+          referenceType: 'MANUAL',
+          createdBy: data.createdBy
+        }
+      })
     }
+
+    return product
   })
 }
 
 export async function updateProduct(id: number, data: {
   productName?: string
+  imageUrl?: string | null
   unitCostRmb?: number
   unitCostUsd?: number
   sellingPriceRmb?: number

@@ -16,12 +16,10 @@ export function LoginPage() {
     e.preventDefault();
     setError('');
     setLoading(true);
-
     try {
       await login(username, password);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Login failed';
-      setError(message);
+      setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
       setLoading(false);
     }
@@ -31,44 +29,37 @@ export function LoginPage() {
     e.preventDefault();
     setError('');
     setLoading(true);
-
     try {
       const res = await fetch('/api/auth/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password, fullName }),
       });
-
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || 'Setup failed');
       }
-
-      // After setup, login automatically
       await login(username, password);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Setup failed';
-      setError(message);
+      setError(err instanceof Error ? err.message : 'Setup failed');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-slate-50 px-4">
       <div className="w-full max-w-md">
-        {/* Logo area */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl mb-4">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-100 border border-emerald-200 rounded-2xl mb-4">
             <span className="text-3xl">📊</span>
           </div>
-          <h1 className="text-2xl font-bold text-slate-100">Business Control</h1>
-          <p className="text-slate-400 mt-1">Stock, Cash & Credit Management</p>
+          <h1 className="text-2xl font-bold text-slate-900">Grace Shop</h1>
+          <p className="text-slate-500 mt-1">Stock, Cash & Credit Management</p>
         </div>
 
-        {/* Login form */}
         <div className="card">
-          <h2 className="text-lg font-semibold text-slate-100 mb-6">
+          <h2 className="text-lg font-semibold text-slate-900 mb-6">
             {isSetup ? 'First Time Setup' : 'Sign In'}
           </h2>
 
@@ -97,6 +88,7 @@ export function LoginPage() {
                 placeholder="Enter username"
                 required
                 autoFocus
+                data-testid="login-username"
               />
             </div>
 
@@ -109,11 +101,12 @@ export function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter password"
                 required
+                data-testid="login-password"
               />
             </div>
 
             {error && (
-              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-400 text-sm">
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-sm">
                 {error}
               </div>
             )}
@@ -121,35 +114,28 @@ export function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="btn-primary w-full justify-center"
+              className="btn btn-primary w-full"
+              data-testid="login-submit"
             >
-              {loading ? (
-                <span className="inline-flex items-center gap-2">
-                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  {isSetup ? 'Setting up...' : 'Signing in...'}
-                </span>
-              ) : (
-                isSetup ? 'Create Account & Sign In' : 'Sign In'
-              )}
+              {loading ? (isSetup ? 'Setting up...' : 'Signing in...') : isSetup ? 'Create Account & Sign In' : 'Sign In'}
             </button>
           </form>
 
-          <div className="mt-4 pt-4 border-t border-slate-700">
+          <div className="mt-4 pt-4 border-t border-slate-200">
             <button
-              onClick={() => { setIsSetup(!isSetup); setError(''); }}
-              className="text-sm text-slate-400 hover:text-emerald-400 transition-colors"
+              type="button"
+              onClick={() => {
+                setIsSetup(!isSetup);
+                setError('');
+              }}
+              className="text-sm text-slate-500 hover:text-emerald-600 transition-colors"
             >
               {isSetup ? '← Back to Sign In' : 'First time? Set up admin account →'}
             </button>
           </div>
         </div>
 
-        <p className="text-center text-xs text-slate-500 mt-6">
-          Default credentials: owner / owner123
-        </p>
+        <p className="text-center text-xs text-slate-400 mt-6">Default credentials: owner / owner123</p>
       </div>
     </div>
   );

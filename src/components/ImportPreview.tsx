@@ -42,25 +42,25 @@ export function ImportPreview({ rows, onConfirm, onCancel, loading = false }: Im
       <div className="flex gap-4 p-4 bg-slate-800 rounded-lg border border-slate-700">
         <div className="flex flex-col">
           <span className="text-slate-500 text-sm">Total</span>
-          <span className="text-slate-200 font-medium">{totalRows}</span>
+          <span className="text-slate-200 font-medium" data-testid="import-total-rows">{totalRows}</span>
         </div>
         <div className="flex flex-col border-l border-slate-700 pl-4">
           <span className="text-slate-500 text-sm">Ready</span>
-          <span className="text-emerald-500 font-medium">{readyRows}</span>
+          <span className="text-emerald-500 font-medium" data-testid="import-ready-rows">{readyRows}</span>
         </div>
         <div className="flex flex-col border-l border-slate-700 pl-4">
           <span className="text-slate-500 text-sm">Warnings</span>
-          <span className="text-amber-500 font-medium">{warningRows}</span>
+          <span className="text-amber-500 font-medium" data-testid="import-warning-rows">{warningRows}</span>
         </div>
         <div className="flex flex-col border-l border-slate-700 pl-4">
           <span className="text-slate-500 text-sm">Errors</span>
-          <span className="text-rose-500 font-medium">{errorRows}</span>
+          <span className="text-rose-500 font-medium" data-testid="import-error-rows">{errorRows}</span>
         </div>
       </div>
 
       <div className="border border-slate-700 rounded-lg overflow-hidden bg-slate-800/50">
         <div className="overflow-x-auto max-h-[400px]">
-          <table className="w-full text-left text-sm">
+          <table className="w-full text-left text-sm" data-testid="import-preview-table">
             <thead className="bg-slate-800 text-slate-300 sticky top-0 z-10">
               <tr>
                 <th className="px-4 py-3 font-medium w-16">Row</th>
@@ -76,6 +76,8 @@ export function ImportPreview({ rows, onConfirm, onCancel, loading = false }: Im
                   <tr 
                     className={`hover:bg-slate-700/50 transition-colors ${row.errors.length > 0 ? 'cursor-pointer' : ''}`}
                     onClick={() => row.errors.length > 0 && toggleRow(row.rowNumber)}
+                    data-testid="import-preview-row"
+                    data-row-number={row.rowNumber}
                   >
                     <td className="px-4 py-3 text-slate-500">{row.rowNumber}</td>
                     <td className="px-4 py-3">
@@ -115,8 +117,9 @@ export function ImportPreview({ rows, onConfirm, onCancel, loading = false }: Im
         </button>
         <button 
           onClick={onConfirm}
-          disabled={loading || readyRows === 0 || errorRows > 0}
+          disabled={loading || (readyRows === 0 && warningRows === 0)}
           className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          data-testid="import-confirm-button"
         >
           {loading && <span className="animate-spin inline-block w-4 h-4 border-2 border-white/20 border-t-white rounded-full"></span>}
           Confirm Import

@@ -1,14 +1,14 @@
 // Prisma schema for Business Control MVP
-// Database: SQLite for MVP, designed to migrate to Postgres later
-// Simply change the provider and connection string to switch databases
+// Database: PostgreSQL (Supabase)
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ─── Authentication ────────────────────────────────────────────────────────────
@@ -41,6 +41,7 @@ model Product {
   id               Int      @id @default(autoincrement())
   itemNumber       String   @unique
   productName      String
+  imageUrl         String?  // Path to product image
   unitCostRmb      Float    @default(0)
   unitCostUsd      Float    @default(0)
   sellingPriceRmb  Float    @default(0)

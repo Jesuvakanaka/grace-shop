@@ -1,17 +1,23 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { getSession } from '@/lib/auth';
+import { getDayClosing, getDayClosingSummary, createOrUpdateDayClosing } from '@/lib/closing';
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const dateStr = searchParams.get('date');
-    if (!dateStr) return NextResponse.json({ error: 'Date is required' }, { status: 400 });
+    const date = dateStr ? new Date(dateStr) : new Date();
     
-    const closing = await prisma.dayClosing.findFirst({
-      where: { date: { gte: new Date(dateStr), lt: new Date(new Date(dateStr).getTime() + 86400000) } }
-    });
+    // Attempt to get existing closing record
+    let closing = await getDayClosing(date);
     
-    return NextResponse.json(closing || { status: 'NO_CLOSING_FOUND' });
+    // If not closed/created yet, generate summary data for presentation
+    if (!closing) {
+      const summary = await getDayClosingSummary(date);
+      return NextResponse.json({ ...summary, status: 'DRAFT' });
+    }
+    
+    return NextResponse.json(closing);
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
   }
@@ -19,12 +25,20 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const session = await getSession(request);
     const body = await request.json();
-    const closing = await prisma.dayClosing.upsert({
-      where: { id: body.id || '' },
-      update: body,
-      create: body
+    
+    const { dateStr, actualCountedCash, stockNotes, signOffName, closingNotes } = body;
+    const date = dateStr ? new Date(dateStr) : new Date();
+    
+    const closing = await createOrUpdateDayClosing(date, {
+      actualCountedCash: actualCountedCash !== undefined ? Number(actualCountedCash) : undefined,
+      stockNotes,
+      signOffName,
+      closingNotes,
+      createdBy: session?.username || 'system'
     });
+    
     return NextResponse.json(closing);
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });

@@ -1,39 +1,38 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { getOrCreateCashPosition, recalculateCashPosition, updateCashPosition } from '@/lib/cash';
+import { getSession } from '@/lib/auth';
 
 export async function GET(request: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const dateStr = searchParams.get('date') || new Date().toISOString().split('T')[0];
-    const date = new Date(dateStr);
-    
-    let cashPos = await prisma.cashPosition.findFirst({
-      where: { date: { gte: date, lt: new Date(date.getTime() + 86400000) } }
-    });
-    
-    if (!cashPos) {
-      cashPos = await prisma.cashPosition.create({ data: { date } });
-    }
-    
-    return NextResponse.json(cashPos);
+    const url = new URL(request.url);
+    const dateStr = url.searchParams.get('date');
+    if (!dateStr) return NextResponse.json({ error: 'date is required' }, { status: 400 });
+    const position = await getOrCreateCashPosition(new Date(dateStr));
+    return NextResponse.json(position);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   try {
+    const session = await getSession(request);
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const body = await request.json();
-    const { id, openingCash, actualCountedCash, otherCashIn, notes } = body;
-    
-    if (!id) return NextResponse.json({ error: 'Missing ID' }, { status: 400 });
-    
-    const updated = await prisma.cashPosition.update({
-      where: { id },
-      data: { openingCash, actualCountedCash, otherCashIn, notes }
-    });
+    const { date, fields } = body;
+    if (!date || !fields) {
+      return NextResponse.json({ error: 'date and fields are required' }, { status: 400 });
+    }
+    const d = new Date(date);
+    for (const [field, amount] of Object.entries(fields)) {
+      if (typeof amount === 'number') {
+        await updateCashPosition(d, field, amount);
+      }
+    }
+    const updated = await recalculateCashPosition(d);
     return NextResponse.json(updated);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

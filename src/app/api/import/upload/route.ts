@@ -4,7 +4,7 @@ import { processImport } from '@/lib/import/importer';
 
 export async function POST(request: Request) {
   try {
-    await requireRole(request, ['OWNER']);
+    const session = await requireRole(request, ['OWNER']);
     const formData = await request.formData();
     const file = formData.get('file') as File;
     
@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     }
     
     const buffer = Buffer.from(await file.arrayBuffer());
-    const result = await processImport(buffer, file.name);
+    const result = await processImport(buffer, file.name, session.username);
     
     return NextResponse.json(result);
   } catch (error: any) {
