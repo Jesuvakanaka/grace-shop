@@ -247,7 +247,7 @@ export default function DailyLogPage() {
         ))}
       </div>
 
-      {error && <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-500 rounded-lg text-sm max-w-lg">{error}</div>}
+      {error && <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-sm max-w-lg">{error}</div>}
       {message && <div className="p-3 bg-brand-olive-50 border border-brand-olive-200 text-brand-olive-700 rounded-lg text-sm max-w-lg">{message}</div>}
 
       <div className="card p-6 max-w-lg">
@@ -257,7 +257,7 @@ export default function DailyLogPage() {
             <div>
               <label className="label">Select Product</label>
               <select 
-                className="input w-full bg-slate-800" 
+                className="input w-full" 
                 value={saleProductId} 
                 onChange={e => setSaleProductId(e.target.value)} 
                 required
@@ -287,7 +287,7 @@ export default function DailyLogPage() {
               <div>
                 <label className="label">Payment Type</label>
                 <select 
-                  className="input w-full bg-slate-800" 
+                  className="input w-full" 
                   value={salePaymentType} 
                   onChange={e => setSalePaymentType(e.target.value)}
                   data-testid="sale-payment-type"
@@ -348,7 +348,7 @@ export default function DailyLogPage() {
               <div>
                 <label className="label">Category</label>
                 <select 
-                  className="input w-full bg-slate-800" 
+                  className="input w-full" 
                   value={expenseCategory} 
                   onChange={e => setExpenseCategory(e.target.value)}
                   data-testid="expense-category"
@@ -399,7 +399,7 @@ export default function DailyLogPage() {
             <div>
               <label className="label">Payment Method</label>
               <select 
-                className="input w-full bg-slate-800" 
+                className="input w-full" 
                 value={expensePaymentMethod} 
                 onChange={e => setExpensePaymentMethod(e.target.value)}
               >
@@ -419,7 +419,7 @@ export default function DailyLogPage() {
             <div>
               <label className="label">Select Debtor</label>
               <select 
-                className="input w-full bg-slate-800" 
+                className="input w-full" 
                 value={debtorId} 
                 onChange={e => setDebtorId(e.target.value)} 
                 required
@@ -464,7 +464,7 @@ export default function DailyLogPage() {
             <div>
               <label className="label">Select Creditor</label>
               <select 
-                className="input w-full bg-slate-800" 
+                className="input w-full" 
                 value={creditorId} 
                 onChange={e => setCreditorId(e.target.value)} 
                 required

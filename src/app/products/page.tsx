@@ -382,7 +382,7 @@ export default function ProductsPage() {
             </thead>
             <tbody>
               {filtered.map(p => (
-                <tr key={p.id} className="border-t border-gray-700" data-testid="product-row" data-item-number={p.itemNumber}>
+                <tr key={p.id} className="border-t border-slate-200" data-testid="product-row" data-item-number={p.itemNumber}>
                   <td className="p-2">
                     {p.imageUrl ? (
                       <ProductPicture src={p.imageUrl} alt={p.productName} size={48} className="rounded" />
@@ -441,14 +441,14 @@ export default function ProductsPage() {
 
       {/* Add/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-brand-ink/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="card p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold mb-4">
               {editingProduct ? 'Edit Product' : 'Add Product'}
             </h2>
             
             {error && (
-              <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-500 rounded-lg text-sm mb-4">
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-sm mb-4">
                 {error}
               </div>
             )}
@@ -490,7 +490,7 @@ export default function ProductsPage() {
                     {imagePreview && (
                       <button
                         type="button"
-                        className="btn btn-sm btn-ghost w-full text-red-400"
+                        className="btn btn-sm btn-ghost w-full text-rose-700"
                         onClick={removeImage}
                       >
                         Remove Image

@@ -236,10 +236,10 @@ export default function CreditorsPage() {
       </div>
 
       {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-brand-ink/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="card p-6 w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Add Creditor</h2>
-            {error && <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-500 rounded-lg text-sm mb-4">{error}</div>}
+            {error && <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-sm mb-4">{error}</div>}
             
             <form onSubmit={handleAddSubmit} className="space-y-4">
               <div>
@@ -315,14 +315,14 @@ export default function CreditorsPage() {
       )}
 
       {selectedCreditor && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-brand-ink/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="card p-6 w-full max-w-md">
             <h2 className="text-xl font-bold mb-2">Record Supplier Payment</h2>
             <p className="text-sm text-slate-400 mb-4">
-              Recording payment to supplier <strong className="text-slate-200">{selectedCreditor.creditorName}</strong>. Balance outstanding: <strong className="text-slate-200">{formatCurrency(selectedCreditor.outstandingBalance)}</strong>.
+              Recording payment to supplier <strong className="text-slate-900">{selectedCreditor.creditorName}</strong>. Balance outstanding: <strong className="text-slate-900">{formatCurrency(selectedCreditor.outstandingBalance)}</strong>.
             </p>
             
-            {error && <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-500 rounded-lg text-sm mb-4">{error}</div>}
+            {error && <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-sm mb-4">{error}</div>}
 
             <form onSubmit={handlePaymentSubmit} className="space-y-4" data-testid="creditor-payment-form">
               <div>

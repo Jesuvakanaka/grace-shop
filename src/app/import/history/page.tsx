@@ -35,7 +35,7 @@ export default function ImportHistoryPage() {
       <div className="card p-6 table-container">
         <table className="table w-full" data-testid="import-history-table">
           <thead>
-            <tr className="bg-slate-800 text-slate-300">
+            <tr className="bg-brand-cream-100 text-slate-600">
               <th className="p-2 text-left">Date</th>
               <th className="p-2 text-left">Filename</th>
               <th className="p-2 text-left">Type</th>
@@ -46,16 +46,16 @@ export default function ImportHistoryPage() {
           </thead>
           <tbody>
             {history.map((h: any) => (
-              <tr key={h.id} className="border-t border-slate-700 hover:bg-slate-800/30" data-testid="import-history-row">
+              <tr key={h.id} className="border-t border-slate-200 hover:bg-brand-cream-50" data-testid="import-history-row">
                 <td className="p-2 text-slate-400">{new Date(h.createdAt).toLocaleString()}</td>
-                <td className="p-2 text-slate-200 font-mono text-xs">{h.filename}</td>
-                <td className="p-2 text-slate-300 font-bold uppercase">{h.documentType?.replace('_', ' ')}</td>
+                <td className="p-2 text-slate-900 font-mono text-xs">{h.filename}</td>
+                <td className="p-2 text-slate-700 font-bold uppercase">{h.documentType?.replace('_', ' ')}</td>
                 <td className="p-2 text-right text-brand-olive font-bold">{h.importedRows}</td>
-                <td className="p-2 text-right text-rose-400 font-bold">{h.skippedRows}</td>
+                <td className="p-2 text-right text-rose-700 font-bold">{h.skippedRows}</td>
                 <td className="p-2 text-center">
                   <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${
                     h.status === 'COMPLETED' ? 'bg-brand-olive-50 text-brand-olive-700' :
-                    h.status === 'DRAFT' ? 'bg-amber-500/10 text-amber-400' : 'bg-red-500/10 text-red-400'
+                    h.status === 'DRAFT' ? 'bg-amber-50 text-amber-800' : 'bg-rose-50 text-rose-700'
                   }`}>
                     {h.status}
                   </span>

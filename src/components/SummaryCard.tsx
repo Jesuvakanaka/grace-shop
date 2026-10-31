@@ -15,14 +15,14 @@ export function SummaryCard({ title, value, subtitle, trend, icon, variant = 'de
   const getVariantStyles = () => {
     switch (variant) {
       case 'success': return 'text-brand-olive';
-      case 'warning': return 'text-amber-500';
-      case 'danger': return 'text-rose-500';
-      default: return 'text-slate-100';
+      case 'warning': return 'text-amber-700';
+      case 'danger': return 'text-rose-700';
+      default: return 'text-slate-900';
     }
   };
 
   return (
-    <div className="bg-slate-800/80 backdrop-blur-sm border border-slate-700/80 rounded-xl p-5 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all duration-300">
+    <div className="bg-white border rounded-xl p-5 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all duration-300">
       <div className="flex justify-between items-start mb-2">
         <h3 className="text-slate-400 text-sm font-medium">{title}</h3>
         {icon && <span className="text-slate-500 text-lg">{icon}</span>}
@@ -34,7 +34,7 @@ export function SummaryCard({ title, value, subtitle, trend, icon, variant = 'de
         {trend && (
           <span className={`text-xs flex items-center font-medium ${
             trend === 'up' ? 'text-brand-olive' : 
-            trend === 'down' ? 'text-rose-500' : 
+            trend === 'down' ? 'text-rose-700' : 
             'text-slate-500'
           }`}>
             {trend === 'up' && '↑'}

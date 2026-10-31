@@ -158,7 +158,7 @@ export default function CashPositionPage() {
             <div>
               <span className="text-slate-500 text-sm">Variance</span>
               <div className={`text-3xl font-extrabold font-mono mt-1 ${
-                (data?.variance || 0) < 0 ? 'text-rose-600' : (data?.variance || 0) > 0 ? 'text-amber-600' : 'text-brand-olive'
+                (data?.variance || 0) < 0 ? 'text-rose-600' : (data?.variance || 0) > 0 ? 'text-amber-700' : 'text-brand-olive'
               }`} data-testid="cash-variance">
                 {formatCurrency(data?.variance)}
               </div>
