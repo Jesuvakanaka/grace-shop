@@ -196,6 +196,9 @@ export async function bulkSetCategory(db: PrismaClient, ids: readonly number[], 
 // to the top makes it primary; "Make primary" moves it to the top.
 
 async function requireProduct(tx: Tx, productId: number) {
+  // Lock the row: gallery edits and publishing of one product run one at a time,
+  // so "a published product keeps a photo" cannot be raced.
+  await tx.$queryRaw`SELECT id FROM "Product" WHERE id = ${productId} FOR UPDATE`
   const product = await tx.product.findUnique({ where: { id: productId }, select: { id: true, published: true, slug: true } })
   if (!product) throw new WebsiteError(404, 'Product not found')
   return product

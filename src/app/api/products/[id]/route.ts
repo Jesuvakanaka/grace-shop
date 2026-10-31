@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getProductById, updateProduct } from '@/lib/products';
 import { authorize, OWNER_ONLY } from '@/lib/api-auth';
 import { parseWholesaleFields } from '@/lib/validation/product';
-import { checkImageUrl, updateProductAndGallery } from '@/lib/website/product-image-sync';
+import { checkImageUrl, ProductImageError, updateProductAndGallery } from '@/lib/website/product-image-sync';
 import { revalidateStorefront } from '@/lib/website/revalidate';
 import { PrismaClient } from '@prisma/client';
 
@@ -40,6 +40,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     revalidateStorefront({ productSlugs: [updated.slug] });
     return NextResponse.json(updated);
   } catch (error: any) {
+    if (error instanceof ProductImageError) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

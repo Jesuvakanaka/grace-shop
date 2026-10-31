@@ -22,9 +22,28 @@ export function checkImageUrl(imageUrl: unknown): { ok: true; value: string | nu
   return { ok: false, error: IMAGE_URL_ERROR }
 }
 
-/** updateProduct plus the gallery sync, atomically. imageUrl must have passed checkImageUrl. */
+export const LAST_PHOTO_ERROR = 'Unpublish the product before removing its last photo'
+
+/** A refused picture change; the route answers 400 with its message. */
+export class ProductImageError extends Error {}
+
+/**
+ * updateProduct plus the gallery sync, atomically. imageUrl must have passed
+ * checkImageUrl. Clearing the picture (null / "") of a published product
+ * whose gallery would become empty is refused (same rule as the Website API).
+ */
 export async function updateProductAndGallery(id: number, data: ProductUpdateData & Record<string, unknown>) {
   return prisma.$transaction(async (tx) => {
+    if (data.imageUrl === null || data.imageUrl === '') {
+      // Lock the row so a concurrent publish cannot slip in between the check and the delete.
+      await tx.$queryRaw`SELECT id FROM "Product" WHERE id = ${id} FOR UPDATE`
+      const product = await tx.product.findUnique({ where: { id }, select: { published: true } })
+      if (product?.published) {
+        const images = await tx.productImage.findMany({ where: { productId: id }, select: { isPrimary: true } })
+        const remaining = images.length - (images.some((i) => i.isPrimary) ? 1 : 0)
+        if (images.length > 0 && remaining === 0) throw new ProductImageError(LAST_PHOTO_ERROR)
+      }
+    }
     await tx.product.update({ where: { id }, data: pickProductUpdateFields(data) })
     const sync = await syncGalleryFromImageUrl(tx, id, data.imageUrl as string | null | undefined)
     if (!sync.ok) throw new Error(sync.error)

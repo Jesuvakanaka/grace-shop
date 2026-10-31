@@ -135,6 +135,19 @@ describe('admin website API (ZP-483)', () => {
         const res = await call(websiteProduct.PATCH, 'PATCH', { id: String(p.id) }, body)
         assert.strictEqual(res.status, 400, JSON.stringify(body))
       }
+      // Prototype keys are just unknown fields, with a readable message.
+      for (const raw of ['{"__proto__":{"x":1}}', '{"constructor":"x"}', '{"toString":"x"}']) {
+        const res = await h(websiteProduct.PATCH)(
+          new Request('http://localhost/api/test', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', cookie: `auth-token=${ownerToken}` },
+            body: raw,
+          }),
+          { params: Promise.resolve({ id: String(p.id) }) },
+        )
+        assert.strictEqual(res.status, 400, raw)
+        assert.match((await res.json()).error, /^Unknown field "/, raw)
+      }
       const row = await prisma.product.findUniqueOrThrow({ where: { id: p.id } })
       assert.strictEqual(row.published, false)
       assert.strictEqual(row.publishedAt, null)
@@ -363,6 +376,28 @@ describe('admin website API (ZP-483)', () => {
       const row = await prisma.product.findUniqueOrThrow({ where: { id: p.id } })
       assert.strictEqual(row.imageUrl, URL_('7'))
       assert.strictEqual(cleared.json.imageUrl, URL_('7'))
+    })
+
+    test('PUT imageUrl:null cannot remove the last photo of a published product', async () => {
+      const p = await readyProduct('9')
+      await call(publishRoute.POST, 'POST', { id: String(p.id) }, { publish: true })
+      const res = await call(productById.PUT, 'PUT', { id: String(p.id) }, { imageUrl: null, notes: 'should not save' })
+      assert.strictEqual(res.status, 400, JSON.stringify(res.json))
+      assert.strictEqual(res.json.error, 'Unpublish the product before removing its last photo')
+      const row = await prisma.product.findUniqueOrThrow({ where: { id: p.id } })
+      assert.strictEqual(row.published, true)
+      assert.strictEqual(row.imageUrl, URL_('9'))
+      assert.strictEqual(row.notes, null)
+      assert.strictEqual(await prisma.productImage.count({ where: { productId: p.id } }), 1)
+    })
+
+    test('PUT imageUrl:null on a published product with more photos promotes the next one', async () => {
+      const p = await readyProduct('8')
+      await prisma.productImage.create({ data: { productId: p.id, imageKey: KEY('7'), sortOrder: 1 } })
+      await call(publishRoute.POST, 'POST', { id: String(p.id) }, { publish: true })
+      const res = await call(productById.PUT, 'PUT', { id: String(p.id) }, { imageUrl: null })
+      assert.strictEqual(res.status, 200, JSON.stringify(res.json))
+      assert.strictEqual(res.json.imageUrl, URL_('7'))
     })
 
     test('PUT with an external imageUrl is refused and changes nothing', async () => {

@@ -59,6 +59,24 @@ export async function verifyPreviewToken(
   }
 }
 
+/**
+ * For the storefront product page (ZP-490): true only when `token` is a valid,
+ * unexpired preview token issued for exactly `productId` (the product the
+ * page resolved from its slug). A token for another product is false.
+ * The preview response must also send `Cache-Control: private, no-store` and
+ * `Referrer-Policy: no-referrer`, so the token never reaches a cache or
+ * another site through the Referer header.
+ */
+export async function verifyPreviewTokenFor(
+  token: string | null | undefined,
+  productId: number,
+  options: { now?: Date } = {},
+): Promise<boolean> {
+  if (!Number.isInteger(productId) || productId <= 0) return false
+  const verified = await verifyPreviewToken(token, options)
+  return verified !== null && verified.productId === productId
+}
+
 /** Storefront URL of a product with a preview token (admin host path). */
 export function previewUrlFor(slug: string, token: string): string {
   return `${STOREFRONT_PREFIX}/p/${encodeURIComponent(slug)}?preview=${encodeURIComponent(token)}`

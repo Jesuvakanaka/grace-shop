@@ -11,6 +11,7 @@ import {
   previewUrlFor,
   signPreviewToken,
   verifyPreviewToken,
+  verifyPreviewTokenFor,
 } from '../src/lib/website/preview-token'
 
 const T0 = new Date('2026-11-01T10:00:00Z')
@@ -79,6 +80,15 @@ describe('preview token (ZP-483)', () => {
     for (const bad of [0, -1, 1.5, Number.NaN]) {
       await assert.rejects(() => signPreviewToken(bad))
     }
+  })
+
+  test('verifyPreviewTokenFor is true only for the product the token was issued for', async () => {
+    const { token } = await signPreviewToken(42, { now: T0 })
+    assert.strictEqual(await verifyPreviewTokenFor(token, 42, { now: at(60) }), true)
+    assert.strictEqual(await verifyPreviewTokenFor(token, 43, { now: at(60) }), false)
+    assert.strictEqual(await verifyPreviewTokenFor(token, 42, { now: at(PREVIEW_TOKEN_TTL_SECONDS + 1) }), false)
+    assert.strictEqual(await verifyPreviewTokenFor(null, 42), false)
+    assert.strictEqual(await verifyPreviewTokenFor(token, Number.NaN, { now: at(60) }), false)
   })
 
   test('previewUrlFor builds the storefront product URL', () => {

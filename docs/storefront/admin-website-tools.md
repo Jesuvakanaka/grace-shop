@@ -57,6 +57,11 @@ List filters: **Published**, **Draft** (everything not published) and
 - **A published product keeps a category and at least one photo.** Clearing
   the category or deleting the last photo of a published product is refused
   (400 "Unpublish it first").
+- **Concurrency.** `publishProduct`, `ensureProductSlug` and `setProductSlug`
+  (ZP-482 helpers, changed in ZP-483's review) and the gallery editor lock the
+  product row (`SELECT … FOR UPDATE`) for the transaction. Parallel publishes
+  of one product therefore agree on one `publishedAt` and the base slug, with
+  no stray redirect (`tests/storefront-publish-race.test.ts`).
 - **Conflicts.** P2002 (unique), P2034 (write conflict) and P2003 (foreign
   key) return `409 "Someone else just changed this – try again"`.
 - **Categories** can only be deleted when empty: `409 "Move N products first"`
@@ -87,6 +92,10 @@ List filters: **Published**, **Draft** (everything not published) and
 - `PUT /api/products/:id` with `imageUrl` updates the product and calls
   `syncGalleryFromImageUrl` in the same transaction. Without `imageUrl`
   (undefined) the gallery is untouched and the behaviour is as before.
+- Clearing the picture (`imageUrl: null` or `""`, the form's "Remove image")
+  of a published product whose gallery would become empty is refused with
+  400 "Unpublish the product before removing its last photo". With more
+  photos, the next one becomes the main photo.
 - `POST /api/products` with `imageUrl` now stores the picture (before, the
   create silently dropped it) and creates the primary gallery image.
 - An `imageUrl` that is not a stored picture (`/api/images/<32 hex>.webp`) is
@@ -105,9 +114,15 @@ secret). A preview token is never a valid session and vice versa.
 **The storefront product page is ZP-490 and does not exist yet, so the link
 404s.** `STOREFRONT_PRODUCT_PAGE_READY` in `src/lib/website/preview-config.ts`
 is `false`, and the button reads "Preview (available once the product page
-ships)". ZP-490 should verify the token with `verifyPreviewToken`, check the
-`productId` matches the slug, send `Cache-Control: private, no-store`, and flip
-the constant.
+ships)". ZP-490 should:
+
+- resolve the slug to a product, then call
+  `verifyPreviewTokenFor(token, product.id)`, which is false for a token
+  issued for another product (or expired, tampered, wrong purpose);
+- send `Cache-Control: private, no-store` and `Referrer-Policy: no-referrer`
+  on the preview response, so the token never lands in a shared cache or in
+  another site's Referer header;
+- flip `STOREFRONT_PRODUCT_PAGE_READY` to `true`.
 
 ## Revalidation
 

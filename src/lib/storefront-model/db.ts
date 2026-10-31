@@ -46,6 +46,18 @@ async function inRetriedTransaction<T>(db: Db, fn: (tx: Prisma.TransactionClient
   }
 }
 
+/**
+ * Lock one product row until the transaction ends (SELECT ... FOR UPDATE), so
+ * concurrent publishes and slug changes of the same product run one after the
+ * other and each sees the previous one's committed slug and publishedAt.
+ * Without it, two publishers could both read "no slug, never published": the
+ * second then picked "<slug>-2" (overwriting the first slug without a
+ * redirect) and overwrote publishedAt. Other products are not blocked.
+ */
+async function lockProduct(tx: Prisma.TransactionClient, productId: number): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM "Product" WHERE id = ${productId} FOR UPDATE`
+}
+
 // ─── Slugs ─────────────────────────────────────────────────────────────────────
 
 export type SetSlugResult = { ok: true; slug: string } | { ok: false; error: string }
@@ -59,6 +71,7 @@ export type SetSlugResult = { ok: true; slug: string } | { ok: false; error: str
  */
 export function setProductSlug(db: Db, productId: number, newSlug: string): Promise<SetSlugResult> {
   return inTransaction(db, async (tx) => {
+    await lockProduct(tx, productId)
     const product = await tx.product.findUnique({ where: { id: productId }, select: { slug: true } })
     if (!product) return { ok: false, error: 'Product not found' }
     const slug = slugify(newSlug)
@@ -86,6 +99,7 @@ export function setProductSlug(db: Db, productId: number, newSlug: string): Prom
 }
 
 async function ensureSlugIn(tx: Prisma.TransactionClient, productId: number): Promise<string> {
+  await lockProduct(tx, productId) // no-op when this transaction already holds the lock
   const product = await tx.product.findUnique({
     where: { id: productId },
     select: { slug: true, productName: true, publicName: true },
@@ -137,6 +151,8 @@ export function publishProduct(
 ): Promise<PublishResult> {
   const now = options.now ?? new Date()
   return inRetriedTransaction(db, async (tx) => {
+    // Serialise publishers of this product: the second one sees the first one's slug and publishedAt.
+    await lockProduct(tx, productId)
     const product = await tx.product.findUnique({
       where: { id: productId },
       select: {

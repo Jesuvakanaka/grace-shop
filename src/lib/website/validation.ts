@@ -44,7 +44,8 @@ function checkKeys(
   readOnly: Record<string, string> = READ_ONLY_FIELDS,
 ): string | null {
   for (const key of Object.keys(src)) {
-    if (readOnly[key]) return readOnly[key]
+    // Own keys only: "__proto__", "constructor" etc. must not hit Object.prototype.
+    if (Object.hasOwn(readOnly, key)) return readOnly[key]
     if (!allowed.includes(key)) return `Unknown field "${key}"`
   }
   return null
