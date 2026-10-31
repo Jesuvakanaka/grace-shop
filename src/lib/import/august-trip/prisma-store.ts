@@ -1,5 +1,6 @@
 // Prisma-backed AugustImportStore (ZP-468).
 import type { PrismaClient } from '@prisma/client'
+import { syncGalleryFromImageUrl } from '@/lib/storefront-model/db'
 import { IMPORT_REFERENCE_TYPE, importMovementNotes, type AugustImportStore, type ExistingAugustProduct } from './run'
 
 export function createPrismaAugustStore(prisma: PrismaClient): AugustImportStore {
@@ -45,6 +46,8 @@ export function createPrismaAugustStore(prisma: PrismaClient): AugustImportStore
             createdBy: actor,
           },
         })
+        // ZP-482: the picture is also the product's primary gallery image.
+        if (imageUrl) await syncGalleryFromImageUrl(tx, product.id, imageUrl)
         if (record.quantity > 0) {
           await tx.stockMovement.create({
             data: {
@@ -65,11 +68,15 @@ export function createPrismaAugustStore(prisma: PrismaClient): AugustImportStore
     },
 
     async attachImageIfEmpty(productId, imageUrl, actor) {
-      const { count } = await prisma.product.updateMany({
-        where: { id: productId, OR: [{ imageUrl: null }, { imageUrl: '' }] },
-        data: { imageUrl, updatedBy: actor },
+      return prisma.$transaction(async (tx) => {
+        const { count } = await tx.product.updateMany({
+          where: { id: productId, OR: [{ imageUrl: null }, { imageUrl: '' }] },
+          data: { imageUrl, updatedBy: actor },
+        })
+        // ZP-482: keep the primary gallery image in step with imageUrl.
+        if (count > 0) await syncGalleryFromImageUrl(tx, productId, imageUrl)
+        return count > 0
       })
-      return count > 0
     },
 
     async addImportStockIfNone(productId, quantity, notes, actor) {
