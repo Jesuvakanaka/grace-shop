@@ -41,7 +41,7 @@ export function FilterBar({
   const currentSort = onSortChange ? sort : localSort;
 
   return (
-    <div className={cn("flex flex-col gap-4 border-y border-brand-ink/10! py-4 md:flex-row md:items-center md:justify-between md:gap-6", className)}>
+    <div className={cn("flex flex-col gap-3 border-y border-brand-ink/10! py-4", className)}>
       <div role="group" aria-label="Filter by category" className="sf-scroll-x -mx-4 min-w-0 px-4 py-1 md:mx-0 md:px-1 lg:overflow-visible">
         <ul className="flex w-max gap-2 lg:w-auto lg:flex-wrap">
           {chips.map((chip) => {
@@ -66,7 +66,7 @@ export function FilterBar({
           })}
         </ul>
       </div>
-      <div className="flex shrink-0 items-center justify-between gap-6 md:justify-end">
+      <div className="flex items-center justify-between gap-6">
         {resultLabel ? (
           <p className="text-sm text-brand-ink-soft" aria-live="polite">
             {resultLabel}
