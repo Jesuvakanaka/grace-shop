@@ -1,53 +1,37 @@
-import { NextResponse } from 'next/server';
-import { authorize, OWNER_ONLY } from '@/lib/api-auth';
-import { writeFile, mkdir } from 'fs/promises';
-import { existsSync } from 'fs';
-import path from 'path';
+// Owner-only product picture upload (ZP-468; replaces the ZP-465 follow-up).
+// The real type is sniffed from the bytes, the picture is re-encoded to WebP
+// (max 1200px, metadata stripped) and stored under a content-hashed key. The
+// client's filename, extension and MIME type are never trusted.
+import { NextResponse } from 'next/server'
+import { authorize, OWNER_ONLY } from '@/lib/api-auth'
+import { IMAGE_MAX_UPLOAD_BYTES, ImageRejectedError, saveProductImage } from '@/lib/storage/images'
 
 export async function POST(request: Request) {
-  const auth = await authorize(request, OWNER_ONLY);
-  if (!auth.ok) return auth.response;
+  const auth = await authorize(request, OWNER_ONLY)
+  if (!auth.ok) return auth.response
+
+  let file: FormDataEntryValue | null
   try {
-    const formData = await request.formData();
-    const file = formData.get('file') as File;
-    
-    if (!file) {
-      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
-    }
-    
-    // Validate file type
-    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-    if (!validTypes.includes(file.type)) {
-      return NextResponse.json({ error: 'Invalid file type. Only images allowed.' }, { status: 400 });
-    }
-    
-    // Limit file size to 5MB
-    if (file.size > 5 * 1024 * 1024) {
-      return NextResponse.json({ error: 'File too large. Max 5MB allowed.' }, { status: 400 });
-    }
-    
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    
-    // Create unique filename
-    const ext = path.extname(file.name) || '.jpg';
-    const filename = `product-${Date.now()}${ext}`;
-    
-    // Ensure uploads directory exists
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
-    if (!existsSync(uploadsDir)) {
-      await mkdir(uploadsDir, { recursive: true });
-    }
-    
-    const filepath = path.join(uploadsDir, filename);
-    await writeFile(filepath, buffer);
-    
-    // Return the public URL
-    const url = `/uploads/${filename}`;
-    
-    return NextResponse.json({ url });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Upload failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+    file = (await request.formData()).get('file')
+  } catch {
+    return NextResponse.json({ error: 'Expected a multipart form with a "file" field.' }, { status: 400 })
+  }
+  if (!file || typeof file === 'string') {
+    return NextResponse.json({ error: 'No file provided' }, { status: 400 })
+  }
+  if (file.size > IMAGE_MAX_UPLOAD_BYTES) {
+    return NextResponse.json(
+      { error: `File too large. Max ${IMAGE_MAX_UPLOAD_BYTES / 1024 / 1024} MB allowed.` },
+      { status: 400 },
+    )
+  }
+
+  try {
+    const image = await saveProductImage(new Uint8Array(await file.arrayBuffer()))
+    return NextResponse.json({ url: image.url, width: image.width, height: image.height })
+  } catch (error) {
+    if (error instanceof ImageRejectedError) return NextResponse.json({ error: error.message }, { status: 400 })
+    console.error('Upload failed', error instanceof Error ? error.message : error)
+    return NextResponse.json({ error: 'Upload failed' }, { status: 500 })
   }
 }

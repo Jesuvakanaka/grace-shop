@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/components/AuthProvider';
-import Image from 'next/image';
+import { ProductPicture } from '@/components/ProductPicture';
 import { QuantityPill } from '@/components/ui/QuantityPill';
 import { getMissingProductDetails } from '@/lib/product-completeness';
 
@@ -19,6 +19,7 @@ interface Product {
   openingQuantity: number;
   currentQuantity: number;
   notes: string | null;
+  sourceFilename: string | null;
 }
 
 export default function ProductsPage() {
@@ -41,6 +42,8 @@ export default function ProductsPage() {
     wholesalePriceUsd: '',
     wholesaleMinQuantity: '',
     openingQuantity: '0',
+    sellingPriceUsd: '',
+    currentQuantity: '',
     notes: '',
     imageUrl: '' as string | null
   });
@@ -49,16 +52,16 @@ export default function ProductsPage() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    fetchProducts();
-  }, []);
-
   const fetchProducts = () => {
     fetch('/api/products')
       .then(r => r.json())
       .then(d => { setProducts(d); setLoading(false); })
       .catch(() => setLoading(false));
   };
+
+  useEffect(() => {
+    fetchProducts();
+  }, []);
 
   const resetForm = () => {
     setFormData({
@@ -69,6 +72,8 @@ export default function ProductsPage() {
       wholesalePriceUsd: '',
       wholesaleMinQuantity: '',
       openingQuantity: '0',
+      sellingPriceUsd: '',
+      currentQuantity: '',
       notes: '',
       imageUrl: null
     });
@@ -91,6 +96,8 @@ export default function ProductsPage() {
       wholesalePriceUsd: product.wholesalePriceUsd == null ? '' : String(product.wholesalePriceUsd),
       wholesaleMinQuantity: product.wholesaleMinQuantity == null ? '' : String(product.wholesaleMinQuantity),
       openingQuantity: String(product.openingQuantity),
+      sellingPriceUsd: String(product.sellingPriceUsd),
+      currentQuantity: String(product.currentQuantity),
       notes: product.notes || '',
       imageUrl: product.imageUrl
     });
@@ -145,7 +152,7 @@ export default function ProductsPage() {
     setSaving(true);
     
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         itemNumber: formData.itemNumber,
         productName: formData.productName,
         unitCostRmb: Number(formData.unitCostRmb || 0),
@@ -158,6 +165,17 @@ export default function ProductsPage() {
         imageUrl: formData.imageUrl
       };
 
+      // Edit only: retail price, and stock on hand (recorded as a stock adjustment).
+      let newStock: number | null = null;
+      if (editingProduct) {
+        const retail = formData.sellingPriceUsd.trim() === '' ? 0 : Number(formData.sellingPriceUsd);
+        if (!Number.isFinite(retail) || retail < 0) throw new Error('Retail price must be a number of 0 or more.');
+        payload.sellingPriceUsd = retail;
+        const stockText = formData.currentQuantity.trim();
+        if (!/^\d+$/.test(stockText)) throw new Error('Stock on hand must be a whole number of 0 or more.');
+        if (Number(stockText) !== editingProduct.currentQuantity) newStock = Number(stockText);
+      }
+
       let res;
       if (editingProduct) {
         res = await fetch(`/api/products/${editingProduct.id}`, {
@@ -165,6 +183,24 @@ export default function ProductsPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
+        if (res.ok && newStock !== null) {
+          const adjust = await fetch('/api/stock-movements/adjust', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              productId: editingProduct.id,
+              newQuantity: newStock,
+              notes: `Stock set to ${newStock} from the Products screen`
+            })
+          });
+          if (!adjust.ok) {
+            const data = await adjust.json().catch(() => ({}));
+            fetchProducts();
+            throw new Error(`Details saved, but the stock could not be set: ${data.error || adjust.status}`);
+          }
+          // Re-read so the list shows the new stock.
+          res = await fetch(`/api/products/${editingProduct.id}`);
+        }
       } else {
         res = await fetch('/api/products', {
           method: 'POST',
@@ -221,7 +257,7 @@ export default function ProductsPage() {
     (p.productName?.toLowerCase().includes(search.toLowerCase()) ||
     p.itemNumber?.includes(search)) &&
     (!needsDetailsOnly || missingFor(p).length > 0)
-  );
+  ).sort((a, b) => a.itemNumber.localeCompare(b.itemNumber, 'en', { numeric: true })); // AUG-2 before AUG-10
 
   const formatCurrency = (val: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val || 0);
@@ -233,12 +269,17 @@ export default function ProductsPage() {
     const missing = missingFor(p);
     if (!missing.length) return null;
     return (
-      <span
-        className="badge badge-warning"
-        title={`Missing: ${missing.join(', ')}`}
-        data-testid="product-needs-details"
-      >
-        Needs details
+      <span className="inline-flex flex-wrap items-center gap-1">
+        <span
+          className="badge badge-warning"
+          title={`Missing: ${missing.join(', ')}`}
+          data-testid="product-needs-details"
+        >
+          Needs details
+        </span>
+        <span className="text-xs text-amber-700" data-testid="product-missing-details">
+          {missing.join(', ')}
+        </span>
       </span>
     );
   };
@@ -295,7 +336,7 @@ export default function ProductsPage() {
                 tabIndex={isOwner ? 0 : undefined}
               >
                 {p.imageUrl ? (
-                  <Image src={p.imageUrl} alt={p.productName} width={48} height={48} className="rounded-lg object-cover shrink-0" />
+                  <ProductPicture src={p.imageUrl} alt={p.productName} size={56} className="rounded-lg shrink-0" />
                 ) : (
                   <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 shrink-0">📦</div>
                 )}
@@ -344,13 +385,7 @@ export default function ProductsPage() {
                 <tr key={p.id} className="border-t border-gray-700" data-testid="product-row" data-item-number={p.itemNumber}>
                   <td className="p-2">
                     {p.imageUrl ? (
-                      <Image
-                        src={p.imageUrl}
-                        alt={p.productName}
-                        width={40}
-                        height={40}
-                        className="rounded object-cover"
-                      />
+                      <ProductPicture src={p.imageUrl} alt={p.productName} size={48} className="rounded" />
                     ) : (
                       <div className="w-10 h-10 bg-slate-700 rounded flex items-center justify-center text-slate-500 text-xs">
                         No img
@@ -423,14 +458,14 @@ export default function ProductsPage() {
               <div>
                 <label className="label">Product Image</label>
                 <div className="flex items-start gap-4">
-                  <div className="w-24 h-24 bg-slate-700 rounded-lg overflow-hidden flex items-center justify-center">
+                  <div className="w-32 h-32 bg-slate-100 rounded-lg overflow-hidden flex items-center justify-center shrink-0">
                     {imagePreview ? (
-                      <Image
+                      <ProductPicture
                         src={imagePreview}
                         alt="Preview"
-                        width={96}
-                        height={96}
-                        className="object-cover w-full h-full"
+                        size={128}
+                        className="w-full h-full"
+                        testId="product-form-image-preview"
                       />
                     ) : (
                       <span className="text-slate-500 text-xs text-center">No image</span>
@@ -450,7 +485,7 @@ export default function ProductsPage() {
                       onClick={() => fileInputRef.current?.click()}
                       disabled={uploading}
                     >
-                      {uploading ? 'Uploading...' : 'Upload Image'}
+                      {uploading ? 'Uploading...' : imagePreview ? 'Replace Image' : 'Upload Image'}
                     </button>
                     {imagePreview && (
                       <button
@@ -551,6 +586,44 @@ export default function ProductsPage() {
               <p className="text-xs text-slate-500 -mt-2">
                 Leave empty if not set yet. The wholesale price applies from the minimum quantity up.
               </p>
+
+              {editingProduct && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="label" htmlFor="product-form-retail-price">Retail Price (USD)</label>
+                    <input
+                      id="product-form-retail-price"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      inputMode="decimal"
+                      className="input w-full"
+                      value={formData.sellingPriceUsd}
+                      onChange={e => setFormData(prev => ({ ...prev, sellingPriceUsd: e.target.value }))}
+                      data-testid="product-form-retail-price"
+                    />
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="product-form-stock">Stock on hand</label>
+                    <input
+                      id="product-form-stock"
+                      type="number"
+                      step="1"
+                      min="0"
+                      inputMode="numeric"
+                      className="input w-full"
+                      value={formData.currentQuantity}
+                      onChange={e => setFormData(prev => ({ ...prev, currentQuantity: e.target.value }))}
+                      data-testid="product-form-stock"
+                    />
+                  </div>
+                </div>
+              )}
+              {editingProduct && (
+                <p className="text-xs text-slate-500 -mt-2">
+                  Changing stock on hand records a stock adjustment in the stock ledger.
+                </p>
+              )}
 
               {!editingProduct && (
                 <div>

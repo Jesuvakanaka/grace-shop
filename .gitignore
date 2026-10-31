@@ -52,3 +52,5 @@ prisma/dev.db
 
 # user-uploaded product images (local dev)
 /public/uploads/
+# ZP-468: local image storage (GRACE_IMAGE_STORAGE=local)
+/.data/
