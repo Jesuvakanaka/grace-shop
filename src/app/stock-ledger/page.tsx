@@ -44,7 +44,7 @@ export default function StockLedgerPage() {
 
   const movementBadgeClass = (type: string) => {
     if (type === 'OPENING_BALANCE') return 'bg-slate-100 text-slate-600';
-    if (type === 'STOCK_IN' || type === 'PURCHASE') return 'bg-emerald-50 text-emerald-700';
+    if (type === 'STOCK_IN' || type === 'PURCHASE') return 'bg-brand-olive-50 text-brand-olive-700';
     if (type === 'SALE') return 'bg-blue-50 text-blue-700';
     return 'bg-amber-50 text-amber-700';
   };
@@ -99,7 +99,7 @@ export default function StockLedgerPage() {
                     </span>
                   </div>
                   <div className="flex items-center justify-between font-mono text-sm">
-                    <span className={m.quantity > 0 ? 'text-emerald-600 font-bold' : m.quantity < 0 ? 'text-rose-600 font-bold' : 'text-slate-500'}>
+                    <span className={m.quantity > 0 ? 'text-brand-olive font-bold' : m.quantity < 0 ? 'text-rose-600 font-bold' : 'text-slate-500'}>
                       {m.quantity > 0 ? `+${m.quantity}` : m.quantity}
                     </span>
                     <span className="text-slate-600">
@@ -138,7 +138,7 @@ export default function StockLedgerPage() {
                       </span>
                     </td>
                     <td className={`p-2 text-right font-bold font-mono ${
-                      m.quantity > 0 ? 'text-emerald-600' : m.quantity < 0 ? 'text-rose-600' : 'text-slate-500'
+                      m.quantity > 0 ? 'text-brand-olive' : m.quantity < 0 ? 'text-rose-600' : 'text-slate-500'
                     }`}>
                       {m.quantity > 0 ? `+${m.quantity}` : m.quantity}
                     </td>

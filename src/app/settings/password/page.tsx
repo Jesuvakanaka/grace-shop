@@ -102,7 +102,7 @@ export default function ChangePasswordPage() {
           </div>
         )}
         {message && (
-          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-sm" data-testid="change-password-success">
+          <div className="p-3 bg-brand-olive-50 border border-brand-olive-200 rounded-lg text-brand-olive-700 text-sm" data-testid="change-password-success">
             {message}
           </div>
         )}

@@ -43,14 +43,14 @@ export default function Dashboard() {
             {new Date().toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long' })}
           </p>
         </div>
-        <div className="lg:hidden w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-semibold text-sm uppercase">
+        <div className="lg:hidden w-10 h-10 rounded-full bg-brand-olive-100 flex items-center justify-center text-brand-olive-700 font-semibold text-sm uppercase">
           {user?.username?.substring(0, 2) || 'U'}
         </div>
       </div>
 
       {loading ? (
         <div className="p-8 text-center">
-          <div className="animate-spin inline-block w-8 h-8 border-4 border-emerald-200 border-t-emerald-600 rounded-full" role="status" />
+          <div className="animate-spin inline-block w-8 h-8 border-4 border-brand-olive-200 border-t-brand-olive rounded-full" role="status" />
         </div>
       ) : (
         <>
@@ -108,7 +108,7 @@ export default function Dashboard() {
           <section>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-base font-semibold text-slate-900">Needs attention</h2>
-              <a href="/products" className="text-sm font-medium text-emerald-600">
+              <a href="/products" className="text-sm font-medium text-brand-olive-700">
                 See all
               </a>
             </div>
@@ -123,7 +123,8 @@ export default function Dashboard() {
                         alt={item.productName}
                         width={48}
                         height={48}
-                        className="rounded-lg object-cover shrink-0"
+                        unoptimized
+                        className="w-12 h-12 rounded-lg object-cover shrink-0"
                       />
                     ) : (
                       <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-xs shrink-0">

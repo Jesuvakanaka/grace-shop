@@ -16,7 +16,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50">
+      <div className="flex items-center justify-center min-h-screen bg-brand-cream">
         <LoadingSpinner size="lg" />
       </div>
     );
@@ -27,17 +27,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
+    <div className="flex min-h-screen bg-brand-cream">
       <Sidebar />
 
       <div className="flex-1 flex flex-col min-w-0 min-h-screen">
         {/* Mobile top bar */}
         <header className="lg:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-white border-b border-slate-200 no-print">
-          <div>
-            <p className="text-xs text-slate-500">Grace Shop</p>
-            <p className="text-sm font-semibold text-slate-900 truncate">{user.fullName}</p>
+          <div className="flex items-center gap-2.5 min-w-0">
+            {/* eslint-disable-next-line @next/next/no-img-element -- static brand SVG, no optimisation needed */}
+            <img src="/brand/vyra-mark.svg" alt="" width={32} height={32} className="w-8 h-8 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium tracking-[0.32em] text-slate-900 leading-tight">VYRA</p>
+              <p className="text-sm font-semibold text-slate-900 truncate">{user.fullName}</p>
+            </div>
           </div>
-          <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-semibold text-sm uppercase">
+          <div className="w-9 h-9 rounded-full bg-brand-olive-100 flex items-center justify-center text-brand-olive-700 font-semibold text-sm uppercase">
             {user.username?.substring(0, 2) || 'U'}
           </div>
         </header>

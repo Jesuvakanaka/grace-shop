@@ -145,7 +145,7 @@ export default function CreditorsPage() {
       </div>
       <MoneyNav />
 
-      {message && <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg text-sm max-w-xl">{message}</div>}
+      {message && <div className="p-3 bg-brand-olive-50 border border-brand-olive-200 text-brand-olive-700 rounded-lg text-sm max-w-xl">{message}</div>}
 
       <div className="card table-container">
         {/* Mobile card list */}
@@ -159,7 +159,7 @@ export default function CreditorsPage() {
                   <p className="text-xs text-slate-500">{c.phoneNumber || 'No phone'}</p>
                 </div>
                 <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase shrink-0 ${
-                  c.status === 'PAID' ? 'bg-emerald-50 text-emerald-700' :
+                  c.status === 'PAID' ? 'bg-brand-olive-50 text-brand-olive-700' :
                   c.status === 'PART_PAID' ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'
                 }`}>
                   {c.status}
@@ -207,7 +207,7 @@ export default function CreditorsPage() {
                 </td>
                 <td className="p-2 text-center">
                   <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${
-                    c.status === 'PAID' ? 'bg-emerald-50 text-emerald-700' :
+                    c.status === 'PAID' ? 'bg-brand-olive-50 text-brand-olive-700' :
                     c.status === 'PART_PAID' ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'
                   }`}>
                     {c.status}
@@ -236,10 +236,10 @@ export default function CreditorsPage() {
       </div>
 
       {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-brand-ink/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="card p-6 w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Add Creditor</h2>
-            {error && <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-500 rounded-lg text-sm mb-4">{error}</div>}
+            {error && <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-sm mb-4">{error}</div>}
             
             <form onSubmit={handleAddSubmit} className="space-y-4">
               <div>
@@ -315,14 +315,14 @@ export default function CreditorsPage() {
       )}
 
       {selectedCreditor && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-brand-ink/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="card p-6 w-full max-w-md">
             <h2 className="text-xl font-bold mb-2">Record Supplier Payment</h2>
             <p className="text-sm text-slate-400 mb-4">
-              Recording payment to supplier <strong className="text-slate-200">{selectedCreditor.creditorName}</strong>. Balance outstanding: <strong className="text-slate-200">{formatCurrency(selectedCreditor.outstandingBalance)}</strong>.
+              Recording payment to supplier <strong className="text-slate-900">{selectedCreditor.creditorName}</strong>. Balance outstanding: <strong className="text-slate-900">{formatCurrency(selectedCreditor.outstandingBalance)}</strong>.
             </p>
             
-            {error && <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-500 rounded-lg text-sm mb-4">{error}</div>}
+            {error && <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-sm mb-4">{error}</div>}
 
             <form onSubmit={handlePaymentSubmit} className="space-y-4" data-testid="creditor-payment-form">
               <div>

@@ -24,7 +24,7 @@ export function CurrencyInput({ value, onChange, currency = 'USD', placeholder =
 
   return (
     <div className="relative w-full">
-      <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
+      <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-500">
         {symbol}
       </div>
       <input
@@ -34,7 +34,7 @@ export function CurrencyInput({ value, onChange, currency = 'USD', placeholder =
         onChange={handleChange}
         disabled={disabled}
         placeholder={placeholder}
-        className={`bg-slate-900 border border-slate-700 text-slate-100 text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block w-full pl-8 p-2.5 placeholder-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
+        className={`bg-white border text-slate-900 text-base rounded-lg focus:outline-none focus:ring-4 focus:ring-brand-lime/40 focus:border-brand-olive block w-full pl-8 p-2.5 placeholder-slate-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
       />
     </div>
   );

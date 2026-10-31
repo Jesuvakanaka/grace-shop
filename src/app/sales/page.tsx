@@ -39,7 +39,7 @@ export default function SalesPage() {
                   {new Date(s.saleDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
                 <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${
-                  s.paymentType === 'CASH' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                  s.paymentType === 'CASH' ? 'bg-brand-olive-50 text-brand-olive-700' : 'bg-amber-50 text-amber-700'
                 }`}>
                   {s.paymentType}
                 </span>
@@ -52,7 +52,7 @@ export default function SalesPage() {
                   </div>
                 ))}
               </div>
-              <p className="text-right font-bold font-mono text-emerald-600">{formatCurrency(s.totalAmount)}</p>
+              <p className="text-right font-bold font-mono text-brand-olive">{formatCurrency(s.totalAmount)}</p>
             </div>
           ))}
           {!sales.length && (
@@ -89,12 +89,12 @@ export default function SalesPage() {
                 </td>
                 <td className="p-2 text-center">
                   <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${
-                    s.paymentType === 'CASH' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                    s.paymentType === 'CASH' ? 'bg-brand-olive-50 text-brand-olive-700' : 'bg-amber-50 text-amber-700'
                   }`}>
                     {s.paymentType}
                   </span>
                 </td>
-                <td className="p-2 text-right text-emerald-600 font-bold font-mono" data-testid="sales-log-row-total">
+                <td className="p-2 text-right text-brand-olive font-bold font-mono" data-testid="sales-log-row-total">
                   {formatCurrency(s.totalAmount)}
                 </td>
               </tr>

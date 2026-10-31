@@ -382,12 +382,12 @@ export default function ProductsPage() {
             </thead>
             <tbody>
               {filtered.map(p => (
-                <tr key={p.id} className="border-t border-gray-700" data-testid="product-row" data-item-number={p.itemNumber}>
+                <tr key={p.id} className="border-t border-slate-200" data-testid="product-row" data-item-number={p.itemNumber}>
                   <td className="p-2">
                     {p.imageUrl ? (
                       <ProductPicture src={p.imageUrl} alt={p.productName} size={48} className="rounded" />
                     ) : (
-                      <div className="w-10 h-10 bg-slate-700 rounded flex items-center justify-center text-slate-500 text-xs">
+                      <div className="w-10 h-10 bg-brand-cream-100 rounded flex items-center justify-center text-slate-500 text-xs">
                         No img
                       </div>
                     )}
@@ -427,7 +427,7 @@ export default function ProductsPage() {
               ))}
               {!filtered.length && (
                 <tr>
-                  <td colSpan={desktopColumnCount} className="p-4 text-center text-gray-400">
+                  <td colSpan={desktopColumnCount} className="p-4 text-center text-slate-500">
                     No products found
                   </td>
                 </tr>
@@ -441,14 +441,14 @@ export default function ProductsPage() {
 
       {/* Add/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-brand-ink/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="card p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold mb-4">
               {editingProduct ? 'Edit Product' : 'Add Product'}
             </h2>
             
             {error && (
-              <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-500 rounded-lg text-sm mb-4">
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-sm mb-4">
                 {error}
               </div>
             )}
@@ -490,7 +490,7 @@ export default function ProductsPage() {
                     {imagePreview && (
                       <button
                         type="button"
-                        className="btn btn-sm btn-ghost w-full text-red-400"
+                        className="btn btn-sm btn-ghost w-full text-rose-700"
                         onClick={removeImage}
                       >
                         Remove Image
@@ -674,13 +674,13 @@ export default function ProductsPage() {
 
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="card p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4 text-red-400">Delete Product?</h2>
-            <p className="text-slate-300 mb-4">
+        <div className="fixed inset-0 bg-brand-ink/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="card p-6 w-full max-w-md shadow-2xl">
+            <h2 className="text-2xl mb-4 text-rose-700">Delete Product?</h2>
+            <p className="text-slate-700 mb-4">
               Are you sure you want to delete <strong>{deleteConfirm.productName}</strong> (Item #{deleteConfirm.itemNumber})?
             </p>
-            <p className="text-sm text-slate-400 mb-6">
+            <p className="text-sm text-slate-500 mb-6">
               This action cannot be undone. Stock movements and sales referencing this product may be affected.
             </p>
             <div className="flex justify-end space-x-2">

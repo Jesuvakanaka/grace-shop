@@ -15,7 +15,7 @@ export function PrintLayout({ title, children, date = new Date().toLocaleDateStr
         <div className="mb-8 border-b border-gray-300 pb-4">
           <h1 className="text-2xl font-bold">{title}</h1>
           <div className="flex justify-between text-sm text-gray-600 mt-2">
-            <span>Business Control System</span>
+            <span>VYRA · Stock, Cash &amp; Credit</span>
             <span>Date: {date}</span>
           </div>
         </div>

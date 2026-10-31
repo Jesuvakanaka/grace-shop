@@ -19,9 +19,9 @@ export interface DataTableProps<T = any> {
 
 export function DataTable<T extends Record<string, any>>({ columns, data, emptyMessage = 'No records found.', onRowClick }: DataTableProps<T>) {
   return (
-    <div className="w-full overflow-x-auto rounded-lg border border-slate-700 bg-slate-800/50 shadow-sm">
-      <table className="w-full text-left text-sm text-slate-400">
-        <thead className="bg-slate-800 text-xs uppercase text-slate-300">
+    <div className="w-full overflow-x-auto rounded-lg border bg-white shadow-sm">
+      <table className="w-full text-left text-sm text-slate-900">
+        <thead className="bg-brand-cream-100 text-xs uppercase tracking-[0.08em] text-slate-600">
           <tr>
             {columns.map((col) => (
               <th 
@@ -34,7 +34,7 @@ export function DataTable<T extends Record<string, any>>({ columns, data, emptyM
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-700/50">
+        <tbody className="divide-y divide-slate-200">
           {data.length === 0 ? (
             <tr>
               <td colSpan={columns.length} className="px-4 py-8 text-center text-slate-500">
@@ -46,7 +46,7 @@ export function DataTable<T extends Record<string, any>>({ columns, data, emptyM
               <tr 
                 key={i} 
                 onClick={() => onRowClick?.(row)}
-                className={`bg-slate-800/20 hover:bg-slate-700/50 transition-colors ${onRowClick ? 'cursor-pointer' : ''}`}
+                className={`bg-white hover:bg-brand-cream-50 transition-colors ${onRowClick ? 'cursor-pointer' : ''}`}
               >
                 {columns.map((col) => (
                   <td 

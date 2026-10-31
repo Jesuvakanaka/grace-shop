@@ -27,7 +27,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center no-print">
-      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} aria-hidden />
+      <div className="absolute inset-0 bg-brand-ink/40" onClick={onClose} aria-hidden />
       <div
         className="relative w-full max-w-lg bg-white rounded-t-2xl shadow-xl max-h-[85vh] flex flex-col"
         style={{ paddingBottom: 'var(--safe-bottom)' }}

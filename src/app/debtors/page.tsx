@@ -85,7 +85,7 @@ export default function DebtorsPage() {
       <h1 className="text-xl lg:text-2xl font-bold text-slate-900">Debtors Directory</h1>
       <MoneyNav />
 
-      {message && <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg text-sm max-w-xl">{message}</div>}
+      {message && <div className="p-3 bg-brand-olive-50 border border-brand-olive-200 text-brand-olive-700 rounded-lg text-sm max-w-xl">{message}</div>}
 
       <div className="card table-container">
         {/* Mobile card list */}
@@ -98,14 +98,14 @@ export default function DebtorsPage() {
                   <p className="text-sm text-slate-500">{d.customerPhone || 'No phone'}</p>
                 </div>
                 <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase shrink-0 ${
-                  d.status === 'PAID' ? 'bg-emerald-50 text-emerald-700' :
+                  d.status === 'PAID' ? 'bg-brand-olive-50 text-brand-olive-700' :
                   d.status === 'PART_PAID' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'
                 }`}>
                   {d.status}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="font-bold font-mono text-amber-600">{formatCurrency(d.outstandingBalance)}</span>
+                <span className="font-bold font-mono text-amber-700">{formatCurrency(d.outstandingBalance)}</span>
                 <button
                   disabled={d.outstandingBalance <= 0}
                   onClick={() => handleOpenPaymentModal(d)}
@@ -139,12 +139,12 @@ export default function DebtorsPage() {
               <tr key={d.id} className="border-t border-slate-200" data-testid="debtor-row" data-customer-name={d.customerName}>
                 <td className="p-2 text-slate-900 font-medium">{d.customerName}</td>
                 <td className="p-2 text-slate-500">{d.customerPhone || 'N/A'}</td>
-                <td className="p-2 text-right text-amber-600 font-bold font-mono" data-testid="debtor-row-balance">
+                <td className="p-2 text-right text-amber-700 font-bold font-mono" data-testid="debtor-row-balance">
                   {formatCurrency(d.outstandingBalance)}
                 </td>
                 <td className="p-2 text-center">
                   <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${
-                    d.status === 'PAID' ? 'bg-emerald-50 text-emerald-700' :
+                    d.status === 'PAID' ? 'bg-brand-olive-50 text-brand-olive-700' :
                     d.status === 'PART_PAID' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'
                   }`}>
                     {d.status}
@@ -173,14 +173,14 @@ export default function DebtorsPage() {
       </div>
 
       {selectedDebtor && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-brand-ink/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="card p-6 w-full max-w-md">
             <h2 className="text-xl font-bold mb-2">Record Payment</h2>
             <p className="text-sm text-slate-400 mb-4">
-              Recording payment for customer <strong className="text-slate-200">{selectedDebtor.customerName}</strong>. Outstanding balance: <strong className="text-slate-200">{formatCurrency(selectedDebtor.outstandingBalance)}</strong>.
+              Recording payment for customer <strong className="text-slate-900">{selectedDebtor.customerName}</strong>. Outstanding balance: <strong className="text-slate-900">{formatCurrency(selectedDebtor.outstandingBalance)}</strong>.
             </p>
             
-            {error && <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-500 rounded-lg text-sm mb-4">{error}</div>}
+            {error && <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-sm mb-4">{error}</div>}
 
             <form onSubmit={handlePaymentSubmit} className="space-y-4" data-testid="debtor-payment-form">
               <div>

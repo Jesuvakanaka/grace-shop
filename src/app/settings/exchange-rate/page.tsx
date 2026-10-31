@@ -73,10 +73,10 @@ export default function ExchangeRatePage() {
       <h1 className="text-2xl font-bold mb-4">Exchange Rate Settings</h1>
       
       <div className="card max-w-md p-6">
-        <h2 className="text-lg font-semibold mb-4 text-slate-200">Set Current Exchange Rate (USD to RMB)</h2>
+        <h2 className="text-xl font-semibold mb-4 text-slate-900">Set Current Exchange Rate (USD to RMB)</h2>
         
-        {error && <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-500 rounded-lg text-sm mb-4">{error}</div>}
-        {message && <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 rounded-lg text-sm mb-4">{message}</div>}
+        {error && <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-sm mb-4">{error}</div>}
+        {message && <div className="p-3 bg-brand-olive-50 border border-brand-olive-200 text-brand-olive-700 rounded-lg text-sm mb-4">{message}</div>}
 
         <form onSubmit={handleSave} className="space-y-4">
           <div>
@@ -104,7 +104,7 @@ export default function ExchangeRatePage() {
               {saving ? 'Saving...' : 'Save Exchange Rate'}
             </button>
           ) : (
-            <div className="p-3 bg-slate-800 border border-slate-700 text-slate-400 rounded-lg text-sm">
+            <div className="p-3 bg-brand-cream-100 border text-slate-600 rounded-lg text-sm">
               🔒 Only Owners can update the exchange rate.
             </div>
           )}
@@ -112,11 +112,11 @@ export default function ExchangeRatePage() {
       </div>
 
       <div className="card p-6">
-        <h2 className="text-lg font-semibold mb-4 text-slate-200">Exchange Rate History</h2>
+        <h2 className="text-xl font-semibold mb-4 text-slate-900">Exchange Rate History</h2>
         <div className="table-container">
           <table className="table w-full" data-testid="exchange-rate-history-table">
             <thead>
-              <tr className="bg-slate-800 text-slate-300">
+              <tr className="bg-brand-cream-100 text-slate-600">
                 <th className="p-2 text-left">Date</th>
                 <th className="p-2 text-right">Exchange Rate</th>
                 <th className="p-2 text-left">Created By</th>
@@ -124,9 +124,9 @@ export default function ExchangeRatePage() {
             </thead>
             <tbody>
               {history.map((h: any) => (
-                <tr key={h.id} className="border-t border-slate-700 hover:bg-slate-800/30" data-testid="exchange-rate-history-row">
+                <tr key={h.id} className="border-t border-slate-200 hover:bg-brand-cream-50" data-testid="exchange-rate-history-row">
                   <td className="p-2 text-slate-400">{new Date(h.createdAt).toLocaleString()}</td>
-                  <td className="p-2 text-right text-emerald-400 font-bold font-mono">{Number(h.rate).toFixed(4)}</td>
+                  <td className="p-2 text-right text-brand-olive font-bold font-mono">{Number(h.rate).toFixed(4)}</td>
                   <td className="p-2 text-slate-400">{h.createdBy || 'System'}</td>
                 </tr>
               ))}

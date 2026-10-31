@@ -32,11 +32,14 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const visibleNavItems = navItems.filter((item) => !(item.ownerOnly && user?.role !== 'OWNER'));
 
   return (
-    <aside className="hidden lg:flex w-64 shrink-0 bg-white border-r border-slate-200 flex-col h-full no-print">
-      <div className="p-6 border-b border-slate-100">
-        <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-          <span className="text-emerald-600">❖</span> Grace Shop
-        </h1>
+    <aside className="hidden lg:flex w-64 shrink-0 bg-white border-r border-slate-200 flex-col h-screen sticky top-0 no-print">
+      <div className="px-6 py-5 border-b border-slate-100 flex items-center gap-3">
+        {/* eslint-disable-next-line @next/next/no-img-element -- static brand SVG, no optimisation needed */}
+        <img src="/brand/vyra-mark.svg" alt="" width={40} height={40} className="w-10 h-10 shrink-0" />
+        <div className="min-w-0">
+          <h1 className="font-sans text-xl font-medium tracking-[0.38em] text-slate-900 leading-none">VYRA</h1>
+          <p className="mt-1.5 text-[10px] font-medium uppercase tracking-[0.16em] text-slate-500">Stock, Cash &amp; Credit</p>
+        </div>
       </div>
 
       <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-0.5">
@@ -50,7 +53,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               onClick={onNavigate}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm ${
                 isActive
-                  ? 'bg-emerald-50 text-emerald-700 font-medium'
+                  ? 'bg-brand-olive-50 text-brand-olive-700 font-medium shadow-[inset_3px_0_0_var(--color-brand-lime)]'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
               }`}
               data-testid={item.testId}
@@ -64,7 +67,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
       <div className="p-4 border-t border-slate-100">
         <div className="flex items-center gap-3 mb-3">
-          <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 border border-emerald-200 font-semibold uppercase text-sm">
+          <div className="w-9 h-9 rounded-full bg-brand-olive-100 flex items-center justify-center text-brand-olive-700 border border-brand-olive-200 font-semibold uppercase text-sm">
             {user?.username?.substring(0, 2) || 'U'}
           </div>
           <div className="min-w-0">

@@ -1,32 +1,113 @@
 @import "tailwindcss";
 
+/*
+ * VYRA brand tokens (see docs/brand/vyra-brand-kit.md).
+ * Palette: lime #9BB21E (accent), olive #5F7A1F (primary / depth),
+ * cream #EDE6D3 (page), near-black #1E1E1E (text).
+ * Lime never carries white text (2.39:1); primary buttons are olive (4.89:1).
+ */
+@theme {
+  --color-brand-lime: #9bb21e;
+  --color-brand-lime-50: #f7f9e7;
+  --color-brand-lime-100: #eef3c8;
+  --color-brand-lime-200: #dde88f;
+  --color-brand-lime-300: #c5d651;
+  --color-brand-lime-500: #9bb21e;
+  --color-brand-lime-600: #7e9118;
+  --color-brand-lime-700: #63721a;
+
+  --color-brand-olive: #5f7a1f;
+  --color-brand-olive-50: #f4f6ea;
+  --color-brand-olive-100: #e6eccf;
+  --color-brand-olive-200: #cdd9a3;
+  --color-brand-olive-300: #a8bc6a;
+  --color-brand-olive-400: #7f9a35;
+  --color-brand-olive-500: #6c8a22;
+  --color-brand-olive-600: #5f7a1f;
+  --color-brand-olive-700: #4a6018;
+  --color-brand-olive-800: #3a4b14;
+  --color-brand-olive-900: #2a3610;
+
+  --color-brand-cream: #ede6d3;
+  --color-brand-cream-50: #fbf9f4;
+  --color-brand-cream-100: #f6f2e8;
+  --color-brand-cream-200: #ede6d3;
+  --color-brand-cream-300: #ded4ba;
+  --color-brand-cream-400: #c9bc9a;
+
+  --color-brand-ink: #1e1e1e;
+  --color-brand-ink-soft: #55514a;
+
+  /*
+   * Warm neutrals: the app's existing slate-* utilities are re-pointed at a warm
+   * grey ramp that sits on cream, so no neutral class had to change. 400 keeps
+   * >= 4.5:1 on white (3.7:1 on cream); 500+ keep
+   * >= 4.5:1 on white and on cream; 900 is the brand near-black.
+   */
+  --color-slate-50: #faf8f3;
+  --color-slate-100: #f3efe6;
+  --color-slate-200: #e4ded0;
+  --color-slate-300: #d2cab7;
+  --color-slate-400: #7a7468;
+  --color-slate-500: #6b655b;
+  --color-slate-600: #55514a;
+  --color-slate-700: #403d37;
+  --color-slate-800: #2b2925;
+  --color-slate-900: #1e1e1e;
+  --color-slate-950: #121210;
+
+  --font-sans: var(--font-jost), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-cormorant), ui-serif, Georgia, "Times New Roman", serif;
+}
+
 :root {
-  --color-bg: #f8fafc;
+  --color-bg: #ede6d3;
   --color-surface: #ffffff;
-  --color-surface-raised: #f1f5f9;
-  --color-border: #e2e8f0;
-  --color-border-strong: #cbd5e1;
-  --color-text: #0f172a;
-  --color-text-secondary: #64748b;
-  --color-text-muted: #94a3b8;
-  --color-accent: #059669;
-  --color-accent-hover: #047857;
-  --color-accent-light: #ecfdf5;
-  --color-accent-ring: rgba(5, 150, 105, 0.2);
+  --color-surface-raised: #f6f2e8;
+  --color-border: #e4ded0;
+  --color-border-strong: #d2cab7;
+  --color-text: #1e1e1e;
+  --color-text-secondary: #6b655b;
+  --color-text-muted: #7a7468;
+  --color-accent: #5f7a1f;
+  --color-accent-hover: #4a6018;
+  --color-accent-strong: #4a6018;
+  --color-accent-light: #f4f6ea;
+  --color-accent-ring: rgba(155, 178, 30, 0.4);
+  --color-highlight: #9bb21e;
   --color-danger: #dc2626;
   --color-danger-light: #fef2f2;
-  --color-warning: #d97706;
+  --color-warning: #b45309;
   --color-warning-light: #fffbeb;
-  --color-info: #0284c7;
+  --color-info: #0369a1;
   --color-info-light: #f0f9ff;
   --radius-sm: 0.5rem;
   --radius-md: 0.75rem;
   --radius-lg: 1rem;
   --radius-full: 9999px;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
-  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
-  --shadow-lg: 0 8px 24px rgba(15, 23, 42, 0.1);
+  --shadow-sm: 0 1px 2px rgba(30, 30, 30, 0.05);
+  --shadow-md: 0 4px 12px rgba(30, 30, 30, 0.08);
+  --shadow-lg: 0 8px 24px rgba(30, 30, 30, 0.1);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Headings use the high-contrast serif; utilities can still override. */
+@layer base {
+  h1,
+  h2 {
+    font-family: var(--font-serif);
+    font-weight: 600;
+    letter-spacing: 0.005em;
+  }
+}
+
+/* Small, spaced uppercase label in the VYRA style ("SHOP NOW →"). */
+.brand-label {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
 }
 
 ::-webkit-scrollbar {
@@ -48,7 +129,7 @@ html {
 body {
   background-color: var(--color-bg);
   color: var(--color-text);
-  font-family: var(--font-inter), system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 
 * {
@@ -145,10 +226,16 @@ body {
   min-height: 44px;
   border-radius: var(--radius-sm);
   font-weight: 500;
-  font-size: 0.9375rem;
-  transition: background-color 0.15s, color 0.15s;
+  font-size: 0.8125rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition: background-color 0.15s, color 0.15s, box-shadow 0.15s;
   cursor: pointer;
   border: none;
+}
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-surface), 0 0 0 5px var(--color-highlight);
 }
 .btn:disabled {
   opacity: 0.5;
@@ -192,7 +279,7 @@ body {
 .btn-sm {
   padding: 0.375rem 0.75rem;
   min-height: 36px;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
 }
 
 /* Tables */
@@ -238,7 +325,11 @@ body {
 }
 .badge-success {
   background-color: var(--color-accent-light);
-  color: var(--color-accent);
+  color: var(--color-accent-strong);
+}
+.badge-brand {
+  background-color: var(--color-highlight);
+  color: var(--color-text);
 }
 .badge-warning {
   background-color: var(--color-warning-light);

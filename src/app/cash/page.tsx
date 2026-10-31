@@ -102,7 +102,7 @@ export default function CashPositionPage() {
       </div>
 
       {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm max-w-xl">{error}</div>}
-      {message && <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg text-sm max-w-xl">{message}</div>}
+      {message && <div className="p-3 bg-brand-olive-50 border border-brand-olive-200 text-brand-olive-700 rounded-lg text-sm max-w-xl">{message}</div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 card p-6 space-y-6">
@@ -116,17 +116,17 @@ export default function CashPositionPage() {
             
             <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
               <span className="text-slate-500 text-xs">Cash Sales (USD)</span>
-              <div className="text-xl font-bold font-mono mt-1 text-emerald-600">+{formatCurrency(data?.cashSales)}</div>
+              <div className="text-xl font-bold font-mono mt-1 text-brand-olive">+{formatCurrency(data?.cashSales)}</div>
             </div>
             
             <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
               <span className="text-slate-500 text-xs">Debtor Payments Received (USD)</span>
-              <div className="text-xl font-bold font-mono mt-1 text-emerald-600">+{formatCurrency(data?.debtorPaymentsReceived)}</div>
+              <div className="text-xl font-bold font-mono mt-1 text-brand-olive">+{formatCurrency(data?.debtorPaymentsReceived)}</div>
             </div>
             
             <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
               <span className="text-slate-500 text-xs">Other Cash In (USD)</span>
-              <div className="text-xl font-bold font-mono mt-1 text-emerald-600">+{formatCurrency(data?.otherCashIn)}</div>
+              <div className="text-xl font-bold font-mono mt-1 text-brand-olive">+{formatCurrency(data?.otherCashIn)}</div>
             </div>
 
             <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
@@ -143,7 +143,7 @@ export default function CashPositionPage() {
           <div className="border-t border-slate-200 pt-6 flex flex-col md:flex-row gap-4 items-center justify-between">
             <div>
               <span className="text-slate-500 text-sm">Expected Closing Cash</span>
-              <div className="text-3xl font-extrabold text-emerald-600 font-mono mt-1" data-testid="cash-expected-closing">
+              <div className="text-3xl font-extrabold text-brand-olive font-mono mt-1" data-testid="cash-expected-closing">
                 {formatCurrency(data?.expectedClosingCash)}
               </div>
             </div>
@@ -158,7 +158,7 @@ export default function CashPositionPage() {
             <div>
               <span className="text-slate-500 text-sm">Variance</span>
               <div className={`text-3xl font-extrabold font-mono mt-1 ${
-                (data?.variance || 0) < 0 ? 'text-rose-600' : (data?.variance || 0) > 0 ? 'text-amber-600' : 'text-emerald-600'
+                (data?.variance || 0) < 0 ? 'text-rose-600' : (data?.variance || 0) > 0 ? 'text-amber-700' : 'text-brand-olive'
               }`} data-testid="cash-variance">
                 {formatCurrency(data?.variance)}
               </div>

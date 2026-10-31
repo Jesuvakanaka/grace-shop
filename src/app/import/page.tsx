@@ -111,32 +111,32 @@ export default function ImportPage() {
         </button>
       </div>
 
-      {error && <div className="p-4 bg-red-500/10 border border-red-500/30 text-red-500 rounded-lg text-sm mb-4">{error}</div>}
-      {success && <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 rounded-lg text-sm mb-4">{success}</div>}
+      {error && <div className="p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-sm mb-4">{error}</div>}
+      {success && <div className="p-4 bg-brand-olive-50 border border-brand-olive-200 text-brand-olive-700 rounded-lg text-sm mb-4">{success}</div>}
 
       <div className="card p-6">
         {!previewRows ? (
           <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-slate-200">Upload Shift Document</h2>
-            <p className="text-sm text-slate-400">
+            <h2 className="text-xl font-semibold text-slate-900">Upload Shift Document</h2>
+            <p className="text-sm text-slate-500">
               Select an Excel file containing a Product list, Opening stock, or Daily ledger to upload. The parser will detect fields and validate rows automatically.
             </p>
             <div data-testid="import-file-input">
               <FileUpload onFileSelect={handleFileSelect} />
             </div>
-            {loading && <div className="text-center p-4 text-slate-400">Uploading and validating sheet rows...</div>}
+            {loading && <div className="text-center p-4 text-slate-500">Uploading and validating sheet rows...</div>}
           </div>
         ) : (
           <div className="space-y-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 bg-slate-800/80 rounded-lg border border-slate-700">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 bg-brand-cream-100 rounded-lg border">
               <div>
-                <h3 className="font-semibold text-slate-200">Document Type Detected</h3>
-                <p className="text-emerald-400 font-mono text-sm uppercase mt-1" data-testid="import-document-type">{docType?.replace('_', ' ')}</p>
+                <h3 className="font-semibold text-slate-900">Document Type Detected</h3>
+                <p className="text-brand-olive-700 font-mono text-sm uppercase mt-1" data-testid="import-document-type">{docType?.replace('_', ' ')}</p>
               </div>
               
               {docType === 'PRODUCT_LIST' && (
                 <div className="max-w-xs">
-                  <label className="label text-slate-400 text-xs mb-1">RMB to USD Exchange Rate for Costs</label>
+                  <label className="label text-slate-600 text-xs mb-1">RMB to USD Exchange Rate for Costs</label>
                   <input
                     type="number"
                     step="0.0001"

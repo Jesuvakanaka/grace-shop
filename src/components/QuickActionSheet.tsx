@@ -26,7 +26,7 @@ export function QuickActionSheet({ open, onClose }: QuickActionSheetProps) {
             onClick={onClose}
             className="flex items-center gap-4 p-4 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 active:bg-slate-100"
           >
-            <span className="flex items-center justify-center w-12 h-12 rounded-xl bg-emerald-50 text-2xl">
+            <span className="flex items-center justify-center w-12 h-12 rounded-xl bg-brand-olive-50 text-2xl">
               {action.icon}
             </span>
             <div>
