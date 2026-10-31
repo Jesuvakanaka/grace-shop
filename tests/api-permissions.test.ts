@@ -43,6 +43,7 @@ import * as sales from '../src/app/api/sales/route';
 import * as stockAdjust from '../src/app/api/stock-movements/adjust/route';
 import * as stockMovements from '../src/app/api/stock-movements/route';
 import * as upload from '../src/app/api/upload/route';
+import * as imageByKey from '../src/app/api/images/[key]/route';
 
 type Policy = 'SESSION' | 'OWNER';
 type Handler = (req: Request, ctx: { params: Promise<Record<string, string>> }) => Promise<Response>;
@@ -109,6 +110,9 @@ const cases: Case[] = [
   { method: 'POST', path: '/api/stock-movements/adjust', handler: h(stockAdjust.POST), policy: 'OWNER' },
 
   { method: 'POST', path: '/api/upload', handler: h(upload.POST), policy: 'OWNER' },
+
+  // ZP-468: product pictures. A key that is never stored, so allowed calls end in 404.
+  { method: 'GET', path: `/api/images/${'0'.repeat(32)}.webp`, handler: h(imageByKey.GET), policy: 'SESSION', params: { key: `${'0'.repeat(32)}.webp` } },
 ];
 
 function makeRequest(c: Case, token?: string): Request {

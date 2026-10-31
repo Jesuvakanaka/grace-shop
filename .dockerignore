@@ -31,6 +31,8 @@ prisma/dev.db
 
 # Local user uploads
 public/uploads
+# ZP-468: local image storage (GRACE_IMAGE_STORAGE=local); UAT uses GCS
+.data
 
 # Docker files themselves
 Dockerfile

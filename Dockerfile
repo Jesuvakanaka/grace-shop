@@ -5,6 +5,7 @@
 #       migrate: npm run migrate          (prisma migrate deploy)
 #       seed:    npm run init             (node scripts/init-system.js)
 #       other:   node scripts/<script>.js
+#       import:  npm run import:august -- gs://<bucket>/<object> [--dry-run]
 # Migrations are NOT applied at web start. No secrets are needed to build;
 # DATABASE_URL / DIRECT_URL / JWT_SECRET are supplied at runtime.
 
@@ -74,6 +75,11 @@ COPY --from=build /app/public ./public
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/docs/business-control-inputs ./docs/business-control-inputs
+# ZP-468: `npm run import:august` is a tsx script (tsx is in the full
+# node_modules above) that imports src/lib/** through the "@/" path alias in
+# tsconfig.json, so both are needed at runtime. Read-only, root-owned.
+COPY --from=build /app/src ./src
+COPY --from=build /app/tsconfig.json ./tsconfig.json
 
 # The Next.js server writes its image-optimisation (and ISR) cache to
 # .next/cache at runtime; everything else stays root-owned and read-only.
