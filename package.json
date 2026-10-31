@@ -28,10 +28,10 @@
     "bcryptjs": "^2.4.3",
     "date-fns": "^4.1.0",
     "jose": "^6.0.11",
-    "next": "16.2.10",
+    "next": "16.4.3",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
@@ -41,8 +41,8 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.10",
-    "prisma": "^6.9.0",
+    "eslint-config-next": "16.4.3",
+    "prisma": "^6.19.3",
     "tailwindcss": "^4",
     "tsx": "^4.23.1",
     "typescript": "^5"

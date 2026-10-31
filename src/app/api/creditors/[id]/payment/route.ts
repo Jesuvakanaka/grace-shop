@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { recordCreditorPayment } from '@/lib/creditors';
-import { getSession } from '@/lib/auth';
+import { authorize } from '@/lib/api-auth';
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await authorize(request);
+  if (!auth.ok) return auth.response;
+  const { session } = auth;
   try {
-    const session = await getSession(request);
     const { id } = await params;
     const body = await request.json();
     const { amount, notes } = body;
@@ -17,7 +19,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       Number(id),
       Number(amount),
       notes || undefined,
-      session?.username || 'system'
+      session.username
     );
     
     return NextResponse.json(transaction);

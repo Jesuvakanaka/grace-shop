@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
-import { requireRole } from '@/lib/auth';
+import { authorize, OWNER_ONLY } from '@/lib/api-auth';
 import prisma from '@/lib/db';
 
 export async function POST(request: Request) {
+  const auth = await authorize(request, OWNER_ONLY);
+  if (!auth.ok) return auth.response;
   try {
-    await requireRole(request, ['OWNER']);
     const body = await request.json();
     const { importDocumentId } = body;
     

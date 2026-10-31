@@ -50,11 +50,40 @@ async function resetDatabase() {
 
 async function seedUsers() {
   console.log('\n👤 Setting up default users...');
-  
+
+  // Passwords come from the environment (UAT/production: Secret Manager).
+  // NODE_ENV=production: both are required and must be >= 12 chars, otherwise we
+  // stop before creating anything. Elsewhere we fall back to the local dev/e2e
+  // defaults with a warning. Passwords are never printed.
+  const MIN_SEED_PASSWORD_LENGTH = 12;
+  const isProduction = process.env.NODE_ENV === 'production';
+  const seedPasswords = {};
+  const problems = [];
+  for (const [username, envVar, devDefault] of [
+    ['owner', 'GRACE_OWNER_PASSWORD', 'owner123'],
+    ['staff', 'GRACE_STAFF_PASSWORD', 'staff123'],
+  ]) {
+    const value = process.env[envVar];
+    if (value) {
+      if (isProduction && value.length < MIN_SEED_PASSWORD_LENGTH) {
+        problems.push(`${envVar} must be at least ${MIN_SEED_PASSWORD_LENGTH} characters`);
+      }
+      seedPasswords[username] = value;
+    } else if (isProduction) {
+      problems.push(`${envVar} is required when NODE_ENV=production`);
+    } else {
+      console.warn(`   ⚠️  ${envVar} not set - using the local development default password for '${username}'. Do not use this outside local development.`);
+      seedPasswords[username] = devDefault;
+    }
+  }
+  if (problems.length > 0) {
+    throw new Error(`Refusing to seed users: ${problems.join('; ')}`);
+  }
+
   // Owner user
   const existingOwner = await prisma.user.findUnique({ where: { username: 'owner' } });
   if (!existingOwner) {
-    const hashedPassword = await bcrypt.hash('owner123', 10);
+    const hashedPassword = await bcrypt.hash(seedPasswords.owner, 10);
     await prisma.user.create({
       data: {
         username: 'owner',
@@ -63,7 +92,7 @@ async function seedUsers() {
         role: 'OWNER',
       },
     });
-    console.log('   Created: owner / owner123');
+    console.log('   Created: owner');
   } else {
     console.log('   Exists: owner');
   }
@@ -71,7 +100,7 @@ async function seedUsers() {
   // Staff user
   const existingStaff = await prisma.user.findUnique({ where: { username: 'staff' } });
   if (!existingStaff) {
-    const hashedPassword = await bcrypt.hash('staff123', 10);
+    const hashedPassword = await bcrypt.hash(seedPasswords.staff, 10);
     await prisma.user.create({
       data: {
         username: 'staff',
@@ -80,7 +109,7 @@ async function seedUsers() {
         role: 'STAFF',
       },
     });
-    console.log('   Created: staff / staff123');
+    console.log('   Created: staff');
   } else {
     console.log('   Exists: staff');
   }
@@ -246,9 +275,8 @@ async function showSummary() {
   console.log(`   Products:        ${productCount}`);
   console.log(`   Total Stock:     ${totalStock._sum.currentQuantity || 0} units`);
   console.log('═'.repeat(50));
-  console.log('\n📝 Login credentials:');
-  console.log('   Owner: owner / owner123');
-  console.log('   Staff: staff / staff123');
+  console.log('\n📝 Login users: owner (OWNER), staff (STAFF)');
+  console.log('   Passwords: set via GRACE_OWNER_PASSWORD / GRACE_STAFF_PASSWORD (local dev defaults if unset outside production); never printed');
   console.log('\n🚀 Start the app with: npm run dev');
   console.log('');
 }

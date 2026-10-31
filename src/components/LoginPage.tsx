@@ -134,8 +134,6 @@ export function LoginPage() {
             </button>
           </div>
         </div>
-
-        <p className="text-center text-xs text-slate-400 mt-6">Default credentials: owner / owner123</p>
       </div>
     </div>
   );

@@ -15,7 +15,19 @@ export async function createExpense(data: {
   if (!data.description) throw new Error('Description is required')
 
   return prisma.$transaction(async (tx) => {
-    const expense = await tx.expense.create({ data: { ...data, paymentMethod: data.paymentMethod || 'CASH' } })
+    // Explicit columns only: never spread caller data into Prisma (mass assignment).
+    const expense = await tx.expense.create({
+      data: {
+        expenseDate: data.expenseDate,
+        category: data.category,
+        description: data.description,
+        amount: data.amount,
+        paymentMethod: data.paymentMethod || 'CASH',
+        paidTo: data.paidTo,
+        notes: data.notes,
+        createdBy: data.createdBy,
+      },
+    })
 
     if ((data.paymentMethod || 'CASH') === 'CASH') {
       const cashDate = startOfDay(data.expenseDate)

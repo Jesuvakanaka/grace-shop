@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 import { recordDebtorPayment } from '@/lib/debtors';
-import { getSession } from '@/lib/auth';
+import { authorize } from '@/lib/api-auth';
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await authorize(request);
+  if (!auth.ok) return auth.response;
+  const { session } = auth;
   try {
-    const session = await getSession(request);
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
     const { id } = await params;
     const body = await request.json();
     const { amount, notes } = body;

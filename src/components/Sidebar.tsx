@@ -18,6 +18,7 @@ const navItems = [
   { label: 'Import Data', href: '/import', icon: '📥', testId: 'sidebar-import', ownerOnly: true },
   { label: 'Reports', href: '/reports', icon: '📊', testId: 'sidebar-reports' },
   { label: 'Exchange Rate', href: '/settings/exchange-rate', icon: '⚙️', testId: 'sidebar-exchange-rate', ownerOnly: true },
+  { label: 'Change Password', href: '/settings/password', icon: '🔑', testId: 'sidebar-change-password' },
 ];
 
 interface SidebarProps {
