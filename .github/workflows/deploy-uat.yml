@@ -56,16 +56,20 @@ jobs:
       contents: read
     uses: ./.github/workflows/checks.yml
     with:
-      # Push: lint what this push changed. Manual run: master already passed CI.
-      lint-base: ${{ github.event_name == 'push' && github.event.before || '' }}
+      # Push: lint what this push changed. Manual run: lint the last commit
+      # (HEAD^), so the gate never silently skips.
+      lint-base: ${{ github.event_name == 'push' && github.event.before || 'HEAD^' }}
 
   deploy:
     name: deploy-uat
     needs: test
+    # Only master deploys to UAT. A manual run from another branch runs the
+    # test job only.
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Built BEFORE auth so the action's credentials file (written into the
       # workspace) can never end up in the Docker build context.
@@ -75,12 +79,12 @@ jobs:
           docker build -t "${ARTIFACT_REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}" .
 
       - id: auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
 
-      - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
         with:
           project_id: ${{ env.GCP_PROJECT_ID }}
 
@@ -180,68 +184,109 @@ jobs:
             --region="${GCP_REGION}" \
             --wait
 
+      # Candidate-first: an existing service gets the new revision with NO
+      # traffic and the `candidate` tag; it is smoke-tested on the tag URL and
+      # only then promoted. `gcloud run deploy --no-traffic` is rejected when
+      # the service does not exist yet, so the very first deploy is a normal
+      # one (there is no previous revision to protect).
+      - name: Check whether the web service exists
+        id: service
+        run: |
+          set -euo pipefail
+          if OUT="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" \
+              --project="${GCP_PROJECT_ID}" --region="${GCP_REGION}" \
+              --format='value(metadata.name)' 2>&1)"; then
+            echo "exists=true" >> "${GITHUB_OUTPUT}"
+            echo "${CLOUD_RUN_SERVICE} exists: candidate-first deploy (--no-traffic --tag=candidate)."
+          elif grep -qiE 'cannot find|could not be found|not[ _]found' <<<"${OUT}"; then
+            echo "exists=false" >> "${GITHUB_OUTPUT}"
+            echo "${CLOUD_RUN_SERVICE} does not exist yet: first deploy takes traffic directly."
+          else
+            echo "${OUT}" >&2
+            echo "::error::Could not determine whether ${CLOUD_RUN_SERVICE} exists." >&2
+            exit 1
+          fi
+
       # --set-env-vars / --set-secrets replace the whole set on every deploy,
       # so nothing (e.g. ALLOW_SETUP) can linger from a manual change.
       - name: Deploy web service
         env:
           IMAGE_REF: ${{ steps.image.outputs.image_ref }}
+          SERVICE_EXISTS: ${{ steps.service.outputs.exists }}
         run: |
           set -euo pipefail
-          gcloud run deploy "${CLOUD_RUN_SERVICE}" \
-            --project="${GCP_PROJECT_ID}" \
-            --region="${GCP_REGION}" \
-            --image="${IMAGE_REF}" \
-            --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
-            --set-cloudsql-instances="${CLOUD_SQL_CONNECTION}" \
-            --set-secrets="${DB_SECRETS},JWT_SECRET=grace-shop-uat-jwt-secret:latest" \
-            --set-env-vars="NODE_ENV=production,GRACE_IMAGE_STORAGE=gcs,GRACE_IMAGE_BUCKET=${IMAGES_BUCKET}" \
-            --port=8080 \
-            --startup-probe=httpGet.path=/api/health,httpGet.port=8080,periodSeconds=5,timeoutSeconds=3,failureThreshold=24 \
-            --min-instances=0 \
-            --max-instances=2 \
-            --memory=512Mi \
-            --cpu=1 \
-            --allow-unauthenticated \
+          ARGS=(
+            --project="${GCP_PROJECT_ID}"
+            --region="${GCP_REGION}"
+            --image="${IMAGE_REF}"
+            --service-account="${RUNTIME_SERVICE_ACCOUNT}"
+            --set-cloudsql-instances="${CLOUD_SQL_CONNECTION}"
+            --set-secrets="${DB_SECRETS},JWT_SECRET=grace-shop-uat-jwt-secret:latest"
+            --set-env-vars="NODE_ENV=production,GRACE_IMAGE_STORAGE=gcs,GRACE_IMAGE_BUCKET=${IMAGES_BUCKET}"
+            --port=8080
+            --startup-probe=httpGet.path=/api/health,httpGet.port=8080,periodSeconds=5,timeoutSeconds=3,failureThreshold=24
+            --min-instances=0
+            --max-instances=2
+            --memory=512Mi
+            --cpu=1
+            --allow-unauthenticated
             --quiet
+          )
+          if [[ "${SERVICE_EXISTS}" == "true" ]]; then
+            ARGS+=(--no-traffic --tag=candidate)
+          fi
+          gcloud run deploy "${CLOUD_RUN_SERVICE}" "${ARGS[@]}"
 
-      - name: Smoke test
+      - name: Smoke test candidate (tag URL, no traffic yet)
+        if: ${{ steps.service.outputs.exists == 'true' }}
+        run: |
+          set -euo pipefail
+          CANDIDATE_URL="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" \
+            --project="${GCP_PROJECT_ID}" --region="${GCP_REGION}" --format=json \
+            | jq -r '.status.traffic[]? | select(.tag == "candidate") | .url' | head -n1)"
+          if [[ -z "${CANDIDATE_URL}" || "${CANDIDATE_URL}" == "null" ]]; then
+            echo "::error::Could not resolve the candidate tag URL" >&2
+            exit 1
+          fi
+          bash .github/scripts/smoke-test.sh "${CANDIDATE_URL}" candidate
+
+      # Also un-pins traffic left on a fixed revision by a manual rollback.
+      - name: Promote candidate (send 100% traffic to latest)
+        if: ${{ steps.service.outputs.exists == 'true' }}
+        run: |
+          set -euo pipefail
+          gcloud run services update-traffic "${CLOUD_RUN_SERVICE}" \
+            --project="${GCP_PROJECT_ID}" --region="${GCP_REGION}" \
+            --to-latest --quiet
+
+      - name: Verify traffic and smoke test service URL
         env:
           IMAGE_REF: ${{ steps.image.outputs.image_ref }}
         run: |
           set -euo pipefail
-          URL="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" \
-            --project="${GCP_PROJECT_ID}" --region="${GCP_REGION}" \
-            --format='value(status.url)')"
+          SVC_JSON="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" \
+            --project="${GCP_PROJECT_ID}" --region="${GCP_REGION}" --format=json)"
+          URL="$(jq -r '.status.url // empty' <<<"${SVC_JSON}")"
+          LATEST="$(jq -r '.status.latestReadyRevisionName // empty' <<<"${SVC_JSON}")"
+          SERVING="$(jq -r '[.status.traffic[]? | select((.percent // 0) == 100)] | first
+            | if . == null then "" elif .latestRevision == true then "latest" else (.revisionName // "") end' <<<"${SVC_JSON}")"
           if [[ -z "${URL}" ]]; then
             echo "::error::Could not resolve the ${CLOUD_RUN_SERVICE} URL" >&2
             exit 1
           fi
+          if [[ "${SERVING}" != "latest" && "${SERVING}" != "${LATEST}" ]]; then
+            echo "::error::100% of traffic is not on the new revision ${LATEST} (serving: ${SERVING:-split})" >&2
+            exit 1
+          fi
           echo "Service URL: ${URL}"
-
-          HEALTH=""
-          for attempt in $(seq 1 10); do
-            HEALTH="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "${URL}/api/health" || true)"
-            [[ "${HEALTH}" == "200" ]] && break
-            echo "GET /api/health -> ${HEALTH} (attempt ${attempt}/10), retrying..."
-            sleep 6
-          done
-          if [[ "${HEALTH}" != "200" ]]; then
-            echo "::error::GET ${URL}/api/health returned ${HEALTH}, expected 200" >&2
-            exit 1
-          fi
-          echo "GET /api/health -> 200"
-
-          DASH="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "${URL}/api/dashboard")"
-          if [[ "${DASH}" != "401" ]]; then
-            echo "::error::GET ${URL}/api/dashboard without a cookie returned ${DASH}, expected 401" >&2
-            exit 1
-          fi
-          echo "GET /api/dashboard (no cookie) -> 401"
+          echo "Serving revision: ${LATEST} (100%)"
+          bash .github/scripts/smoke-test.sh "${URL}" service
 
           {
             echo "### Grace Shop UAT deployed"
             echo ""
             echo "- URL: ${URL}"
+            echo "- Revision: \`${LATEST}\`"
             echo "- Commit: \`${GITHUB_SHA}\`"
             echo "- Image: \`${IMAGE_REF}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
