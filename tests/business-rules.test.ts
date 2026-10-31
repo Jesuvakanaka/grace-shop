@@ -1,4 +1,4 @@
-import { test, describe, before, beforeEach } from 'node:test';
+import { test, describe, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert';
 import prisma from '../src/lib/db';
 import { createProduct, getAllProducts, calculateSellingPrice } from '../src/lib/products';
@@ -394,5 +394,211 @@ describe('7. Auth routes return generic 500s (ZP-465)', () => {
     const res = await login.POST(post('{not-json'));
     assert.strictEqual(res.status, 400);
     assert.deepStrictEqual(await res.json(), { error: 'Invalid request body' });
+  });
+});
+
+// UAT quick sign-in (GRACE_QUICK_LOGIN). Kept in this file so it runs after the
+// DB wipe above instead of racing it from a parallel test process.
+describe('8. UAT quick sign-in with the flag on', () => {
+  const env = process.env as Record<string, string | undefined>;
+  const saved = { GRACE_QUICK_LOGIN: env.GRACE_QUICK_LOGIN, JWT_SECRET: env.JWT_SECRET };
+  const restore = () => {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete env[k];
+      else env[k] = v;
+    }
+  };
+  const quickPost = (body: string) =>
+    new Request('http://localhost/api/auth/quick-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+  /** Turn a Set-Cookie header into the Cookie header a browser would send back. */
+  const cookieFrom = (res: Response) => {
+    const setCookie = res.headers.get('set-cookie');
+    assert.ok(setCookie, 'expected a Set-Cookie header');
+    return setCookie.split(';')[0];
+  };
+  const infoLines: unknown[][] = [];
+  const originalInfo = console.info;
+
+  before(async () => {
+    env.GRACE_QUICK_LOGIN = 'true';
+    env.JWT_SECRET ||= 'quick-login-tests-secret-0123456789abcdef';
+    console.info = (...args: unknown[]) => {
+      infoLines.push(args);
+    };
+    const { hashPassword } = await import('../src/lib/auth');
+    const password = await hashPassword('quick-login-unused-password');
+    await prisma.user.deleteMany({});
+    // Inactive OWNER first (lowest id): must be skipped.
+    await prisma.user.create({ data: { username: 'ql-old-owner', password, fullName: 'Old Owner', role: 'OWNER', active: false } });
+    await prisma.user.create({ data: { username: 'ql-margie', password, fullName: 'Margaret', role: 'OWNER' } });
+    await prisma.user.create({ data: { username: 'ql-staff', password, fullName: 'Shop Staff', role: 'STAFF' } });
+    await prisma.user.create({ data: { username: 'ql-owner-2', password, fullName: 'Second Owner', role: 'OWNER' } });
+  });
+
+  after(() => {
+    console.info = originalInfo;
+    restore();
+  });
+
+  test('GET lists the first active user per role, without ids or password hashes', async () => {
+    const { GET } = await import('../src/app/api/auth/quick-login/route');
+    const res = await GET();
+    assert.strictEqual(res.status, 200);
+    const text = await res.text();
+    const body = JSON.parse(text);
+    assert.strictEqual(body.enabled, true);
+    assert.strictEqual(typeof body.setupAllowed, 'boolean');
+    assert.deepStrictEqual(body.users, [
+      { role: 'OWNER', username: 'ql-margie', fullName: 'Margaret' },
+      { role: 'STAFF', username: 'ql-staff', fullName: 'Shop Staff' },
+    ]);
+    assert.doesNotMatch(text, /password|\$2[aby]\$|"id"/);
+  });
+
+  test('POST OWNER sets the same auth cookie as login, and authorize() accepts it as OWNER', async () => {
+    const { POST } = await import('../src/app/api/auth/quick-login/route');
+    const { authorize, OWNER_ONLY } = await import('../src/lib/api-auth');
+    const res = await POST(quickPost(JSON.stringify({ role: 'OWNER' })));
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    const margie = await prisma.user.findUnique({ where: { username: 'ql-margie' } });
+    assert.deepStrictEqual(body, { user: { id: margie!.id, username: 'ql-margie', fullName: 'Margaret', role: 'OWNER' } });
+
+    const setCookie = res.headers.get('set-cookie') ?? '';
+    assert.match(setCookie, /^auth-token=/);
+    assert.match(setCookie, /HttpOnly/i);
+    assert.match(setCookie, /SameSite=lax/i);
+    assert.match(setCookie, /Path=\//);
+    assert.match(setCookie, /Max-Age=86400/);
+    assert.doesNotMatch(setCookie, /Secure/i); // NODE_ENV is not production in tests
+
+    const auth = await authorize(new Request('http://localhost/api/x', { headers: { cookie: cookieFrom(res) } }), OWNER_ONLY);
+    assert.ok(auth.ok, 'expected the quick-login cookie to authorize as OWNER');
+    if (auth.ok) {
+      assert.strictEqual(auth.session.role, 'OWNER');
+      assert.strictEqual(auth.session.username, 'ql-margie');
+      assert.strictEqual(auth.session.userId, margie!.id);
+    }
+    assert.ok(infoLines.some((l) => l[0] === '[quick-login]' && l[1] === 'OWNER' && l[2] === 'ql-margie'));
+  });
+
+  test('quick-login cookie flags match POST /api/auth/login exactly', async () => {
+    const quick = await import('../src/app/api/auth/quick-login/route');
+    const login = await import('../src/app/api/auth/login/route');
+    const flags = (res: Response) =>
+      (res.headers.get('set-cookie') ?? '').split(';').slice(1).map((s) => s.trim().toLowerCase()).sort();
+    const q = await quick.POST(quickPost(JSON.stringify({ role: 'STAFF' })));
+    const l = await login.POST(quickPost(JSON.stringify({ username: 'ql-staff', password: 'quick-login-unused-password' })));
+    assert.strictEqual(l.status, 200);
+    assert.deepStrictEqual(flags(q), flags(l));
+  });
+
+  test('POST STAFF gives a STAFF session that gets 403 on an owner-only route', async () => {
+    const { POST } = await import('../src/app/api/auth/quick-login/route');
+    const res = await POST(quickPost(JSON.stringify({ role: 'STAFF' })));
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual((await res.json()).user.role, 'STAFF');
+    const adjust = await import('../src/app/api/stock-movements/adjust/route');
+    const denied = await adjust.POST(
+      new Request('http://localhost/api/stock-movements/adjust', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie: cookieFrom(res) },
+        body: '{}',
+      })
+    );
+    assert.strictEqual(denied.status, 403);
+    assert.ok(infoLines.some((l) => l[0] === '[quick-login]' && l[1] === 'STAFF' && l[2] === 'ql-staff'));
+  });
+
+  test('POST with a bad role is a 400 and sets no cookie', async () => {
+    const { POST } = await import('../src/app/api/auth/quick-login/route');
+    const res = await POST(quickPost(JSON.stringify({ role: 'ADMIN' })));
+    assert.strictEqual(res.status, 400);
+    assert.strictEqual(res.headers.get('set-cookie'), null);
+  });
+
+  test('POST for a role with no active user is a 404', async () => {
+    const { POST, GET } = await import('../src/app/api/auth/quick-login/route');
+    await prisma.user.updateMany({ where: { role: 'STAFF' }, data: { active: false } });
+    try {
+      const res = await POST(quickPost(JSON.stringify({ role: 'STAFF' })));
+      assert.strictEqual(res.status, 404);
+      assert.strictEqual(res.headers.get('set-cookie'), null);
+      const body = await (await GET()).json();
+      assert.deepStrictEqual(body.users.map((u: { role: string }) => u.role), ['OWNER']);
+    } finally {
+      await prisma.user.updateMany({ where: { role: 'STAFF' }, data: { active: true } });
+    }
+  });
+});
+
+// scripts/set-user.js against this test DB (users only; never passwords).
+describe('9. set-user script (rename owner -> margie)', () => {
+  let originalHash: string;
+  let setUser: typeof import('../scripts/set-user.js').setUser;
+
+  before(async () => {
+    ({ setUser } = await import('../scripts/set-user.js'));
+    const { hashPassword } = await import('../src/lib/auth');
+    await prisma.user.deleteMany({});
+    const owner = await prisma.user.create({
+      data: { username: 'owner', password: await hashPassword('set-user-test-password'), fullName: 'Business Owner', role: 'OWNER' },
+    });
+    originalHash = owner.password;
+  });
+
+  test('first run renames owner to margie and sets the full name, keeping id, role and password', async () => {
+    const beforeRename = await prisma.user.findUnique({ where: { username: 'owner' } });
+    const result = await setUser(prisma, { from: 'owner', to: 'margie', fullName: 'Margaret' });
+    assert.strictEqual(result.exitCode, 0);
+    assert.strictEqual(result.action, 'rename');
+    assert.strictEqual(await prisma.user.findUnique({ where: { username: 'owner' } }), null);
+    const margie = await prisma.user.findUnique({ where: { username: 'margie' } });
+    assert.strictEqual(margie?.id, beforeRename?.id);
+    assert.strictEqual(margie?.fullName, 'Margaret');
+    assert.strictEqual(margie?.role, 'OWNER');
+    assert.strictEqual(margie?.password, originalHash);
+    assert.doesNotMatch(result.message, /\$2[aby]\$|password/i);
+  });
+
+  test('second run is a no-op with exit 0', async () => {
+    const result = await setUser(prisma, { from: 'owner', to: 'margie', fullName: 'Margaret' });
+    assert.strictEqual(result.exitCode, 0);
+    assert.strictEqual(result.action, 'noop');
+    assert.strictEqual(await prisma.user.count({ where: { username: 'margie' } }), 1);
+  });
+
+  test('when --to exists only the full name changes', async () => {
+    const result = await setUser(prisma, { from: 'owner', to: 'margie', fullName: 'Margaret G' });
+    assert.strictEqual(result.exitCode, 0);
+    assert.strictEqual(result.action, 'update');
+    const margie = await prisma.user.findUnique({ where: { username: 'margie' } });
+    assert.strictEqual(margie?.fullName, 'Margaret G');
+    assert.strictEqual(margie?.password, originalHash);
+  });
+
+  test('both --from and --to exist as different users: exit 1, nothing changes', async () => {
+    const { hashPassword } = await import('../src/lib/auth');
+    const other = await prisma.user.create({
+      data: { username: 'set-user-other', password: await hashPassword('set-user-other-password'), fullName: 'Other', role: 'STAFF' },
+    });
+    const margie = await prisma.user.findUnique({ where: { username: 'margie' } });
+    const result = await setUser(prisma, { from: 'set-user-other', to: 'margie', fullName: 'Changed' });
+    assert.strictEqual(result.exitCode, 1);
+    assert.strictEqual(result.message, `Both 'set-user-other' (id ${other.id}) and 'margie' (id ${margie!.id}) exist; resolve manually. Nothing changed.`);
+    assert.strictEqual((await prisma.user.findUnique({ where: { id: margie!.id } }))?.fullName, margie!.fullName);
+    assert.strictEqual((await prisma.user.findUnique({ where: { id: other.id } }))?.username, 'set-user-other');
+  });
+
+  test('neither user exists: exit 1, nothing changes', async () => {
+    const countBefore = await prisma.user.count();
+    const result = await setUser(prisma, { from: 'nobody', to: 'nobody-else' });
+    assert.strictEqual(result.exitCode, 1);
+    assert.match(result.message, /Neither 'nobody' nor 'nobody-else' exists/);
+    assert.strictEqual(await prisma.user.count(), countBefore);
   });
 });

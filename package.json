@@ -22,7 +22,8 @@
     "postinstall": "prisma generate",
     "init": "node scripts/init-system.js",
     "init:fresh": "node scripts/init-system.js --reset",
-    "import:august": "tsx scripts/import-august-trip.ts"
+    "import:august": "tsx scripts/import-august-trip.ts",
+    "user:set": "node scripts/set-user.js"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.4.0",

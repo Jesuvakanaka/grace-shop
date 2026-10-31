@@ -23,6 +23,7 @@ const { execSync } = require('child_process');
 const prisma = new PrismaClient();
 
 const RESET_FLAG = process.argv.includes('--reset') || process.argv.includes('--fresh');
+const OWNER_USERNAME = process.env.GRACE_OWNER_USERNAME || 'owner';
 
 async function resetDatabase() {
   // Refuse BEFORE touching the database unless it is a local, non-production DB.
@@ -80,21 +81,22 @@ async function seedUsers() {
     throw new Error(`Refusing to seed users: ${problems.join('; ')}`);
   }
 
-  // Owner user
-  const existingOwner = await prisma.user.findUnique({ where: { username: 'owner' } });
+  // Owner user (UAT seeds margie / Margaret via GRACE_OWNER_USERNAME / GRACE_OWNER_FULLNAME)
+  const ownerUsername = OWNER_USERNAME;
+  const existingOwner = await prisma.user.findUnique({ where: { username: ownerUsername } });
   if (!existingOwner) {
     const hashedPassword = await bcrypt.hash(seedPasswords.owner, 10);
     await prisma.user.create({
       data: {
-        username: 'owner',
+        username: ownerUsername,
         password: hashedPassword,
-        fullName: 'Business Owner',
+        fullName: process.env.GRACE_OWNER_FULLNAME || 'Business Owner',
         role: 'OWNER',
       },
     });
-    console.log('   Created: owner');
+    console.log(`   Created: ${ownerUsername}`);
   } else {
-    console.log('   Exists: owner');
+    console.log(`   Exists: ${ownerUsername}`);
   }
 
   // Staff user
@@ -275,7 +277,7 @@ async function showSummary() {
   console.log(`   Products:        ${productCount}`);
   console.log(`   Total Stock:     ${totalStock._sum.currentQuantity || 0} units`);
   console.log('═'.repeat(50));
-  console.log('\n📝 Login users: owner (OWNER), staff (STAFF)');
+  console.log(`\n📝 Login users: ${OWNER_USERNAME} (OWNER), staff (STAFF)`);
   console.log('   Passwords: set via GRACE_OWNER_PASSWORD / GRACE_STAFF_PASSWORD (local dev defaults if unset outside production); never printed');
   console.log('\n🚀 Start the app with: npm run dev');
   console.log('');

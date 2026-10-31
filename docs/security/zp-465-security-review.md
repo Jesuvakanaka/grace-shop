@@ -103,6 +103,8 @@ The policy follows `docs/business-control/02-mvp-webapp-spec.md`, the UI (STAFF 
 | 39 | GET | `/api/stock-movements` | **none** | session |
 | 40 | POST | `/api/stock-movements/adjust` | OWNER via `requireRole`, **500 on failure** | OWNER |
 | 41 | POST | `/api/upload` | OWNER via `requireRole`, **500 on failure** | OWNER |
+| 42 | GET | `/api/auth/quick-login` | (new, 2026-10-31) | public: `{ enabled:false, setupAllowed }` unless `GRACE_QUICK_LOGIN=true` (see 6) |
+| 43 | POST | `/api/auth/quick-login` | (new, 2026-10-31) | public, UAT only: 404 unless `GRACE_QUICK_LOGIN=true` (see 6) |
 
 Notes:
 - There is no creditor *update* route and no delete route other than product delete. Both existing ones are OWNER-only.
@@ -182,3 +184,4 @@ Remaining:
 | Other docs | `docs/business-control/03-implementation-walkthrough.md` and the header comment of `scripts/init-system.js` still mention the local dev defaults. They describe local development only and were left alone to avoid conflicts with ZP-464. |
 | `src/app/api/products/[id]/route.ts` | Creates its own `PrismaClient` instead of using `@/lib/db`. Not security-relevant, left as is. |
 | `/api/auth/session` response | Returns 401 (not `null`) when signed out, and the client relies on that. Unchanged. |
+| UAT quick sign-in (`GRACE_QUICK_LOGIN`) | **Owner-accepted risk, 2026-10-31** ("This is all test data, i will take the risk."). For UAT testing the login page can show one button per role that signs in as the first active OWNER/STAFF user **without a password** (`GET`/`POST /api/auth/quick-login`, both public). While it is on, anyone with the UAT URL can sign in as the owner. Controls: off unless `GRACE_QUICK_LOGIN` is exactly `true` (default off locally, in tests and in production; the deploy workflow passes the repository variable with default `false`); with the flag off `POST` is a 404 before reading the body or the DB; the cookie is the same as a normal sign-in; every use is logged as `[quick-login] <ROLE> <username>`. **It MUST be switched off before real data is entered or go-live.** How to switch it: `docs/deployment/deploy-uat.md`, "UAT quick sign-in". |

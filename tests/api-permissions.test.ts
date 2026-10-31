@@ -18,6 +18,8 @@ process.env.JWT_SECRET = 'zp465-permission-tests-secret-0123456789abcdef';
 import { createToken } from '../src/lib/auth';
 
 import * as changePassword from '../src/app/api/auth/change-password/route';
+import * as login from '../src/app/api/auth/login/route';
+import * as quickLogin from '../src/app/api/auth/quick-login/route';
 import * as cash from '../src/app/api/cash/route';
 import * as closing from '../src/app/api/closing/route';
 import * as closingClose from '../src/app/api/closing/[id]/close/route';
@@ -45,7 +47,8 @@ import * as stockMovements from '../src/app/api/stock-movements/route';
 import * as upload from '../src/app/api/upload/route';
 import * as imageByKey from '../src/app/api/images/[key]/route';
 
-type Policy = 'SESSION' | 'OWNER';
+// PUBLIC: no session needed (sign-in routes). "Allowed" for every caller, including no cookie.
+type Policy = 'PUBLIC' | 'SESSION' | 'OWNER';
 type Handler = (req: Request, ctx: { params: Promise<Record<string, string>> }) => Promise<Response>;
 
 interface Case {
@@ -62,6 +65,11 @@ const h = (fn: unknown) => fn as Handler;
 const MISSING_ID = '987654321';
 
 const cases: Case[] = [
+  { method: 'POST', path: '/api/auth/login', handler: h(login.POST), policy: 'PUBLIC' },
+  // GRACE_QUICK_LOGIN is unset in tests: GET -> { enabled: false }, POST -> 404. Never 401/403.
+  { method: 'GET', path: '/api/auth/quick-login', handler: h(quickLogin.GET), policy: 'PUBLIC' },
+  { method: 'POST', path: '/api/auth/quick-login', handler: h(quickLogin.POST), policy: 'PUBLIC' },
+
   { method: 'POST', path: '/api/auth/change-password', handler: h(changePassword.POST), policy: 'SESSION' },
 
   { method: 'GET', path: '/api/cash', handler: h(cash.GET), policy: 'SESSION' },
@@ -141,13 +149,25 @@ describe('API permission matrix (ZP-465)', () => {
   for (const c of cases) {
     const label = `${c.method} ${c.path.split('?')[0]} [${c.policy}]`;
 
-    test(`${label}: no cookie -> 401`, async () => {
-      assert.strictEqual(await call(c), 401);
-    });
+    if (c.policy === 'PUBLIC') {
+      test(`${label}: no cookie -> allowed`, async () => {
+        const status = await call(c);
+        assert.ok(![401, 403].includes(status), `expected a public route, got ${status}`);
+      });
 
-    test(`${label}: tampered token -> 401`, async () => {
-      assert.strictEqual(await call(c, `${ownerToken}x`), 401);
-    });
+      test(`${label}: tampered token -> allowed (token ignored)`, async () => {
+        const status = await call(c, `${ownerToken}x`);
+        assert.ok(![401, 403].includes(status), `expected a public route, got ${status}`);
+      });
+    } else {
+      test(`${label}: no cookie -> 401`, async () => {
+        assert.strictEqual(await call(c), 401);
+      });
+
+      test(`${label}: tampered token -> 401`, async () => {
+        assert.strictEqual(await call(c, `${ownerToken}x`), 401);
+      });
+    }
 
     test(`${label}: STAFF -> ${c.policy === 'OWNER' ? '403' : 'allowed'}`, async () => {
       const status = await call(c, staffToken);

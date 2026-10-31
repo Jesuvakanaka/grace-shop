@@ -164,7 +164,7 @@ jobs:
             --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
             --set-cloudsql-instances="${CLOUD_SQL_CONNECTION}" \
             --set-secrets="${DB_SECRETS},GRACE_OWNER_PASSWORD=grace-shop-uat-owner-password:latest,GRACE_STAFF_PASSWORD=grace-shop-uat-staff-password:latest" \
-            --set-env-vars=NODE_ENV=production \
+            --set-env-vars=NODE_ENV=production,GRACE_OWNER_USERNAME=margie,GRACE_OWNER_FULLNAME=Margaret \
             --command=npm \
             --args=run,init \
             --tasks=1 \
@@ -209,10 +209,13 @@ jobs:
 
       # --set-env-vars / --set-secrets replace the whole set on every deploy,
       # so nothing (e.g. ALLOW_SETUP) can linger from a manual change.
+      # GRACE_QUICK_LOGIN: UAT quick sign-in (no password). Repository variable,
+      # default 'false'. MUST be false before real data / go-live. See the runbook.
       - name: Deploy web service
         env:
           IMAGE_REF: ${{ steps.image.outputs.image_ref }}
           SERVICE_EXISTS: ${{ steps.service.outputs.exists }}
+          GRACE_QUICK_LOGIN: ${{ vars.GRACE_QUICK_LOGIN || 'false' }}
         run: |
           set -euo pipefail
           ARGS=(
@@ -222,7 +225,7 @@ jobs:
             --service-account="${RUNTIME_SERVICE_ACCOUNT}"
             --set-cloudsql-instances="${CLOUD_SQL_CONNECTION}"
             --set-secrets="${DB_SECRETS},JWT_SECRET=grace-shop-uat-jwt-secret:latest"
-            --set-env-vars="NODE_ENV=production,GRACE_IMAGE_STORAGE=gcs,GRACE_IMAGE_BUCKET=${IMAGES_BUCKET}"
+            --set-env-vars="NODE_ENV=production,GRACE_IMAGE_STORAGE=gcs,GRACE_IMAGE_BUCKET=${IMAGES_BUCKET},GRACE_QUICK_LOGIN=${GRACE_QUICK_LOGIN}"
             --port=8080
             --startup-probe=httpGet.path=/api/health,httpGet.port=8080,periodSeconds=5,timeoutSeconds=3,failureThreshold=24
             --min-instances=0
