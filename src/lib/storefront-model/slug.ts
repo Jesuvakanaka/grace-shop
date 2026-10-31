@@ -5,15 +5,49 @@ const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const FALLBACK_SLUG = 'product'
 
 /**
+ * Words the public site or admin may use as path segments, so they can
+ * never be a product or category slug. Generated slugs get a suffix
+ * ("new-2"); a slug typed by hand is refused.
+ */
+export const RESERVED_SLUGS: readonly string[] = Object.freeze([
+  'new',
+  'edit',
+  'preview',
+  'admin',
+  'api',
+  'site',
+  'search',
+  'categories',
+  'collections',
+  'shop',
+  'p',
+])
+const RESERVED = new Set(RESERVED_SLUGS)
+
+export function isReservedSlug(slug: string): boolean {
+  return RESERVED.has(slug)
+}
+
+// Letters that NFKD does not decompose into ASCII + combining marks.
+const FOLD: Record<string, string> = {
+  ß: 'ss', ẞ: 'ss', æ: 'ae', Æ: 'ae', œ: 'oe', Œ: 'oe', ø: 'o', Ø: 'o',
+  ł: 'l', Ł: 'l', đ: 'd', Đ: 'd', ð: 'd', Ð: 'd', þ: 'th', Þ: 'th', ı: 'i',
+}
+const FOLD_PATTERN = new RegExp(`[${Object.keys(FOLD).join('')}]`, 'g')
+
+/**
  * Lowercase ASCII words joined by single hyphens, at most SLUG_MAX_LENGTH
- * characters. Accents are folded ("Crème" -> "creme"); apostrophes are
- * dropped ("Women's" -> "womens"); other characters become word breaks.
- * Returns "" when nothing usable is left (e.g. a name in Chinese only).
+ * characters. Accents are folded ("Crème" -> "creme", "straße" ->
+ * "strasse"); apostrophes are dropped ("Women's" -> "womens"); other
+ * characters become word breaks. Returns "" when nothing usable is left
+ * (e.g. a name in Chinese only). Reserved words are NOT removed here; see
+ * uniqueSlug and planSlugChange.
  */
 export function slugify(name: string): string {
   const slug = String(name ?? '')
+    .replace(FOLD_PATTERN, (c) => FOLD[c])
     .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/\p{M}/gu, '')
     .toLowerCase()
     .replace(/['’]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
@@ -32,15 +66,17 @@ export function isValidSlug(value: unknown): value is string {
 /**
  * slugify(base), or with -2, -3, ... appended until `exists` says it is free.
  * The suffixed slug still fits SLUG_MAX_LENGTH. An empty base becomes
- * "product". `exists` must cover live slugs AND old (redirect) slugs.
+ * "product"; a reserved word gets a suffix ("new" -> "new-2"). `exists`
+ * must cover live slugs AND old (redirect) slugs.
  */
 export function uniqueSlug(base: string, exists: (slug: string) => boolean): string {
   const root = slugify(base) || FALLBACK_SLUG
-  if (!exists(root)) return root
+  const taken = (s: string) => isReservedSlug(s) || exists(s)
+  if (!taken(root)) return root
   for (let n = 2; ; n++) {
     const suffix = `-${n}`
     const candidate = `${trimToLength(root, SLUG_MAX_LENGTH - suffix.length)}${suffix}`
-    if (!exists(candidate)) return candidate
+    if (!taken(candidate)) return candidate
   }
 }
 
@@ -75,6 +111,9 @@ export type SlugChangePlan =
 export function planSlugChange(input: SlugChangeInput): SlugChangePlan {
   const slug = slugify(input.newSlug)
   if (!slug) return { ok: false, error: 'Slug must contain at least one letter or digit' }
+  if (isReservedSlug(slug)) {
+    return { ok: false, error: `Slug "${slug}" is reserved for the website; choose another (e.g. "${slug}-1")` }
+  }
   if (slug === input.currentSlug) {
     return { ok: true, changed: false, slug, addRedirect: null, removeRedirect: null }
   }

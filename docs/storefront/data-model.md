@@ -124,9 +124,22 @@ accepts a `PrismaClient` or an open transaction, and runs in a transaction:
 
 | Helper | Use it when | Effect |
 | --- | --- | --- |
-| `syncGalleryFromImageUrl(db, productId, imageUrl)` | `Product.imageUrl` was changed (admin form, import). Call it in the same transaction. | A stored picture URL becomes the primary image and replaces the previous primary row. Other gallery images stay. `null`/`""` removes the primary row, promotes the next image and writes its URL back to `imageUrl` (or `null`). A URL that is not from our storage leaves the gallery alone and returns `synced: false`. |
+| `syncGalleryFromImageUrl(db, productId, imageUrl)` | `Product.imageUrl` was changed (admin form, import). Call it in the same transaction, passing the value from the update as it is. | Returns `{ ok, changed, primaryImageId }`. `undefined` (imageUrl not in the update) is a no-op, `changed: false`. A stored picture URL becomes the primary image and replaces the previous primary row; other gallery images stay; the same URL again is `changed: false`. Only `null` or `""` clears: it removes the primary row, promotes the next image and writes its URL back to `imageUrl` (or `null`). |
+| `publishProduct(db, productId, { publish, now? })` | The admin publishes or unpublishes (ZP-483). | One transaction. Publishing checks readiness and returns `{ ok: false, missing }` with nothing written when the product is not ready; otherwise it ensures a slug and applies `nextPublishState` (`publishedAt` on the first publish only). Unpublishing has no preconditions. Returns `{ ok: true, published, publishedAt, slug }`. |
 | `setPrimaryImage(db, productId, imageId)` | The gallery editor picks a new primary (ZP-483). | Demotes the old primary and keeps it in the gallery. Writes the new primary's URL to `imageUrl`. Throws if the image belongs to another product. |
 | `ensurePrimaryImage(db, productId)` | After images are added or removed, or to backfill one product. | Repairs "no primary" or "several primaries", and syncs `imageUrl`. A product with no gallery images but a stored `imageUrl` gets it as its primary image, by the same rule as the migration. Idempotent. |
+
+### Decision: an `imageUrl` that is not a stored picture is an error
+
+If `imageUrl` is set to anything other than `/api/images/<32 hex>.webp`
+(for example an external link), `syncGalleryFromImageUrl` returns
+`{ ok: false, changed: false, error }` and changes nothing. It does not
+silently keep a stale primary image, and it does not clear the gallery.
+The storefront can only show stored pictures. The caller must reject that
+URL or report the error; ZP-483 should only offer uploads. Clearing the
+primary row instead would break the invariant, because it would leave
+gallery images with no primary, or overwrite the admin's URL when the next
+image is promoted.
 
 Callers today:
 
@@ -165,13 +178,26 @@ it inserts 0 rows.
 Rules (`planSlugChange` holds the pure logic, `setProductSlug` applies it):
 
 - Slugs are lowercase ASCII words joined by single hyphens, at most 80
-  characters (`slugify`, `isValidSlug`). Accents are folded ("Crème" →
-  "creme"). Other scripts are dropped. A name with nothing usable, such as a
+  characters (`slugify`, `isValidSlug`). Accents and combining marks
+  (`\p{M}`) are removed ("Crème" → "creme"). Letters that do not decompose
+  are folded: ß → ss, æ → ae, œ → oe, ø → o, ł → l, đ/ð → d, þ → th.
+  Other scripts are dropped. A name with nothing usable, such as a
   Chinese-only name, gives `""`, and `uniqueSlug` then falls back to
   `product`.
+- **Reserved slugs** (`RESERVED_SLUGS`, `isReservedSlug`): `new`, `edit`,
+  `preview`, `admin`, `api`, `site`, `search`, `categories`,
+  `collections`, `shop`, `p`. These are route words the site may use.
+  A generated slug gets a suffix (`new` → `new-2`). A slug typed by hand
+  (`setProductSlug`, `planSlugChange`) is refused with a "reserved" error.
 - `uniqueSlug(base, exists)` appends `-2`, `-3`, and so on, and stays within
   80 characters. `exists` must cover live slugs **and** old redirect slugs.
   `ensureProductSlug` does this.
+- Concurrent writers: two transactions can pick the same generated slug.
+  The unique index rejects the second one (P2002).
+  `ensureProductSlug` and `publishProduct` then re-run the whole
+  transaction, up to `UNIQUE_CONFLICT_ATTEMPTS` (3) times in total, when
+  given a `PrismaClient`. Inside a caller's transaction they cannot retry,
+  because Postgres has aborted that transaction, so the caller must retry.
 - When a slug changes, the previous slug becomes a redirect to the
   **product**, not to a slug. Redirects therefore never chain. After several
   renames, every old slug still points at the product's current slug.
@@ -187,14 +213,18 @@ Rules (`planSlugChange` holds the pure logic, `setProductSlug` applies it):
 
 ## Publish readiness
 
-`getPublishReadiness({ productName, publicName, images, category })` returns
-`{ ready, missing }`. `missing` lists, in this order:
+`getPublishReadiness({ productName, publicName, images, category, slug })`
+returns `{ ready, missing }`. `missing` lists, in this order:
 
 - `'display name'`: `publicName` and `productName` are both blank.
 - `'image'`: there is no `ProductImage`. `imageUrl` alone does not count.
 - `'category'`: the category relation is not loaded or not set.
+- `'slug'`: there is no slug. `publishProduct` generates one before it
+  checks, so it never reports `'slug'`. Only callers that check readiness
+  themselves, such as an admin "ready to publish?" badge, see it.
 
-Load `images` and `category` with the product. The function does not check
+Load `images` and `category` with the product. Publish through
+`publishProduct` rather than writing `published` directly. The function does not check
 whether the category itself is published. The public site should hide
 products whose category is unpublished.
 

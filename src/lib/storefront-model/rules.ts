@@ -64,25 +64,29 @@ export function nextPublishState(
 
 // ─── Publish readiness ─────────────────────────────────────────────────────────
 
-export type PublishMissing = 'display name' | 'image' | 'category'
+export type PublishMissing = 'display name' | 'image' | 'category' | 'slug'
 
 export type PublishReadinessInput = {
   productName: string
   publicName?: string | null
   images?: readonly { imageKey: string }[] | null
   category?: { id: number } | null
+  slug?: string | null
 }
 
 /**
  * Whether a product may be published: it needs a display name (publicName or
- * productName), at least one gallery image, and an existing category. The
- * caller loads `images` and `category` with the product.
+ * productName), at least one gallery image, an existing category and a
+ * slug. The caller loads `images` and `category` with the product.
+ * publishProduct (./db) generates the slug before it checks, so 'slug' is
+ * only reported to callers that check readiness themselves.
  */
 export function getPublishReadiness(product: PublishReadinessInput): { ready: boolean; missing: PublishMissing[] } {
   const missing: PublishMissing[] = []
   if (!displayName(product)) missing.push('display name')
   if (!product.images || product.images.length === 0) missing.push('image')
   if (!product.category) missing.push('category')
+  if (!product.slug) missing.push('slug')
   return { ready: missing.length === 0, missing }
 }
 

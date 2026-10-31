@@ -7,6 +7,8 @@ import {
   slugify,
   uniqueSlug,
   isValidSlug,
+  isReservedSlug,
+  RESERVED_SLUGS,
   planSlugChange,
   getAvailability,
   getPublishReadiness,
@@ -28,7 +30,9 @@ describe('slugify', () => {
 
   test('folds accents to ASCII and drops other non-ASCII characters', () => {
     assert.strictEqual(slugify('Crème Brûlée Café'), 'creme-brulee-cafe')
-    assert.match(slugify('Ærø straße'), /^[a-z0-9-]*$/)
+    assert.strictEqual(slugify('Ærø straße'), 'aero-strasse')
+    assert.strictEqual(slugify('Łódź Đakovo ØRESUND ẞ'), 'lodz-dakovo-oresund-ss')
+    assert.strictEqual(slugify('Æsir dœ'), 'aesir-doe')
     assert.strictEqual(slugify('连衣裙 dress 2024'), 'dress-2024')
     assert.strictEqual(slugify("Women's 100% cotton"), 'womens-100-cotton')
   })
@@ -99,6 +103,24 @@ describe('uniqueSlug', () => {
   test('normalises the base through slugify', () => {
     assert.strictEqual(uniqueSlug('Silk Dress', () => false), 'silk-dress')
   })
+
+  test('never returns a reserved slug: it falls back to a suffix', () => {
+    for (const reserved of RESERVED_SLUGS) {
+      assert.strictEqual(uniqueSlug(reserved, () => false), `${reserved}-2`, reserved)
+    }
+    assert.strictEqual(uniqueSlug('New', (s) => s === 'new-2'), 'new-3')
+    assert.strictEqual(uniqueSlug('new arrivals', () => false), 'new-arrivals')
+  })
+})
+
+describe('reserved slugs', () => {
+  test('the route words used by the public site and admin are reserved', () => {
+    for (const s of ['new', 'edit', 'preview', 'admin', 'api', 'site', 'search', 'categories', 'collections', 'shop', 'p']) {
+      assert.ok(isReservedSlug(s), s)
+    }
+    assert.ok(!isReservedSlug('new-arrivals'))
+    assert.ok(!isReservedSlug('shoes'))
+  })
 })
 
 describe('planSlugChange (slug redirects without loops)', () => {
@@ -152,6 +174,14 @@ describe('planSlugChange (slug redirects without loops)', () => {
     if (!plan.ok) assert.match(plan.error, /another product/i)
   })
 
+  test('a reserved slug typed by hand is refused with a clear error', () => {
+    for (const s of ['admin', 'New', ' API ', 'p']) {
+      const plan = planSlugChange({ ...base, newSlug: s })
+      assert.strictEqual(plan.ok, false, s)
+      if (!plan.ok) assert.match(plan.error, /reserved/i)
+    }
+  })
+
   test('an input that is not a valid slug is normalised; one with nothing usable is refused', () => {
     const plan = planSlugChange({ ...base, newSlug: 'New Name!' })
     assert.ok(plan.ok && plan.slug === 'new-name')
@@ -190,10 +220,15 @@ describe('getPublishReadiness', () => {
     publicName: null,
     images: [{ imageKey: 'products/0123456789abcdef0123456789abcdef.webp' }],
     category: { id: 1 },
+    slug: 'silk-dress',
   }
 
-  test('a product with a name, an image and a category is ready', () => {
+  test('a product with a name, an image, a category and a slug is ready', () => {
     assert.deepStrictEqual(getPublishReadiness(ready), { ready: true, missing: [] })
+  })
+
+  test('a slug is required (publishProduct ensures one before checking)', () => {
+    assert.deepStrictEqual(getPublishReadiness({ ...ready, slug: null }), { ready: false, missing: ['slug'] })
   })
 
   test('publicName alone is enough for the display name', () => {
@@ -204,16 +239,16 @@ describe('getPublishReadiness', () => {
   })
 
   test('lists every missing piece in a stable order', () => {
-    assert.deepStrictEqual(getPublishReadiness({ productName: ' ', publicName: '', images: [], category: null }), {
-      ready: false,
-      missing: ['display name', 'image', 'category'],
-    })
+    assert.deepStrictEqual(
+      getPublishReadiness({ productName: ' ', publicName: '', images: [], category: null, slug: '' }),
+      { ready: false, missing: ['display name', 'image', 'category', 'slug'] },
+    )
   })
 
-  test('missing images or category relations count as missing', () => {
+  test('missing images, category or slug count as missing', () => {
     assert.deepStrictEqual(getPublishReadiness({ productName: 'x' }), {
       ready: false,
-      missing: ['image', 'category'],
+      missing: ['image', 'category', 'slug'],
     })
   })
 })

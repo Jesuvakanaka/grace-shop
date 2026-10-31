@@ -12,6 +12,7 @@ import {
   setPrimaryImage,
   ensurePrimaryImage,
   getGallery,
+  publishProduct,
 } from '../src/lib/storefront-model/db'
 
 const KEY = (c: string) => `products/${c.repeat(32)}.webp`
@@ -166,12 +167,38 @@ describe('storefront-model db helpers', () => {
       assert.strictEqual((await prisma.product.findUnique({ where: { id: p.id } }))!.imageUrl, null)
     })
 
-    test('an imageUrl that is not a stored picture leaves the gallery alone', async () => {
+    test('an imageUrl that is not a stored picture is an explicit error and changes nothing', async () => {
       const p = await product({ imageUrl: URL_('a') })
       await syncGalleryFromImageUrl(prisma, p.id, URL_('a'))
       const r = await syncGalleryFromImageUrl(prisma, p.id, 'https://example.test/x.jpg')
-      assert.strictEqual(r.synced, false)
+      assert.strictEqual(r.ok, false)
+      assert.strictEqual(r.changed, false)
+      if (!r.ok) assert.match(r.error, /not a stored picture/i)
+      assert.deepStrictEqual(
+        (await getGallery(prisma, p.id)).map((g) => [g.imageKey, g.isPrimary]),
+        [[KEY('a'), true]],
+      )
+    })
+
+    test('undefined (imageUrl not part of the update) is a no-op; only null or "" clears', async () => {
+      const p = await product({ imageUrl: URL_('a') })
+      await syncGalleryFromImageUrl(prisma, p.id, URL_('a'))
+      const r = await syncGalleryFromImageUrl(prisma, p.id, undefined)
+      assert.deepStrictEqual(r, { ok: true, changed: false, primaryImageId: null })
       assert.strictEqual(await prisma.productImage.count({ where: { productId: p.id, isPrimary: true } }), 1)
+      assert.strictEqual((await prisma.product.findUnique({ where: { id: p.id } }))!.imageUrl, URL_('a'))
+
+      const cleared = await syncGalleryFromImageUrl(prisma, p.id, '')
+      assert.strictEqual(cleared.ok && cleared.changed, true)
+      assert.strictEqual(await prisma.productImage.count({ where: { productId: p.id } }), 0)
+    })
+
+    test('re-syncing the same imageUrl reports no change', async () => {
+      const p = await product({ imageUrl: URL_('a') })
+      const first = await syncGalleryFromImageUrl(prisma, p.id, URL_('a'))
+      assert.strictEqual(first.ok && first.changed, true)
+      const again = await syncGalleryFromImageUrl(prisma, p.id, URL_('a'))
+      assert.deepStrictEqual(again, { ok: true, changed: false, primaryImageId: first.ok ? first.primaryImageId : -1 })
     })
 
     test('setPrimaryImage switches the primary and writes it back to Product.imageUrl', async () => {
@@ -224,6 +251,94 @@ describe('storefront-model db helpers', () => {
         prisma.productImage.create({ data: { productId: p.id, imageKey: KEY('b'), isPrimary: true } }),
       )
       await assert.rejects(() => prisma.productImage.create({ data: { productId: p.id, imageKey: KEY('a') } }))
+    })
+  })
+
+  describe('publishProduct', () => {
+    async function readyProduct(data: Record<string, unknown> = {}) {
+      const cat = await prisma.category.create({ data: { name: 'Pub', slug: `zp482-pub-${n + 1}` } })
+      const p = await product({ publicName: `zp482 Pub ${n + 1}`, imageUrl: URL_('a'), categoryId: cat.id, ...data })
+      await ensurePrimaryImage(prisma, p.id)
+      return p
+    }
+
+    test('refuses a product that is not ready and writes nothing (no slug either)', async () => {
+      const p = await product({ publicName: 'zp482 Not Ready' })
+      const r = await publishProduct(prisma, p.id, { publish: true })
+      assert.deepStrictEqual(r, { ok: false, missing: ['image', 'category'] })
+      const after = (await prisma.product.findUnique({ where: { id: p.id } }))!
+      assert.strictEqual(after.published, false)
+      assert.strictEqual(after.slug, null)
+      assert.strictEqual(after.publishedAt, null)
+    })
+
+    test('publishes a ready product: ensures a slug and sets publishedAt on the first publish only', async () => {
+      const p = await readyProduct()
+      const first = new Date('2026-10-01T00:00:00Z')
+      const r = await publishProduct(prisma, p.id, { publish: true, now: first })
+      assert.ok(r.ok, JSON.stringify(r))
+      if (r.ok) {
+        assert.strictEqual(r.published, true)
+        assert.match(r.slug ?? '', /^zp482-pub-\d+$/)
+        assert.deepStrictEqual(r.publishedAt, first)
+      }
+
+      const off = await publishProduct(prisma, p.id, { publish: false, now: new Date('2026-10-05T00:00:00Z') })
+      assert.ok(off.ok && off.published === false && off.publishedAt?.getTime() === first.getTime())
+
+      const again = await publishProduct(prisma, p.id, { publish: true, now: new Date('2026-10-20T00:00:00Z') })
+      assert.ok(again.ok && again.published && again.publishedAt?.getTime() === first.getTime())
+      const row = (await prisma.product.findUnique({ where: { id: p.id } }))!
+      assert.strictEqual(row.published, true)
+      assert.strictEqual(row.publishedAt?.getTime(), first.getTime())
+    })
+
+    test('keeps an existing slug', async () => {
+      const p = await readyProduct()
+      await setProductSlug(prisma, p.id, 'zp482-chosen')
+      const r = await publishProduct(prisma, p.id, { publish: true })
+      assert.ok(r.ok && r.slug === 'zp482-chosen')
+    })
+
+    test('unpublishing needs no readiness', async () => {
+      const p = await product()
+      const r = await publishProduct(prisma, p.id, { publish: false })
+      assert.deepStrictEqual(r, { ok: true, published: false, publishedAt: null, slug: null })
+    })
+
+    test('an unknown product is refused', async () => {
+      await assert.rejects(() => publishProduct(prisma, 99_999_999, { publish: true }), /not found/i)
+    })
+  })
+
+  describe('generated slugs: reserved words and concurrent writers', () => {
+    test('a product called "New" gets new-2, never the reserved "new"', async () => {
+      // Use a unique root first so this test does not depend on other rows.
+      const p = await product({ publicName: 'New' })
+      const slug = await ensureProductSlug(prisma, p.id)
+      assert.notStrictEqual(slug, 'new')
+      assert.match(slug, /^new-\d+$/)
+    })
+
+    test('concurrent ensureProductSlug calls for the same name all succeed with distinct slugs', async () => {
+      const ps = await Promise.all([1, 2, 3].map(() => product({ publicName: 'zp482 Race Dress' })))
+      const slugs = await Promise.all(ps.map((p) => ensureProductSlug(prisma, p.id)))
+      assert.deepStrictEqual([...slugs].sort(), ['zp482-race-dress', 'zp482-race-dress-2', 'zp482-race-dress-3'])
+    })
+
+    test('concurrent publishProduct calls for the same name all succeed', async () => {
+      const cat = await prisma.category.create({ data: { name: 'Race', slug: 'zp482-race-cat' } })
+      const ps = await Promise.all(
+        [1, 2, 3].map(() => product({ publicName: 'zp482 Race Top', imageUrl: URL_('a'), categoryId: cat.id })),
+      )
+      for (const p of ps) await ensurePrimaryImage(prisma, p.id)
+      const results = await Promise.all(ps.map((p) => publishProduct(prisma, p.id, { publish: true })))
+      assert.ok(results.every((r) => r.ok), JSON.stringify(results))
+      assert.deepStrictEqual(results.map((r) => (r.ok ? r.slug : '')).sort(), [
+        'zp482-race-top',
+        'zp482-race-top-2',
+        'zp482-race-top-3',
+      ])
     })
   })
 
