@@ -63,8 +63,83 @@ model Product {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
+  // ─── Storefront / VYRA website (ZP-482). See docs/storefront/data-model.md.
+  // None of these touch stock or cost. Only published products are public.
+  published         Boolean      @default(false)
+  // First time the product was published. Kept when it is unpublished, so
+  // republishing does not make it a "new arrival" again.
+  publishedAt       DateTime?
+  publicName        String? // falls back to productName
+  slug              String?      @unique
+  publicDescription String?
+  categoryId        Int?
+  priceDisplay      PriceDisplay @default(ASK_FOR_PRICE)
+  featured          Boolean      @default(false)
+  sortOrder         Int          @default(0)
+  colours           String? // free text until real variants exist
+  sizes             String? // free text until real variants exist
+
   stockMovements StockMovement[]
   saleItems      SaleItem[]
+  category       Category?             @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  images         ProductImage[]
+  slugRedirects  ProductSlugRedirect[]
+
+  @@index([categoryId])
+}
+
+// How the public site shows the price. The public price is sellingPriceUsd.
+enum PriceDisplay {
+  SHOW_PRICE
+  ASK_FOR_PRICE
+}
+
+model Category {
+  id           Int      @id @default(autoincrement())
+  name         String
+  slug         String   @unique
+  description  String?
+  heroImageKey String? // storage key, e.g. products/<32 hex>.webp
+  sortOrder    Int      @default(0)
+  published    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  products Product[]
+}
+
+// Storefront gallery: the source of truth for the public site. The primary
+// row mirrors Product.imageUrl, which the admin still uses. Keep the two in
+// sync with src/lib/storefront-model/db.ts. "At most one primary per product"
+// is the partial unique index ProductImage_one_primary_per_product, which
+// exists only in the migration SQL (Prisma 6 cannot declare partial indexes).
+model ProductImage {
+  id        Int      @id @default(autoincrement())
+  productId Int
+  imageKey  String // storage key, e.g. products/<32 hex>.webp
+  alt       String?
+  sortOrder Int      @default(0)
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, imageKey])
+  @@index([productId, sortOrder])
+}
+
+// An old product slug that still resolves. It points at the product, not at
+// another slug, so redirects never chain or loop.
+model ProductSlugRedirect {
+  id        Int      @id @default(autoincrement())
+  oldSlug   String   @unique
+  productId Int
+  createdAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
 }
 
 model StockMovement {
