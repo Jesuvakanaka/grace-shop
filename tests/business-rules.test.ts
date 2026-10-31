@@ -77,6 +77,7 @@ describe('Business Control MVP Tests', () => {
       };
 
       const mapped = mapProductListRow(rawRow, 1);
+      assert.ok(mapped.mapped);
       assert.strictEqual(mapped.mapped.itemNumber, 'P002');
       assert.strictEqual(mapped.mapped.productName, 'Branded Shoe');
       assert.strictEqual((mapped.mapped as any).brand, undefined);

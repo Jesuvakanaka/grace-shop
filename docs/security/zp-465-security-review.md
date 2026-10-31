@@ -29,6 +29,7 @@ Tests: `tests/auth-secret.test.ts` (8 tests) cover production without/with a sho
   - Validation is a pure function, `src/lib/password-policy.ts`, unit-tested in `tests/password-policy.test.ts` (10 tests).
   - The screen is `/settings/password` ("Change Password"), linked from the mobile More sheet and the desktop sidebar for both roles.
 - `docs/business-control/05-owner-uat-script.md` now says the UAT passwords are provided separately (Secret Manager).
+- **Deployment requirement:** the ZP-463 image runs with `NODE_ENV=production`, so the Cloud Run seed job (`npm run init`) must be given `GRACE_OWNER_PASSWORD` and `GRACE_STAFF_PASSWORD` from Secret Manager. Without them it refuses to seed and exits 1.
 
 Seed check, run against a throwaway DB:
 
@@ -140,11 +141,32 @@ The parsers (`src/lib/import/*`) and `scripts/init-system.js` work unchanged: `n
 
 **Docker/CI note:** `npm ci` must be able to reach `cdn.sheetjs.com`.
 
-`npm audit`:
-- Before: 29 vulnerabilities (16 moderate, 12 high, 1 critical), including `xlsx * – high – No fix available`.
-- After: 28 vulnerabilities (16 moderate, 11 high, 1 critical), with no `xlsx` entry.
+## 5a. Next.js security upgrade (orchestrator decision)
 
-The rest are outside this issue: `next` (critical, fix is `next@16.4.x`), `sharp`, `postcss`, `zod`, `brace-expansion`, `browserslist`, `nanoid`, `js-yaml`, `minimatch`, `source-map-js`, `deepmerge-ts`, `baseline-browser-mapping`. Most are dev/build-time or transitive via Next. **Recommended follow-up:** upgrade Next to the patched 16.x and run `npm audit fix`.
+`next@16.2.10` has critical RCE advisories, including Image Optimization RCEs that affect `next/image` on glibc Linux (Cloud Run).
+
+- `next` 16.2.10 → **16.4.3** and `eslint-config-next` → **16.4.3**. `sharp` is a transitive dependency of `next`, and moves 0.34.5 → **0.35.5**.
+- Upgrade notes (`node_modules/next/dist/docs/01-app/02-guides/upgrading/`):
+  - The only 16.3 codemod (`cache-components-instant-false`) applies to Cache Components, which this app doesn't use.
+  - `eslint-config-next@16.4` still supports ESLint 9.
+  - No `next.config.ts` changes were needed. The ZP-463 config (`output: 'standalone'`, `outputFileTracingRoot`, `turbopack.root`) builds unchanged, and `.next/standalone/server.js` is emitted.
+- **Behaviour change found:** Next 16.4's build type-checks every file in the tsconfig `include` (`**/*.ts`), so `tests/` is checked too. Two test files had type errors that already existed and now broke `npm run build`. I fixed them with type-only edits, without changing what the tests check:
+  - `tests/business-rules.test.ts`: added `assert.ok(mapped.mapped)` before dereferencing it.
+  - `tests/db-safety.test.ts` (from ZP-464): replaced the regex `s` flag (needs ES2018; the target is ES2017) with `[\s\S]*`, and cast the child-process `env` (Next's types make `NODE_ENV` required).
+- `npm audit fix` was run without `--force`. It also *downgraded* the `prisma` CLI 6.19.3 → 6.12.0 to avoid the `deepmerge-ts` advisory. **I reverted that and pinned `prisma@^6.19.3`.** A CLI older than `@prisma/client` 6.19.3, and older than the version ZP-464's migrations were made with, risks generate/migrate mismatches. The advisory is stack exhaustion when merging recursive objects inside the Prisma CLI's config loader (migrate/generate time), so attackers can't reach it at runtime.
+
+`npm audit`, full history:
+
+| Stage | Total | Critical | High | Moderate |
+|---|---|---|---|---|
+| Original master (xlsx 0.18.5, next 16.2.10) | 29 | 1 | 12 | 16 |
+| After the xlsx swap | 28 | 1 | 11 | 16 |
+| After next/eslint-config-next 16.4.3 | 26 | 0 | 9 | 17 |
+| Final: after `npm audit fix` + prisma kept at 6.19.3 | **19** | **0** | **3** | **16** |
+
+Remaining:
+- `deepmerge-ts` (high, 3 entries: `deepmerge-ts` → `@prisma/config` → `prisma`). This is the Prisma CLI. It shows under `npm audit --omit=dev` too, because `@prisma/client` peers on `prisma`. Follow-up: upgrade Prisma when a 6.x release ships `deepmerge-ts` ≥ 8, or move to Prisma 7, which is a separate migration.
+- `minimatch` (moderate, 16 entries): only inside the ESLint toolchain (`eslint`, `typescript-eslint`, `eslint-plugin-*`). Dev-only. Fixing it needs `--force` / major ESLint changes.
 
 ## 6. Decisions recorded (not changed here)
 
