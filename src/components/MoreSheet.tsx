@@ -10,6 +10,7 @@ const moreItems = [
   { label: 'Stock Ledger', href: '/stock-ledger', icon: '📒', testId: 'more-nav-stock-ledger' },
   { label: 'Day Closing', href: '/closing', icon: '🔒', testId: 'more-nav-closing' },
   { label: 'Reports', href: '/reports', icon: '📊', testId: 'more-nav-reports' },
+  { label: 'Website', href: '/website', icon: '🌐', testId: 'more-nav-website', ownerOnly: true },
   { label: 'Import Data', href: '/import', icon: '📥', testId: 'more-nav-import', ownerOnly: true },
   { label: 'Exchange Rate', href: '/settings/exchange-rate', icon: '⚙️', testId: 'more-nav-exchange-rate', ownerOnly: true },
   { label: 'Change Password', href: '/settings/password', icon: '🔑', testId: 'more-nav-change-password' },
