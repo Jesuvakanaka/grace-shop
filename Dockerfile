@@ -51,11 +51,15 @@ RUN apt-get update \
 RUN groupadd --system --gid 1001 grace \
   && useradd --system --uid 1001 --gid grace --home-dir /app grace
 
+# HOME / NPM_CONFIG_CACHE: /app is root-owned, so give npm/npx (used by the
+# job overrides) a writable home for their cache and debug logs as non-root.
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=8080 \
     HOSTNAME=0.0.0.0 \
-    NPM_CONFIG_UPDATE_NOTIFIER=false
+    NPM_CONFIG_UPDATE_NOTIFIER=false \
+    HOME=/tmp \
+    NPM_CONFIG_CACHE=/tmp/.npm
 
 # Full node_modules from the build stage (Fieldstream pattern) so job
 # overrides can use the Prisma CLI, @prisma/client, bcryptjs and xlsx.
@@ -66,10 +70,14 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
-# Job inputs: Prisma schema (+ future migrations), node scripts, seed workbooks.
+# Job inputs: Prisma schema + migrations, node scripts, seed workbooks.
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/docs/business-control-inputs ./docs/business-control-inputs
+
+# The Next.js server writes its image-optimisation (and ISR) cache to
+# .next/cache at runtime; everything else stays root-owned and read-only.
+RUN mkdir -p .next/cache && chown -R grace:grace .next/cache
 
 USER grace
 

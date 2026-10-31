@@ -28,6 +28,10 @@ Migrations are never applied when the web service starts.
 - Stages: `deps` (`npm ci --ignore-scripts`), `build` (`prisma generate`, then `next build`), and `runner` (uid 1001 `grace`, non-root).
 - `npm ci` uses `--ignore-scripts` because the `postinstall: prisma generate` step needs `prisma/schema.prisma`, which the deps layer does not have. `prisma generate` runs explicitly in the build stage instead. That step also puts the Linux query and schema engines into `node_modules`, so the non-root runtime never downloads anything.
 - The runner keeps the build stage's full `node_modules`, the same pattern Fieldstream uses. The standalone output is copied on top of it. The full set is kept so the job overrides have the Prisma CLI (a devDependency), `@prisma/client`, `bcryptjs` and `xlsx`. The only thing removed is the SWC compiler binaries (`@next/swc-*`, about 250 MB), which only `next build` uses.
+- Writable paths for the non-root user. `/app` stays root-owned and read-only, with two exceptions:
+  - `/app/.next/cache` belongs to `grace`, because the Next.js server writes its image-optimisation cache there (`/_next/image`). Cloud Run's filesystem is in-memory, so this cache is per instance and is lost when the instance stops.
+  - `HOME=/tmp` and `NPM_CONFIG_CACHE=/tmp/.npm` let `npm` / `npx` (used by the job overrides) write their cache and debug logs.
+- `next.config.ts` pins `outputFileTracingRoot` and `turbopack.root` to the project directory, so the standalone server is always at `.next/standalone/server.js`. Without that, Next.js guesses the root from the outermost lockfile, which goes wrong in git worktrees.
 - Size, measured locally: about 1.43 GB on disk and 318 MB compressed content. The runner's `node_modules` is the bulk of it.
 
 ## `.dockerignore` and docs spreadsheets
@@ -48,5 +52,7 @@ docker run --rm -p 3463:8080 \
   -e DIRECT_URL=postgresql://grace:grace_local_dev@host.docker.internal:5433/<db> \
   -e JWT_SECRET=<random> grace-shop:local
 ```
+
+Run the job commands from the same image against the same database, for example `docker run --rm -e DATABASE_URL=... -e DIRECT_URL=... grace-shop:local npm run migrate`. `npm run init` works the same way.
 
 In production the `auth-token` cookie is `Secure`, so browsers only send it back over HTTPS. Over plain `http://localhost`, send it manually as a `Cookie:` header when testing with curl.
