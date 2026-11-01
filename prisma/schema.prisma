@@ -84,8 +84,52 @@ model Product {
   category       Category?             @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   images         ProductImage[]
   slugRedirects  ProductSlugRedirect[]
+  video          ProductVideo?
 
   @@index([categoryId])
+}
+
+// ─── Product video (ZP-501). See docs/storefront/videos.md.
+// At most one per product, always optional: publishing still needs a photo.
+// Public only while READY and the product is public.
+enum ProductVideoStatus {
+  PROCESSING
+  READY
+  FAILED
+}
+
+model ProductVideo {
+  id         Int                @id @default(autoincrement())
+  productId  Int                @unique
+  status     ProductVideoStatus @default(PROCESSING)
+  // Storage keys, e.g. videos/<32 hex>.mp4 and videos/<32 hex>.webp; null
+  // until a first video is READY. A replacement does not touch them (nor the
+  // READY status) until the new video is stored, so the public video never
+  // has a gap; a failed replacement leaves them as they were.
+  videoKey   String?
+  posterKey  String?
+  width      Int?
+  height     Int?
+  durationMs Int?
+  sizeBytes  Int?
+  // Owner-facing reason when status is FAILED.
+  error      String?
+  // Processing lock (any instance): the upload being processed right now and
+  // when it started. Set for first uploads (status PROCESSING) AND
+  // replacements (status stays READY); a second upload while it is set and
+  // fresh (< 10 min) is refused with 409. Processing finishes with an update
+  // conditional on this id, so a video removed (row deleted) or taken over
+  // meanwhile is never brought back.
+  uploadId        String?
+  uploadStartedAt DateTime?
+  createdBy  String?
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([videoKey])
+  @@index([posterKey])
 }
 
 // How the public site shows the price. The public price is sellingPriceUsd.

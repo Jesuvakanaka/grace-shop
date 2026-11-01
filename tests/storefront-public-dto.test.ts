@@ -89,6 +89,7 @@ describe('public product DTO', () => {
       'priceUsd',
       'sizes',
       'slug',
+      'video', // ZP-501: { src, poster, width, height } | null, see tests/video-dto.test.ts
     ])
     assert.deepStrictEqual(Object.keys(dto.category).sort(), ['name', 'slug'])
     for (const image of dto.images) assert.deepStrictEqual(Object.keys(image).sort(), ['alt', 'height', 'srcSet', 'url', 'width'])

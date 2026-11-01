@@ -15,6 +15,7 @@ import { isValidSlug } from '@/lib/storefront-model'
 import type { Db } from '@/lib/storefront-model/db'
 import { readFewLeftThreshold } from '@/lib/site-settings/db'
 import { IMAGE_URL_PREFIX } from '@/lib/storage/keys'
+import { PUBLIC_VIDEO_URL_PREFIX, VIDEO_URL_PREFIX } from '@/lib/storage/video-keys'
 import { toPublicProduct, type PublicProduct, type PublicProductRow } from './dto'
 import { PUBLIC_IMAGE_URL_PREFIX } from './image-sizes'
 import type { PreviewCandidate } from './product-route'
@@ -22,10 +23,19 @@ import { PRODUCT_SELECT } from './queries'
 
 if (typeof window !== 'undefined') throw new Error('src/lib/storefront is server-only')
 
-/** Public image URLs -> the signed-in image route (no width variants there). Pure. */
+const privateVideo = (url: string) =>
+  url.startsWith(PUBLIC_VIDEO_URL_PREFIX) ? `${VIDEO_URL_PREFIX}${url.slice(PUBLIC_VIDEO_URL_PREFIX.length)}` : url
+
+/**
+ * Public image URLs -> the signed-in image route (no width variants there),
+ * and the video (ZP-501) -> the signed-in video route. Pure.
+ */
 export function withPreviewImages(product: PublicProduct): PublicProduct {
   return {
     ...product,
+    video: product.video
+      ? { ...product.video, src: privateVideo(product.video.src), poster: privateVideo(product.video.poster) }
+      : null,
     images: product.images.map((image) => ({
       ...image,
       url: image.url.startsWith(PUBLIC_IMAGE_URL_PREFIX)
