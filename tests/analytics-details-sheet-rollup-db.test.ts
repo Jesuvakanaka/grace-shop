@@ -1,7 +1,8 @@
 // ZP-510: the nightly rollup counts the feed's details sheet opening
 // (details_sheet_open) as opening the piece (product_open, "from the sheet"):
 // - AnalyticsDailyJourney: a visit that opened the sheet reached the "opened a piece" step.
-// - AnalyticsDailyPiece.productOpens: sheet opens plus product page opens.
+// - AnalyticsDailyPiece.productOpens: distinct visits that opened the piece
+//   either way (ZP-506's OPEN_TYPES).
 // details_sheet_close is not an open.
 // Uses analytics days in 2037 and products "ZP510R-*".
 import { describe, test, before, after } from 'node:test'
@@ -96,12 +97,14 @@ describe('ZP-510: a details sheet open counts as a product open', () => {
     )
   })
 
-  test('piece: productOpens = product_open + details_sheet_open', async () => {
+  test('piece: productOpens = distinct visits that opened it by product_open or details_sheet_open (ZP-506)', async () => {
     const rows = await prisma.analyticsDailyPiece.findMany({ where: { day }, orderBy: { slug: 'asc' } })
     assert.deepStrictEqual(
       rows.map((r) => [r.slug, r.productOpens]),
       [
-        ['zp510r-one', 3],
+        // V1 (sheet) and V2 (sheet, then the full page: one visit).
+        ['zp510r-one', 2],
+        // V2 (sheet); V3 only closed.
         ['zp510r-two', 1],
       ],
     )

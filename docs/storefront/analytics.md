@@ -361,9 +361,9 @@ both index scans.
 - **`AnalyticsDailyPiece`** (`day, productId` PK, `slug` latest): `views`
   (`look_view`), `viewers` (distinct visits), `dwellSeconds` / `dwellCount`
   (`look_dwell`), `photoViews`, `videoStarts`, `detailsShows`, `productOpens`
-  (`product_open` plus, ZP-510, `details_sheet_open`: opening the feed's
-  details sheet counts as opening the piece, also for the journey's
-  "opened a piece" step),
+  (distinct visits with any `OPEN_TYPES` event: `product_open` or, ZP-510,
+  `details_sheet_open`; opening the feed's details sheet counts as opening
+  the piece, also for the journey's "opened a piece" step),
   `sizeSelects`, `colourSelects`, `galleryZooms`, `enquiries`,
   `restockRequests`, `shares`, `loveOn`, `loveOff`, `exits` (visits whose
   latest `visit_end` that day named this piece).
