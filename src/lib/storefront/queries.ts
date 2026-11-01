@@ -54,6 +54,8 @@ export const PRODUCT_SELECT = {
   currentQuantity: true,
   category: { select: { slug: true, name: true, published: true } },
   images: { select: { id: true, imageKey: true, alt: true, sortOrder: true, isPrimary: true } },
+  // ZP-501: the DTO keeps only { src, poster, width, height } of a READY video.
+  video: { select: { status: true, videoKey: true, posterKey: true, width: true, height: true } },
 } satisfies Prisma.ProductSelect
 
 const CATEGORY_SELECT = {

@@ -53,7 +53,7 @@ export const ADMIN_PAGE_SECTIONS: readonly string[] = [
 ];
 
 /** API prefixes the storefront may call. Everything else under /api is 404 there. */
-const PUBLIC_API_PREFIXES = ['/api/public/', '/api/images/public/'];
+const PUBLIC_API_PREFIXES = ['/api/public/', '/api/images/public/', '/api/videos/public/'];
 
 /** Top-level public files: `public/*.ext` and app metadata files (icon, manifest, robots, sitemap). */
 const TOP_LEVEL_FILE = /^\/[^/]+\.(?:svg|png|ico|jpe?g|webp|gif|avif|txt|xml|webmanifest|json|woff2?)$/i;

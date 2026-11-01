@@ -244,6 +244,9 @@ jobs:
               exit 1
             fi
           done
+          # --memory=1Gi (ZP-501, was 512Mi): product videos are transcoded in
+          # the request with ffmpeg (~150 MB with 2 threads), and /tmp on Cloud
+          # Run is in memory (upload <= 60 MB + output <= ~8 MB while processing).
           ARGS=(
             --project="${GCP_PROJECT_ID}"
             --region="${GCP_REGION}"
@@ -256,7 +259,7 @@ jobs:
             --startup-probe=httpGet.path=/api/health,httpGet.port=8080,periodSeconds=5,timeoutSeconds=3,failureThreshold=24
             --min-instances=0
             --max-instances=2
-            --memory=512Mi
+            --memory=1Gi
             --cpu=1
             --allow-unauthenticated
             --quiet

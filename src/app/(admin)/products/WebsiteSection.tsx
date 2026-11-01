@@ -18,6 +18,7 @@ import {
   type WebsiteStatus,
 } from '@/lib/website/labels';
 import { STOREFRONT_PRODUCT_PAGE_READY } from '@/lib/website/preview-config';
+import { WebsiteVideo } from './WebsiteVideo';
 
 interface GalleryImage {
   id: number;
@@ -370,6 +371,9 @@ export function WebsiteSection({
           </ul>
         )}
       </div>
+
+      {/* Video (ZP-501): optional, separate from the photo gallery and readiness. */}
+      <WebsiteVideo productId={productId} />
 
       {/* Fields */}
       <div>

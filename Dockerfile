@@ -45,9 +45,16 @@ RUN rm -rf node_modules/@next/swc-*
 FROM ${NODE_IMAGE} AS runner
 WORKDIR /app
 
+# ZP-501: ffmpeg + ffprobe for product videos (src/lib/website/video-process.ts
+# runs /usr/bin/ffmpeg and /usr/bin/ffprobe from PATH). Debian's package is
+# used instead of the ffmpeg-static npm binaries: it gets distro security
+# fixes on every rebuild (ffmpeg parses untrusted uploads), ships ffprobe, has
+# libx264, and needs no install-time download. See docs/storefront/videos.md.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
+  && apt-get install -y --no-install-recommends openssl ca-certificates ffmpeg \
+  && rm -rf /var/lib/apt/lists/* \
+  && ffmpeg -hide_banner -encoders | grep -q libx264 \
+  && ffprobe -version > /dev/null
 
 RUN groupadd --system --gid 1001 grace \
   && useradd --system --uid 1001 --gid grace --home-dir /app grace

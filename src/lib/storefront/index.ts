@@ -22,7 +22,7 @@ export {
   SRCSET_WIDTHS,
   type PublicImageWidth,
 } from './image-sizes'
-export type { PublicProduct, PublicCategory, PublicImage, PublicCategoryRef } from './dto'
+export type { PublicProduct, PublicCategory, PublicImage, PublicCategoryRef, PublicVideo } from './dto'
 export type {
   CatalogueListOptions as ListPublishedProductsOptions,
   CatalogueReadOptions as ProductReadOptions,

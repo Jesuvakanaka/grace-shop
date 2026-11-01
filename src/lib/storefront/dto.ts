@@ -6,6 +6,7 @@
 // createdBy/updatedBy and database ids are never copied.
 // See docs/storefront/public-data-layer.md.
 import { isValidImageKey } from '@/lib/storage/keys'
+import { isValidPosterKey, isValidVideoKey, publicVideoUrl } from '@/lib/storage/video-keys'
 import { publicImageSrc, publicImageSrcSet } from './image-sizes'
 import {
   compareGalleryImages,
@@ -38,6 +39,14 @@ export type PublicImage = {
 
 export type PublicCategoryRef = { slug: string; name: string }
 
+/** ZP-501: the product's video (MP4, H.264, no sound) and its poster frame, both public URLs. */
+export type PublicVideo = {
+  src: string
+  poster: string
+  width: number
+  height: number
+}
+
 export type PublicProduct = {
   slug: string
   name: string
@@ -48,6 +57,11 @@ export type PublicProduct = {
   availability: Availability
   /** Primary first, then gallery order. */
   images: PublicImage[]
+  /**
+   * ZP-501: a READY video, else null. Always set by toPublicProduct; optional
+   * in the type so hand-written DTOs (fixtures, design previews) need not list it.
+   */
+  video?: PublicVideo | null
   isNew: boolean
   featured: boolean
   /** Only with SHOW_PRICE and a price > 0; otherwise null ("ask for price"). */
@@ -86,6 +100,14 @@ export type PublicProductRow = {
   currentQuantity: number
   category: { slug: string; name: string; published: boolean } | null
   images: { id: number; imageKey: string; alt: string | null; sortOrder: number; isPrimary: boolean }[]
+  /** ZP-501: selected to build `video`; status and keys are never copied. */
+  video?: {
+    status: 'PROCESSING' | 'READY' | 'FAILED'
+    videoKey: string | null
+    posterKey: string | null
+    width: number | null
+    height: number | null
+  } | null
 }
 
 export type PublicCategoryRow = {
@@ -112,6 +134,15 @@ function image(key: string, alt: string): PublicImage {
   return { url: publicImageSrc(key), srcSet: publicImageSrcSet(key), alt, width: null, height: null }
 }
 
+const positiveInt = (n: number | null | undefined): n is number => typeof n === 'number' && Number.isInteger(n) && n > 0
+
+function video(row: PublicProductRow['video']): PublicVideo | null {
+  if (!row || row.status !== 'READY') return null
+  if (!isValidVideoKey(row.videoKey) || !isValidPosterKey(row.posterKey)) return null
+  if (!positiveInt(row.width) || !positiveInt(row.height)) return null
+  return { src: publicVideoUrl(row.videoKey), poster: publicVideoUrl(row.posterKey), width: row.width, height: row.height }
+}
+
 export function toPublicProduct(row: PublicProductRow, options: ProductDtoOptions): PublicProduct {
   const name = displayName(row)
   const images = [...row.images]
@@ -127,6 +158,7 @@ export function toPublicProduct(row: PublicProductRow, options: ProductDtoOption
     sizes: text(row.sizes),
     availability: getAvailability(row.currentQuantity, options.fewLeftThreshold ?? FEW_LEFT_THRESHOLD),
     images,
+    video: video(row.video),
     isNew: isNewArrival(row, options.now),
     featured: row.featured,
     priceUsd: publicPriceUsd(row),
