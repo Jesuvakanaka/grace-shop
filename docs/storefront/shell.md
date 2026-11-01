@@ -158,11 +158,11 @@ Stems: `lime-pleated-dress` (home hero), `olive-print-pleated-dress`
 ("Elegant looks" tile). The `-1200` files are not all 1200px wide, so the
 srcset uses the real widths from the manifest (checked by the tests). The
 photos are portrait (about 2:3 to 9:16): in a 16:9 overlay hero they crop to
-a torso band, so `/site/preview` uses the split hero layout. Campaign images,
-not products: never link them to a product page.
+a torso band. Campaign images, not products. (ZP-514 removed the lookbook
+manifest with the home sections and /site/preview.)
 
 ## Checks
 
-- `/site`, `/site/privacy`, `/site/preview` (needs `GRACE_STOREFRONT_PREVIEW=true`)
-  render in the shell; `/site/anything-unknown` returns 404 with the
+- `/site` (the feed) and `/site/privacy` render in the shell (`/site/preview`
+  is a 404 since ZP-514); `/site/anything-unknown` returns 404 with the
   storefront 404; admin `/` and an unknown admin URL are unchanged.

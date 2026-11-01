@@ -25,7 +25,7 @@ pure model and tests stay).
 | `src/lib/storefront/feed-guide.ts` | Pure (ZP-509): guide "seen" storage, when it opens, `?guide=1`, steps and copy, ring position. Tested in `tests/storefront-feed-guide.test.ts`. |
 | `src/components/storefront/feed/FeedGuide.tsx` | Client (ZP-509): the first-visit guide dialog. |
 | `src/lib/storefront/feed-media.ts` | Pure (ZP-502): strip / gallery item list with the video first, autoplay and preload rules. Tested in `tests/storefront-feed-media.test.ts`. |
-| `src/components/storefront/video/*` | Client (ZP-502): `FeedVideo` (strip item), `GalleryVideo` (the /site/preview component gallery), `useVideoPlayback`. See `docs/storefront/videos.md`. |
+| `src/components/storefront/video/*` | Client (ZP-502): `FeedVideo` (strip item), `useVideoPlayback` (`GalleryVideo` was removed in ZP-514). See `docs/storefront/videos.md`. |
 | `src/components/storefront/ShellMenu.tsx` | The storefront menu dialog, moved out of `Header` so the feed opens the same menu (ZP-503 redesigns it). |
 | `src/components/storefront/product/useShare.ts` | Share logic (Web Share API, else copy link), shared by `ShareButton` and the feed. |
 
@@ -521,7 +521,7 @@ page):
 | `/`, `/?c=<slug>` | as before | as before |
 | `/shop`, `/new` | New in | `/` |
 | `/collections` | New in + collections sheet | `/` behind, `/?o=collections` on top |
-| `/collections/<slug>` | that collection (404 when unknown / unpublished) | `/?c=<slug>` |
+| `/collections/<slug>` | that collection (404 when unknown, unpublished or without published looks) | `/?c=<slug>` |
 | `/about` | New in + menu on About VYRA | `/` behind, `/?o=about` on top |
 | `/visit` | New in + menu on Visit us | `/` behind, `/?o=visit` on top |
 | `/p/<slug>` | that look + details sheet (ZP-512) | `/` + `#look-` behind, `?d=` on top |
@@ -543,6 +543,25 @@ page):
   sheet pops that entry (or removes `o` in place when nothing is behind);
   browser back closes it; the feed stays. Opening the menu or the sheet from
   the feed's own buttons writes no URL, as before.
+- **Review fixes**:
+  - **Following a menu link** while the menu came from `?o=` (F1): the
+    dialog closes, `o` is dropped with `replaceState` (Next.js's `__NA`
+    kept, `customHistoryState`) and the Link's own push wins; only the close
+    controls and Escape pop our entry with `history.back()`
+    (`overlayClose({ cause, entryBehind })`). So /visit → Dresses lands on
+    `/?c=dresses` and /about → How to use VYRA opens the guide.
+  - **Section focus** (F2): `?o=about` / `?o=visit` scroll that section's
+    disclosure button (`data-menu-section`) into view and focus it; every
+    landing re-expands it (the menu content is keyed on the landing), even
+    when it was collapsed before.
+  - **Guide wins** (F3): `?guide=1` with `o` opens only the guide and drops `o`.
+  - **No placeholders in metadata** (F4): the LocalBusiness `telephone` and
+    the About description go through `meaningfulText` ("TBC" is left out).
+  - **Empty collection** (F5): a published collection with no published
+    looks is a 404, like a hidden one.
+  - The shell model's fallback nav lists only what remains (New in, the
+    collections as `?c=`, About, Visit us, Privacy); `footerColumns` and the
+    `.sf-card*` CSS are gone.
 - **"Visit us" links inside the feed** (the rail without WhatsApp, the end
   slide, the details card's footer) open the menu on Visit us (`?o=visit`)
   instead of loading /visit (from the details card: the sheet closes first);
@@ -558,8 +577,7 @@ page):
   lookbook manifest, `SectionHeader`, `TrustStrip`, `EnquiryButton`, the card
   helpers in `product.ts`, `listing-page.ts`, `listing-query.ts`, the menu's
   `aboutExcerpt`, `/site/preview` (page, art route, gate, preview data), and
-  their tests. The UAT workflow still passes `GRACE_STOREFRONT_PREVIEW`
-  (now unused; harmless).
+  their tests. The UAT deploy no longer passes `GRACE_STOREFRONT_PREVIEW`.
 - **Sitemap**: there is none yet (no `app/sitemap.ts`); when ZP-492 adds it,
   list the landing page, `/collections/<slug>`, `/p/<slug>`, `/about`,
   `/visit` and `/privacy`.

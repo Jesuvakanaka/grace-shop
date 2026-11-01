@@ -14,10 +14,12 @@ import {
   isOwnOverlayEntry,
   localBusinessJsonLd,
   OVERLAY_PARAM,
+  overlayClose,
   overlayFromSearch,
   overlayHistoryState,
   oneViewHistory,
   routeLanding,
+  withoutOverlay,
 } from '../src/lib/storefront/one-view'
 import { FEED_PAGE_ATTR, isFeedFrame } from '../src/lib/storefront/product-landing'
 
@@ -54,6 +56,23 @@ describe('overlay URL (?o=)', () => {
     assert.strictEqual(isOwnOverlayEntry({ __NA: true, vyraOverlay: 'visit' }, 'visit'), true)
     assert.strictEqual(isOwnOverlayEntry({ vyraOverlay: 'about' }, 'visit'), false)
     assert.strictEqual(isOwnOverlayEntry(null, 'visit'), false)
+  })
+})
+
+describe('review F1: closing an overlay', () => {
+  test('withoutOverlay drops o and keeps everything else', () => {
+    assert.strictEqual(withoutOverlay('/site', '?o=visit', ''), '/site')
+    assert.strictEqual(withoutOverlay('/', '?c=dresses&o=about', '#look-a'), '/?c=dresses#look-a')
+  })
+  test('overlayClose: a followed link replaces (its own push must win); a close control pops our entry, else replaces', () => {
+    assert.strictEqual(overlayClose({ cause: 'link', entryBehind: true }), 'replace')
+    assert.strictEqual(overlayClose({ cause: 'link', entryBehind: false }), 'replace')
+    assert.strictEqual(overlayClose({ cause: 'control', entryBehind: true }), 'back')
+    assert.strictEqual(overlayClose({ cause: 'control', entryBehind: false }), 'replace')
+  })
+  test('review F3: the guide (?guide=1) wins over an overlay', () => {
+    assert.strictEqual(overlayFromSearch('?o=about&guide=1'), null)
+    assert.strictEqual(overlayFromSearch('?guide=1&o=collections'), null)
   })
 })
 
@@ -119,6 +138,10 @@ describe('Visit us LocalBusiness JSON-LD', () => {
         { '@type': 'OpeningHoursSpecification', dayOfWeek: ['Saturday'], opens: '09:00', closes: '14:00' },
       ],
     })
+  })
+  test('review F4: a placeholder phone ("TBC") never reaches the JSON-LD', () => {
+    const ld = localBusinessJsonLd({ url: null, phone: 'TBC', visit: { address: '12 Main St', hours: null, latitude: null, longitude: null } })
+    assert.ok(ld && !('telephone' in ld))
   })
   test('missing parts are left out; nothing at all -> null', () => {
     const ld = localBusinessJsonLd({ url: null, phone: null, visit: { address: '12 Main St', hours: null, latitude: null, longitude: null } })

@@ -4,6 +4,7 @@
 // on About / Visit us) opened after hydration, when the URL becomes the
 // feed's (FlipFeed `route`). Server component; the same cached reads as the
 // landing page (src/app/site/page.tsx).
+import { notFound } from "next/navigation";
 import { buildWhatsAppLink } from "@/lib/site-settings/whatsapp";
 import { loadFeed } from "@/lib/storefront/feed-data";
 import { routeLanding, type FoldedRoute } from "@/lib/storefront/one-view";
@@ -15,6 +16,8 @@ import { FlipFeed } from "./FlipFeed";
 export async function FeedRoute({ route }: { route: FoldedRoute }) {
   const landing = routeLanding(route);
   const [shell, feed] = await Promise.all([getShellData(), loadFeed({ tab: landing.tab, offset: 0 })]);
+  // Review F5: a published collection with no looks is a 404, like a hidden one.
+  if (route.route === "collection" && feed.tab !== route.slug) notFound();
   const to = (path: string) => sitePath(shell.base, path);
   return (
     <FlipFeed

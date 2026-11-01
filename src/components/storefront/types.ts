@@ -31,4 +31,3 @@ export type NavItem = NavLink & { children?: NavLink[] };
 export type SocialIcon = "instagram" | "facebook" | "tiktok" | "whatsapp";
 export type SocialLink = { label: string; href: string; icon: SocialIcon };
 
-export type FooterColumn = { title: string; links: NavLink[] };

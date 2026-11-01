@@ -45,6 +45,8 @@ import { FEED_DOCUMENT_TITLE, productLandingHistory } from "@/lib/storefront/pro
 import {
   isOwnOverlayEntry,
   OVERLAY_PARAM,
+  overlayClose,
+  withoutOverlay,
   overlayFromSearch,
   overlayHistoryState,
   oneViewHistory,
@@ -558,7 +560,9 @@ export function FlipFeed({
         setGuide((g) => (g === "pending" ? "done" : g));
       }
       // Last: removing the parameter changes `guideParam` (this effect then does nothing).
-      replaceUrl(withoutGuideParam(window.location.pathname, window.location.search, window.location.hash));
+      // Review F3: the guide wins over an overlay: ?o= goes too.
+      const cleaned = new URL(withoutGuideParam(window.location.pathname, window.location.search, window.location.hash), window.location.origin);
+      replaceUrl(withoutOverlay(cleaned.pathname, cleaned.search, cleaned.hash));
     });
     return () => clearTimeout(timer);
   }, [guideParam, items.length, scrollToIndex, syncActive]);
@@ -670,6 +674,7 @@ export function FlipFeed({
 
   /** The menu's section to start expanded (About / Visit us). */
   const [menuSection, setMenuSection] = useState<"about" | "visit" | null>(null);
+  const [menuSectionKey, setMenuSectionKey] = useState(0);
   const urlOverlay = overlayFromSearch(searchParams.toString());
 
   /** Open an overlay through the URL (pushes ?o=; back closes it). */
@@ -694,21 +699,19 @@ export function FlipFeed({
   }, [openOverlay]);
 
   /** The menu or collections sheet closed itself: drop ?o= (pop our entry, or remove it in place). */
-  const closeOverlayUrl = () => {
+  const closeOverlayUrl = (cause: "link" | "control" = "control") => {
     urlOpened.current = null;
     // Idempotent: the close controls call it at once and the close event again.
     if (overlayClosing.current || !overlayFromSearch(window.location.search)) return;
     overlayClosing.current = true;
-    const back = overlayEntryBehind.current;
+    // Review F1: a followed link replaces (its own navigation must win over a history.back()).
+    const how = overlayClose({ cause, entryBehind: overlayEntryBehind.current });
     overlayEntryBehind.current = false;
     try {
-      if (back) window.history.back();
+      if (how === "back") window.history.back();
       else {
         const { pathname, search, hash } = window.location;
-        const params = new URLSearchParams(search);
-        params.delete(OVERLAY_PARAM);
-        const query = params.toString();
-        window.history.replaceState(customHistoryState(window.history.state), "", `${pathname}${query ? `?${query}` : ""}${hash}`);
+        window.history.replaceState(customHistoryState(window.history.state), "", withoutOverlay(pathname, search, hash));
       }
     } catch {
       // Ignore: the overlay is closed; the URL keeps o until the next write.
@@ -730,7 +733,15 @@ export function FlipFeed({
       } else if (urlOverlay) {
         if (sheet?.open) sheet.close();
         setMenuSection(urlOverlay);
+        // Review F2: opened for a section again: expanded again (new key), scrolled to and focused.
+        setMenuSectionKey((k) => k + 1);
         if (menu && !menu.open) menu.showModal();
+        const section = urlOverlay;
+        setTimeout(() => {
+          const row = dialogRef.current?.querySelector<HTMLElement>(`[data-menu-section="${section}"]`);
+          row?.scrollIntoView({ block: "start" });
+          row?.focus({ preventScroll: true });
+        }, 30);
       } else if (urlOpened.current) {
         if (urlOpened.current === "collections") sheet?.close();
         else menu?.close();
@@ -1106,6 +1117,8 @@ export function FlipFeed({
         current={menu.current}
         onClose={onMenuClose}
         section={menuSection}
+        sectionKey={menuSectionKey}
+        onFollowLink={() => closeOverlayUrl("link")}
       />
     </div>
   );

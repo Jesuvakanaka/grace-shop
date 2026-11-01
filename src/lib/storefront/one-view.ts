@@ -7,7 +7,8 @@
 import type { OpeningHours } from '@/lib/site-settings/schema'
 import { FEED_NEW_TAB, FEED_TAB_PARAM } from './feed'
 import { SHEET_PARAM } from './feed-sheet'
-import { addressLines } from './visit-model'
+import { addressLines, meaningfulText } from './visit-model'
+import { FEED_GUIDE_PARAM } from './feed-guide'
 
 /** What opens over the feed: the collections sheet, or the menu on About / Visit us. */
 export const FEED_OVERLAYS = ['collections', 'about', 'visit'] as const
@@ -38,9 +39,33 @@ export function routeLanding(r: FoldedRoute): { tab: string; overlay: FeedOverla
   }
 }
 
+/**
+ * The overlay `?o=` opens, or null. Review F3: never together with the guide
+ * replay (`?guide=1`): the guide wins and the overlay is not opened.
+ */
 export function overlayFromSearch(search: string): FeedOverlay | null {
-  const value = new URLSearchParams(search).get(OVERLAY_PARAM)
+  const params = new URLSearchParams(search)
+  if (params.get(FEED_GUIDE_PARAM) === '1') return null
+  const value = params.get(OVERLAY_PARAM)
   return (FEED_OVERLAYS as readonly string[]).includes(value ?? '') ? (value as FeedOverlay) : null
+}
+
+/** The URL without `?o=` (other parameters and the hash kept). */
+export function withoutOverlay(pathname: string, search: string, hash: string): string {
+  const params = new URLSearchParams(search)
+  params.delete(OVERLAY_PARAM)
+  const query = params.toString()
+  return `${pathname}${query ? `?${query}` : ''}${hash}`
+}
+
+/**
+ * How an overlay opened by `?o=` leaves the URL when it closes. Review F1: when
+ * it closes because a link inside it is followed, `o` is removed in place
+ * ("replace") so the link's own navigation wins (a history.back() would race
+ * it and win); a close control pops our entry when the feed entry is behind it.
+ */
+export function overlayClose(input: { cause: 'link' | 'control'; entryBehind: boolean }): 'back' | 'replace' {
+  return input.cause === 'control' && input.entryBehind ? 'back' : 'replace'
 }
 
 /** The history state of an overlay entry we push (Next.js keeps it next to its own). */
@@ -102,6 +127,8 @@ export function localBusinessJsonLd(input: {
   visit: { address: string | null; hours: OpeningHours | null; latitude: number | null; longitude: number | null }
 }): Record<string, unknown> | null {
   const address = addressLines(input.visit.address)
+  // Review F4: placeholders ("TBC") never reach the JSON-LD.
+  const phone = meaningfulText(input.phone)
   const hasGeo = input.visit.latitude !== null && input.visit.longitude !== null
   const specs: { dayOfWeek: string[]; opens: string; closes: string }[] = []
   if (input.visit.hours) {
@@ -116,13 +143,13 @@ export function localBusinessJsonLd(input: {
       }
     }
   }
-  if (address.length === 0 && !input.phone && !hasGeo && specs.length === 0) return null
+  if (address.length === 0 && !phone && !hasGeo && specs.length === 0) return null
   return {
     '@context': 'https://schema.org',
     '@type': 'ClothingStore',
     name: 'VYRA',
     ...(input.url ? { url: input.url } : {}),
-    ...(input.phone ? { telephone: input.phone } : {}),
+    ...(phone ? { telephone: phone } : {}),
     ...(address.length > 0 ? { address: { '@type': 'PostalAddress', streetAddress: address.join(', ') } } : {}),
     ...(hasGeo ? { geo: { '@type': 'GeoCoordinates', latitude: input.visit.latitude, longitude: input.visit.longitude } } : {}),
     ...(specs.length > 0 ? { openingHoursSpecification: specs.map((s) => ({ '@type': 'OpeningHoursSpecification', ...s })) } : {}),

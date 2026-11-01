@@ -7,16 +7,15 @@ import { telHref } from "@/lib/storefront/product-enquiry";
 import { getShellData } from "@/lib/storefront/shell";
 
 // ZP-500: the VYRA landing page is a full-screen flip feed: one published
-// piece per slide (docs/storefront/feed.md). The layout leaves out the header
-// and footer here (StorefrontFrame). The title is the layout default
+// piece per slide (docs/storefront/feed.md). The feed marks itself
+// (data-feed-page), so the frame is full screen with no top bar. The title is the layout default
 // ("VYRA – Wear Different."); noindex comes from the layout.
 //
 // The first FEED_PAGE_SIZE (12) pieces of the tab in ?c= are rendered on the
 // server, so the first slide (and its eager, high-priority photo) and real
-// <a href> links to each product page are in the HTML. The rest loads on
+// <a href> links to each piece (/p/<slug>) are in the HTML. The rest loads on
 // demand through a server action reading the same cached catalogue.
-// (The ZP-488 home sections in src/components/storefront/home/* are no
-// longer used by this page; their pure model stays tested.)
+// ZP-514: every other storefront address folds into this feed (FeedRoute).
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
 export default async function StorefrontHome({ searchParams }: Props) {

@@ -124,20 +124,19 @@ const categories: PublicCategory[] = [
 ];
 
 describe('buildShellModel', () => {
-  test('defaults (nothing configured): nav prefixed, no WhatsApp, no socials, no address or hours', () => {
+  test('defaults (nothing configured): fallback nav to what remains (ZP-514), no WhatsApp, no socials, no address or hours', () => {
     const m = buildShellModel({ settings: settings(), categories: [], base: '/site' });
     assert.strictEqual(m.homeHref, '/site');
     assert.deepStrictEqual(
       m.nav.map((n) => [n.label, n.href]),
       [
-        ['Shop', '/site/shop'],
-        ['Collections', '/site/collections'],
-        ['New Arrivals', '/site/new'],
+        ['New in', '/site'],
         ['About', '/site/about'],
-        ['Visit Us', '/site/visit'],
+        ['Visit us', '/site/visit'],
+        ['Privacy', '/site/privacy'],
       ],
     );
-    assert.strictEqual(m.nav[1].children, undefined, 'no categories, no sub-menu');
+    assert.ok(!('footerColumns' in m), 'no footer any more');
     assert.strictEqual(m.whatsappHref, null);
     assert.deepStrictEqual(m.social, []);
     assert.deepStrictEqual(m.address, []);
@@ -148,35 +147,21 @@ describe('buildShellModel', () => {
     assert.strictEqual(m.tagline, 'WEAR DIFFERENT.');
   });
 
-  test('categories become the Collections sub-menu (All collections first)', () => {
+  test('categories are feed collections (?c=<slug>) after New in', () => {
     const m = buildShellModel({ settings: settings(), categories, base: '/site' });
-    assert.deepStrictEqual(m.nav[1].children, [
-      { label: 'All collections', href: '/site/collections' },
-      { label: 'Dresses', href: '/site/collections/dresses' },
-      { label: 'Sets', href: '/site/collections/sets' },
+    assert.deepStrictEqual(m.nav.slice(0, 3).map((n) => [n.label, n.href]), [
+      ['New in', '/site'],
+      ['Dresses', '/site?c=dresses'],
+      ['Sets', '/site?c=sets'],
     ]);
   });
 
   test('storefront host: clean links everywhere', () => {
     const m = buildShellModel({ settings: settings(), categories, base: '' });
     assert.strictEqual(m.homeHref, '/');
-    assert.strictEqual(m.nav[0].href, '/shop');
-    assert.strictEqual(m.nav[1].children?.[1].href, '/collections/dresses');
-    const links = m.footerColumns.flatMap((c) => c.links.map((l) => l.href));
+    const links = m.nav.map((n) => n.href);
     assert.ok(links.every((href) => !href.startsWith('/site')), links.join(' '));
-    assert.ok(links.includes('/privacy'));
-  });
-
-  test('footer links include About, Visit Us and Privacy', () => {
-    const m = buildShellModel({ settings: settings(), categories, base: '/site' });
-    const all = m.footerColumns.flatMap((c) => c.links);
-    for (const [label, href] of [
-      ['About', '/site/about'],
-      ['Visit Us', '/site/visit'],
-      ['Privacy', '/site/privacy'],
-    ]) {
-      assert.ok(all.some((l) => l.label === label && l.href === href), `${label} ${href}`);
-    }
+    assert.ok(links.includes('/privacy') && links.includes('/?c=dresses'));
   });
 
   test('configured settings: WhatsApp general enquiry link, only the socials set, address and hours', () => {

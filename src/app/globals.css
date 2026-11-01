@@ -591,22 +591,6 @@ body {
   transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, transform;
 }
 
-/* ProductCard: desktop hover zooms to 1.03 and swaps to the second photo. */
-.sf-card-media {
-  transition: transform 250ms ease-out;
-}
-.sf-img.sf-card-alt {
-  opacity: 0;
-}
-@media (hover: hover) and (pointer: fine) {
-  .sf-card:hover .sf-card-media {
-    transform: scale(1.03);
-  }
-  .sf-card:hover .sf-img.sf-card-alt:not([data-pending]):not([data-failed]) {
-    opacity: 1;
-  }
-}
-
 @layer components {
   /* Horizontal scrollers (chips, rows, gallery): no visible scrollbar. */
   .sf-scroll-x {
@@ -648,12 +632,8 @@ body {
     animation: none;
   }
   .sf-img,
-  .sf-card-media,
   .sf-motion {
     transition: none !important;
-  }
-  .sf-card:hover .sf-card-media {
-    transform: none;
   }
   .sf-smooth {
     scroll-behavior: auto !important;

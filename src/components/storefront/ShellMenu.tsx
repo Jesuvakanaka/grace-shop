@@ -46,6 +46,10 @@ type ShellMenuDialogProps = {
   onClose: () => void;
   /** ZP-514: the section open when the menu opens (/about, /visit land here). */
   section?: "about" | "visit" | null;
+  /** ZP-514 review F2: changes each time the menu opens for a section, so it is expanded again. */
+  sectionKey?: number;
+  /** ZP-514 review F1: runs before the menu closes because one of its links is followed. */
+  onFollowLink?: () => void;
 };
 
 /**
@@ -58,7 +62,18 @@ type ShellMenuDialogProps = {
  * (expanding rows), How to use VYRA (replays the guide), Chat on WhatsApp,
  * WEAR DIFFERENT. and the social icons.
  */
-export function ShellMenuDialog({ dialogRef, id, nav, whatsappHref, social = [], current, onClose, section = null }: ShellMenuDialogProps) {
+export function ShellMenuDialog({
+  dialogRef,
+  id,
+  nav,
+  whatsappHref,
+  social = [],
+  current,
+  onClose,
+  section = null,
+  sectionKey = 0,
+  onFollowLink,
+}: ShellMenuDialogProps) {
   const menu = useContext(MenuContext);
   // ZP-514: our own close controls also run onClose at once (the URL follows without
   // waiting for the dialog's close event; onClose must be idempotent).
@@ -67,6 +82,11 @@ export function ShellMenuDialog({ dialogRef, id, nav, whatsappHref, social = [],
     if (!dialog?.open) return;
     dialog.close();
     onClose();
+  };
+  // A link inside the menu: let the owner settle the URL first (its own navigation must win).
+  const followLink = () => {
+    onFollowLink?.();
+    closeMenu();
   };
   return (
     <dialog
@@ -85,9 +105,9 @@ export function ShellMenuDialog({ dialogRef, id, nav, whatsappHref, social = [],
         </div>
         {menu ? (
           // Keyed by the section: opening on About / Visit us starts with that row expanded.
-          <MenuContent key={section ?? "none"} menu={menu} onNavigate={closeMenu} section={section} />
+          <MenuContent key={`${section ?? "none"}:${sectionKey}`} menu={menu} onNavigate={followLink} section={section} />
         ) : (
-          <FallbackNav nav={nav} whatsappHref={whatsappHref} social={social} current={current} onNavigate={closeMenu} />
+          <FallbackNav nav={nav} whatsappHref={whatsappHref} social={social} current={current} onNavigate={followLink} />
         )}
       </div>
     </dialog>
@@ -122,7 +142,7 @@ function MenuContent({ menu, onNavigate, section }: { menu: MenuModel; onNavigat
       <div className="flex flex-col px-6 pt-[26px]">
         {/* ZP-514: the About and Visit us pages live here now (/about and /visit open the menu on them). */}
         {menu.about ? (
-          <Disclosure label="About VYRA" defaultOpen={section === "about"}>
+          <Disclosure label="About VYRA" sectionId="about" defaultOpen={section === "about"}>
             {menu.about.headline ? (
               <p className="m-0 font-serif text-2xl font-medium leading-tight text-brand-ink">{menu.about.headline}</p>
             ) : null}
@@ -145,7 +165,7 @@ function MenuContent({ menu, onNavigate, section }: { menu: MenuModel; onNavigat
         ) : null}
 
         {menu.visit ? (
-          <Disclosure label="Visit us" defaultOpen={section === "visit"}>
+          <Disclosure label="Visit us" sectionId="visit" defaultOpen={section === "visit"}>
             <VisitDetails visit={menu.visit} />
             {menu.mapHref && menu.mapHref !== menu.visit.directionsHref ? (
               <a
@@ -200,12 +220,30 @@ function MenuContent({ menu, onNavigate, section }: { menu: MenuModel; onNavigat
 }
 
 /** An expanding row: the button says whether it is open; the panel follows it. */
-function Disclosure({ label, children, defaultOpen = false }: { label: string; children: ReactNode; defaultOpen?: boolean }) {
+function Disclosure({
+  label,
+  children,
+  defaultOpen = false,
+  sectionId,
+}: {
+  label: string;
+  children: ReactNode;
+  defaultOpen?: boolean;
+  /** data-menu-section: the feed scrolls to and focuses this row when it opens the menu on it. */
+  sectionId?: string;
+}) {
   const [open, setOpen] = useState(defaultOpen);
   const panelId = useId();
   return (
     <div>
-      <button type="button" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen((v) => !v)} className={rowClass}>
+      <button
+        type="button"
+        data-menu-section={sectionId}
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((v) => !v)}
+        className={rowClass}
+      >
         {label}
         <ChevronDownIcon className={cn("sf-motion h-[18px] w-[18px] transition-transform duration-200", open && "rotate-180")} />
       </button>

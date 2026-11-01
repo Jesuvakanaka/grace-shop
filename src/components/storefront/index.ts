@@ -11,7 +11,6 @@ export { EmptyState, ErrorState, NotFoundState } from "./States";
 export { ImageFallback, ImageFrame, StorefrontImg, type ImageSource } from "./StorefrontImage";
 export type {
   Availability,
-  FooterColumn,
   NavItem,
   NavLink,
   PublicCategoryRef,

@@ -304,7 +304,7 @@ Prop builders are pure and tested in `tests/storefront-tracking.test.ts`
 | `details_sheet_open` / `details_sheet_close` | `FlipFeed` (ZP-510), when the details sheet opens / closes for a look (tap on Details, caption or photo; a `?d=` link; forward / back) | `slug`, `collection`; close `reason`: drag down (`swipe`), backdrop, ✕ (`button`), browser / Android back (`back`), `escape`. Inside the sheet, `size_select`, `colour_select`, `whatsapp_enquire` / `restock_request` (`screen: feed`, with size / colour), `share`, `love_on` / `love_off` work as elsewhere; a failed extras load sends `action_failed` `details_sheet` |
 | `product_open` | not sent since ZP-512 (the product page and its `ProductTracking` / `NavMemory` are gone); a /p/<slug> landing sends `details_sheet_open` with `from: shared` | |
 | `size_select`, `colour_select` | details sheet chips (picked, not cleared) | exactly the chip text |
-| `gallery_zoom` | `Gallery` full screen (only the /site/preview component gallery since ZP-512) | `index` of the photo |
+| `gallery_zoom` | not sent since ZP-514 (the Gallery went with /site/preview); kept for past data | `index` of the photo |
 | `guide_shown` / `guide_replayed` | `FlipFeed` (first visit / `?guide=1`; one or the other) | |
 | `guide_step`, `guide_completed`, `guide_skipped` | `FeedGuide` | step 1-based; skipped = Skip or Escape, with the step |
 | `love_on` / `love_off` | `src/lib/loves/client.ts` (hearts, ZP-507) | |
