@@ -1,36 +1,40 @@
-import { ColourBlock } from "@/components/storefront";
-import { getHomeModel } from "@/components/storefront/home/home-data";
-import { HomeHero } from "@/components/storefront/home/HomeHero";
-import {
-  BrandBand,
-  Collections,
-  FeaturedEdit,
-  HomeTrustStrip,
-  NewArrivals,
-  VisitTeaser,
-} from "@/components/storefront/home/HomeSections";
+import { FlipFeed } from "@/components/storefront/feed/FlipFeed";
+import { buildWhatsAppLink } from "@/lib/site-settings/whatsapp";
+import { FEED_TAB_PARAM } from "@/lib/storefront/feed";
+import { loadFeed } from "@/lib/storefront/feed-data";
+import { SITE_ROUTES, sitePath } from "@/lib/storefront/paths";
+import { getShellData } from "@/lib/storefront/shell";
 
-// ZP-488: the VYRA home page (docs/storefront/home.md). The title is the
-// layout default ("VYRA – Wear Different."). Data comes only from the cached
-// reads (settings, categories, catalogue); the layout's headers() call makes
-// the route dynamic, so "today's hours" and new publishes are always current.
-// Every block below the hero hides when its data is missing.
-export default async function StorefrontHome() {
-  const home = await getHomeModel();
+// ZP-500: the VYRA landing page is a full-screen flip feed: one published
+// piece per slide (docs/storefront/feed.md). The layout leaves out the header
+// and footer here (StorefrontFrame). The title is the layout default
+// ("VYRA – Wear Different."); noindex comes from the layout.
+//
+// The first FEED_PAGE_SIZE (12) pieces of the tab in ?c= are rendered on the
+// server, so the first slide (and its eager, high-priority photo) and real
+// <a href> links to each product page are in the HTML. The rest loads on
+// demand through a server action reading the same cached catalogue.
+// (The ZP-488 home sections in src/components/storefront/home/* are no
+// longer used by this page; their pure model stays tested.)
+type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
+
+export default async function StorefrontHome({ searchParams }: Props) {
+  const [query, shell] = await Promise.all([searchParams, getShellData()]);
+  const { tab, tabs, page } = await loadFeed({ tab: query[FEED_TAB_PARAM], offset: 0 });
+  const to = (path: string) => sitePath(shell.base, path);
+
   return (
-    <>
-      <HomeHero hero={home.hero} shopHref={home.links.shop} newArrivalsHref={home.links.newArrivals} />
-      <HomeTrustStrip labels={home.trustLabels} />
-      {home.newArrivals ? (
-        <NewArrivals products={home.newArrivals} viewAllHref={home.links.newArrivals} productHref={home.productHref} />
-      ) : null}
-      {home.collections ? <Collections tiles={home.collections} /> : null}
-      <BrandBand band={home.brandBand} />
-      <ColourBlock statement={home.statement} action={{ label: "Our story", href: home.links.about }} />
-      {home.featured ? (
-        <FeaturedEdit featured={home.featured} viewAllHref={home.links.shop} productHref={home.productHref} />
-      ) : null}
-      {home.visit ? <VisitTeaser visit={home.visit} visitHref={home.links.visit} /> : null}
-    </>
+    <FlipFeed
+      // A different tab from the server starts a fresh feed.
+      key={tab}
+      tabs={tabs}
+      initialTab={tab}
+      initialItems={page.items}
+      initialNextOffset={page.nextOffset}
+      initialTotal={page.total}
+      links={{ visit: to(SITE_ROUTES.visit) }}
+      hasWhatsApp={buildWhatsAppLink(shell.settings) !== null}
+      menu={{ nav: shell.nav, whatsappHref: shell.whatsappHref, social: shell.social, current: shell.homeHref }}
+    />
   );
 }
