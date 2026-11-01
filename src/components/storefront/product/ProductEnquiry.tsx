@@ -1,9 +1,9 @@
 "use client";
 
-// ZP-490: the interactive parts of the product page. One provider holds the
-// chosen colour and size; the chips, the inline (desktop) enquiry button and
-// the sticky (phone) bar all read it, so the WhatsApp message always names
-// what the visitor picked. The link itself is built only by
+// ZP-490: the enquiry state of a piece, now used by the feed's details sheet
+// (ZP-510; the product page is gone, ZP-512). One provider holds the chosen
+// colour and size; the chips and the sheet's WhatsApp button read it, so the
+// message always names what the visitor picked. The link itself is built only by
 // buildWhatsAppLink (via productPageEnquiryHref: the site settings template,
 // or the feed's restock message for sold-out pieces, ZP-503).
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
@@ -13,7 +13,6 @@ import { enquiryLabel, toggleOption } from "@/lib/storefront/product-enquiry";
 import { productPageEnquiryHref } from "@/lib/storefront/product-page-enquiry";
 import { allowedOption } from "@/lib/storefront/tracking";
 import type { Availability } from "@/lib/storefront-model/rules";
-import { EnquiryButton } from "../EnquiryButton";
 import { cn } from "../cn";
 
 type EnquiryState = {
@@ -140,16 +139,4 @@ export function ProductOptions({ colours, sizes }: { colours: string[]; sizes: s
       {sizes.length > 0 ? <OptionGroup legend="Size" options={sizes} selected={size} onSelect={pickSize} /> : null}
     </div>
   );
-}
-
-/**
- * The olive "ENQUIRE ON WHATSAPP" button ("ASK ABOUT RESTOCK" when sold out).
- * "inline" sits in the details column from lg up; "sticky" is the phone bar
- * (render it as a direct child of the product <article>). Renders nothing
- * when no WhatsApp number is set.
- */
-export function ProductEnquiryButton({ placement, className }: { placement: "inline" | "sticky"; className?: string }) {
-  const { href, label } = useEnquiry();
-  if (!href) return null;
-  return <EnquiryButton href={href} label={label} placement={placement} className={className} />;
 }

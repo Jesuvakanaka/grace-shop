@@ -3,7 +3,6 @@
  * - The menu model (src/lib/storefront/menu-model.ts): collections rows with
  *   "N looks", About excerpt, Visit us (today's hours, week, address,
  *   directions), the guide link, WhatsApp, socials. Missing data is hidden.
- * - The product page back button (src/lib/storefront/back-target.ts).
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
@@ -16,7 +15,6 @@ import {
   GUIDE_PARAM,
   todayLine,
 } from '../src/lib/storefront/menu-model';
-import { feedLookHref, isHomePath, shouldGoBack } from '../src/lib/storefront/back-target';
 import { productPageEnquiryHref } from '../src/lib/storefront/product-page-enquiry';
 
 const HOURS: OpeningHours = {
@@ -151,45 +149,6 @@ describe('buildMenuModel', () => {
     assert.strictEqual(m.visit, null);
     assert.strictEqual(m.whatsappHref, null);
     assert.deepStrictEqual(m.social, []);
-  });
-});
-
-describe('product page back button', () => {
-  const base = { origin: 'https://vyra.example', referrer: '', historyLength: 2 };
-
-  test('came from the feed inside the app: history.back()', () => {
-    assert.strictEqual(shouldGoBack({ ...base, previousPath: '/site', homeHref: '/site' }), true);
-    assert.strictEqual(shouldGoBack({ ...base, previousPath: '/site/', homeHref: '/site' }), true);
-    assert.strictEqual(shouldGoBack({ ...base, previousPath: '/', homeHref: '/' }), true);
-  });
-  test('came from another page inside the app: link to the feed', () => {
-    assert.strictEqual(shouldGoBack({ ...base, previousPath: '/site/p/other', homeHref: '/site' }), false);
-    assert.strictEqual(shouldGoBack({ ...base, previousPath: '/site/shop', homeHref: '/site' }), false);
-  });
-  test('first page of the visit: same-origin landing referrer goes back', () => {
-    const input = { ...base, previousPath: null, homeHref: '/' };
-    assert.strictEqual(shouldGoBack({ ...input, referrer: 'https://vyra.example/' }), true);
-    assert.strictEqual(shouldGoBack({ ...input, referrer: 'https://vyra.example/?c=dresses#look-x' }), true);
-  });
-  test('other referrers: link to the feed', () => {
-    const input = { ...base, previousPath: null, homeHref: '/' };
-    assert.strictEqual(shouldGoBack({ ...input, referrer: '' }), false);
-    assert.strictEqual(shouldGoBack({ ...input, referrer: 'https://evil.example/' }), false);
-    assert.strictEqual(shouldGoBack({ ...input, referrer: 'https://vyra.example/shop' }), false);
-    assert.strictEqual(shouldGoBack({ ...input, referrer: 'not a url' }), false);
-  });
-  test('no history to go back to: link', () => {
-    assert.strictEqual(shouldGoBack({ ...base, historyLength: 1, previousPath: '/site', homeHref: '/site' }), false);
-  });
-  test('feed link opens the feed at this look', () => {
-    assert.strictEqual(feedLookHref('/site', 'lime-wrap-dress'), '/site#look-lime-wrap-dress');
-    assert.strictEqual(feedLookHref('/', 'lime-wrap-dress'), '/#look-lime-wrap-dress');
-  });
-  test('isHomePath', () => {
-    assert.strictEqual(isHomePath('/site', '/site'), true);
-    assert.strictEqual(isHomePath('/site/', '/site'), true);
-    assert.strictEqual(isHomePath('/', '/'), true);
-    assert.strictEqual(isHomePath('/site/shop', '/site'), false);
   });
 });
 

@@ -317,11 +317,12 @@ Pure rules in `src/lib/storefront/feed-media.ts` (tested in
   photo); a separate round play / pause button (44px, under the progress
   bars on the left; centred and larger when waiting for the visitor) is
   keyboard reachable.
-- **Product page** (`GalleryVideo` in `Gallery.tsx`): the first gallery
+- **Gallery** (`GalleryVideo` in `Gallery.tsx`; ZP-512: only the
+  /site/preview component gallery uses it since the product page is gone): the first gallery
   item, inline with native controls (keyboard play / pause, unmute is the
   visitor's choice), muted, plays while visible. It does not open the
   full-screen view; full screen shows the photos only (from the video it
-  starts at photo 1). `ProductView` passes `product.video` to `Gallery`.
+  starts at photo 1).
 
 Local check data: create a product with a video through the admin API (see
 above; set `GRACE_FFMPEG_PATH` / `GRACE_FFPROBE_PATH` in the gitignored

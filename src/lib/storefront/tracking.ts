@@ -74,58 +74,6 @@ export function photoProps(images: readonly { src: string }[], i: number): Photo
   return image ? { index: i + 1, of, image } : { index: i + 1, of }
 }
 
-// ------------------------------------------------------------ product_open
-
-export type ProductOpenSource = 'feed' | 'collection' | 'shop' | 'new' | 'related' | 'shared' | 'other'
-
-/** The path without the UAT `/site` prefix and a trailing slash. */
-function sitePathOf(pathname: string): string {
-  let p = pathname
-  if (p === '/site' || p.startsWith('/site/')) p = p.slice('/site'.length) || '/'
-  if (p.length > 1) p = p.replace(/\/+$/, '') || '/'
-  return p
-}
-
-function sourceOfPath(path: string, currentPath: string): ProductOpenSource {
-  const p = sitePathOf(path)
-  if (p === sitePathOf(currentPath)) return 'other'
-  if (p === '/') return 'feed'
-  if (p === '/shop') return 'shop'
-  if (p === '/new') return 'new'
-  if (p === '/collections' || p.startsWith('/collections/')) return 'collection'
-  if (p.startsWith('/p/')) return 'related'
-  return 'other'
-}
-
-export type ProductOpenInput = {
-  /** The previous pathname of an in-app navigation (NavMemory); null on the first page of a load. */
-  previousPath: string | null
-  /** document.referrer ("" when none). */
-  referrer: string
-  /** location.origin. */
-  origin: string
-  /** This product page's pathname. */
-  currentPath: string
-}
-
-/**
- * How the product page was reached: from the in-app previous path, else a
- * same-origin referrer; no referrer or another site (Instagram, WhatsApp, a
- * typed or pasted link) counts as a shared link.
- */
-export function productOpenSource(input: ProductOpenInput): ProductOpenSource {
-  if (input.previousPath !== null) return sourceOfPath(input.previousPath, input.currentPath)
-  if (!input.referrer) return 'shared'
-  let url: URL
-  try {
-    url = new URL(input.referrer)
-  } catch {
-    return 'shared'
-  }
-  if (url.origin !== input.origin) return 'shared'
-  return sourceOfPath(url.pathname, input.currentPath)
-}
-
 // ------------------------------------------------------------ video viewing
 
 export type VideoWatchEvent =

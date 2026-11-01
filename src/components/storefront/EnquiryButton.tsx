@@ -20,7 +20,7 @@ const button =
 /** Full-width olive "ENQUIRE ON WHATSAPP" button with the chat glyph. */
 export function EnquiryButton({ href, label = "Enquire on WhatsApp", placement = "inline", className }: EnquiryButtonProps) {
   const link = (
-    // data-track: ZP-493, counted as whatsapp_enquire / restock_request on the product page (ProductTracking).
+    // data-track: ZP-493 marker for pages that count enquiry taps (the product page that did is gone, ZP-512).
     <a href={href} className={button} data-track="enquire">
       <WhatsAppLogoIcon className="h-5 w-5 shrink-0" />
       <span>{label}</span>

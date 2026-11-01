@@ -178,7 +178,7 @@ removed, then trimmed; 1..max characters; no control characters.
 | `collection_switch` | – | `from`, `to` collection keys |
 | `feed_load_more` | – | `loaded`? 0..10000 |
 | `feed_end_reached` | – | `looks`? 0..10000 |
-| `product_open` | req | `from` feed/collection/shop/new/related/shared/other |
+| `product_open` | req | `from` feed/collection/shop/new/related/shared/other (ZP-512: no longer sent, the product page is gone; kept for past data) |
 | `size_select` | req | `size` text ≤ 24 (kept only if it is one of the piece's sizes) |
 | `colour_select` | req | `colour` text ≤ 32 (kept only if it is one of the piece's colours) |
 | `whatsapp_enquire` | opt | `screen` (below); `size`? ≤ 24; `colour`? ≤ 32 (same option check) |
@@ -191,7 +191,7 @@ removed, then trimmed; 1..max characters; no control characters.
 | `guide_step` | – | `step` 1..20 |
 | `guide_skipped` | – | `step`? 1..20 |
 | `love_on`, `love_off` | req | – |
-| `details_sheet_open` | req | – (ZP-510; the rollup counts it as a `product_open` "from the sheet") |
+| `details_sheet_open` | req | `from`? `shared` (ZP-512: the landing of a /p/<slug> link). ZP-510: the rollup counts it as an open (`OPEN_TYPES`) |
 | `details_sheet_close` | req | `reason` swipe/backdrop/button/back/escape |
 | `load_error` | opt | `what` image/video/feed/page/other |
 | `slow_load` | – | `lcp` ms 0..600000 (send when LCP > 4000) |
@@ -283,26 +283,26 @@ track('collection_switch', { from, to })
 
 Prop builders are pure and tested in `tests/storefront-tracking.test.ts`
 (`src/lib/storefront/tracking.ts`: `imageFileName`, `photoProps`,
-`productOpenSource`, `createVideoWatch`). Nothing runs in a scroll handler.
+`createVideoWatch`). Nothing runs in a scroll handler.
 
 | event | where | notes |
 |---|---|---|
 | `look_view` | `FeedSlide`, when the slide becomes the current one | `slug`, `collection` (tab), `position` (index in the feed) |
 | `look_dwell` | `FeedSlide`, `useDwell` on the slide `<article>` | |
-| `photo_view` / `photo_dwell` | `FeedSlide` (the strip's photo on the current slide) and `Gallery` (product page, while the gallery is ≥ 60% visible) | `index` / `of` among the photos (a video first is not counted), `image` file name; `useActiveDwell` keyed per photo |
+| `photo_view` / `photo_dwell` | `FeedSlide` (the strip's photo on the current slide) | `index` / `of` among the photos (a video first is not counted), `image` file name; `useActiveDwell` keyed per photo |
 | `video_start`, `video_progress`, `video_replay`, `video_seconds` | `FeedVideo`, `GalleryVideo` via `useVideoTracking` | a viewing ends when the video leaves the view (the playback hook's 60% observer) or unmounts; a page hide sends the seconds so far; every loop is a replay; 100% on the first loop or `ended` |
 | `details_show` / `details_hide` | `FlipFeed` eye | the current look's slug |
 | `collection_switch` | `FlipFeed`, a collection picked in the sheet, once its looks arrived | `from`, `to` |
 | `feed_load_more` | `FlipFeed`, a next page arrived | `loaded` = looks loaded so far |
 | `feed_end_reached` | `FlipFeed`, the end slide reached | once per collection per page load, `looks` |
-| `whatsapp_enquire` / `restock_request` | feed rail Enquire / Restock (`screen: feed`); product page enquiry buttons (`screen: product`, with the chosen size / colour) | sold-out pieces send `restock_request` only |
-| `share` | feed rail, product top bar and Share button | only when the share sheet completed (`native`) or the link was copied (`copy`) |
-| `visit_us` | feed rail (no WhatsApp number) and end slide; product page Visit us | |
-| `call`, `directions` | product page (Call buttons, "Get directions"); ZP-510: feed rail Call and the details sheet's Call (`screen: feed`, with the slug) | |
+| `whatsapp_enquire` / `restock_request` | feed rail WhatsApp / Restock and the details sheet footer (`screen: feed`; the sheet sends the chosen size / colour) | sold-out pieces send `restock_request` only |
+| `share` | feed rail and the details sheet's Share | only when the share sheet completed (`native`) or the link was copied (`copy`) |
+| `visit_us` | feed rail and the details sheet footer (no WhatsApp number), end slide | |
+| `call`, `directions` | ZP-510: feed rail Call and the details sheet's Call (`screen: feed`, with the slug); ZP-512: "Get directions" in the sheet's "Try it on in store" (`screen: feed`) | |
 | `details_sheet_open` / `details_sheet_close` | `FlipFeed` (ZP-510), when the details sheet opens / closes for a look (tap on Details, caption or photo; a `?d=` link; forward / back) | `slug`, `collection`; close `reason`: drag down (`swipe`), backdrop, ✕ (`button`), browser / Android back (`back`), `escape`. Inside the sheet, `size_select`, `colour_select`, `whatsapp_enquire` / `restock_request` (`screen: feed`, with size / colour), `share`, `love_on` / `love_off` work as elsewhere; a failed extras load sends `action_failed` `details_sheet` |
-| `product_open` | `ProductTracking`, once per piece shown | `from`: in-app previous path (NavMemory) else same-origin referrer: `/` feed, `/collections…` collection, `/shop`, `/new`, `/p/…` related; no / foreign referrer shared; else other. Covers taps on collection / shop cards without touching them |
-| `size_select`, `colour_select` | product page chips (picked, not cleared) | exactly the chip text |
-| `gallery_zoom` | `Gallery` full screen | `index` of the photo |
+| `product_open` | not sent since ZP-512 (the product page and its `ProductTracking` / `NavMemory` are gone); a /p/<slug> landing sends `details_sheet_open` with `from: shared` | |
+| `size_select`, `colour_select` | details sheet chips (picked, not cleared) | exactly the chip text |
+| `gallery_zoom` | `Gallery` full screen (only the /site/preview component gallery since ZP-512) | `index` of the photo |
 | `guide_shown` / `guide_replayed` | `FlipFeed` (first visit / `?guide=1`; one or the other) | |
 | `guide_step`, `guide_completed`, `guide_skipped` | `FeedGuide` | step 1-based; skipped = Skip or Escape, with the step |
 | `love_on` / `love_off` | `src/lib/loves/client.ts` (hearts, ZP-507) | |
@@ -317,10 +317,7 @@ allow-list takes (24 / 32) is left out of `whatsapp_enquire` /
 `restock_request` (the event is kept) and `size_select` / `colour_select`
 are skipped for it (`allowedOption`, `enquiryEvent`).
 
-The product page's server-rendered links are tracked by one delegated click
-listener in `ProductTracking` (capture phase) through `data-track="enquire" |
-"call" | "directions" | "visit_us"` attributes. Preview pages send nothing
-(the tracker is disabled there).
+ZP-512: the product page and its delegated `data-track` listener (`ProductTracking`) are gone; the details sheet tracks its own controls, and "Get directions" (`data-track="directions"` in `VisitDetails`) through a capture listener on the sheet. Preview pages send nothing (the tracker is disabled there).
 
 ## Tables
 
@@ -430,7 +427,7 @@ npm run analytics:rollup -- --no-prune
   `restockVisits`, `shareVisits`; migration `20261108090000_ranking_visit_rollups`).
   "Opened" = `OPEN_TYPES` (`product_open`, `details_sheet_open`).
   `productOpens` is now **distinct visits** with any `OPEN_TYPES` event (a
-  sheet open → "View full page" → back is one visit, not three events);
+  a sheet open and a /p/<slug> reload are one visit, not two events);
   Insights' open rate = `productOpens / viewers`.
 
 ### Scheduling (orchestrator, not done in this change)

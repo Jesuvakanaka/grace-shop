@@ -1,31 +1,12 @@
-# Storefront product page (ZP-490)
+# /p/<slug>: the piece URL (ZP-490, ZP-512)
 
 `/p/<slug>` on the storefront host, `/site/p/<slug>` on the admin/UAT host.
-Brand rules: `docs/storefront/brand-refinements.md`. Shared plumbing:
-`docs/storefront/shell.md`. Data: `docs/storefront/public-data-layer.md`.
-
-## Files
-
-| File | What |
-|---|---|
-| `src/app/site/p/[slug]/page.tsx` | Route: decision, metadata, data for the view |
-| `src/components/storefront/product/ProductView.tsx` | Layout (server component) |
-| `src/components/storefront/product/ProductEnquiry.tsx` | Client: chosen colour/size (one provider), chips, enquiry button (inline + sticky) |
-| `src/components/storefront/product/ShareButton.tsx` | Client: `navigator.share`, falling back to copying the link, with a polite live region |
-| `src/lib/storefront/product-route.ts` | Pure: `decideProductRoute`, `previewTokenFrom`, `isProductPreviewRequest`, `PREVIEW_RESPONSE_HEADERS`, `productAbsoluteUrl` |
-| `src/lib/storefront/product-enquiry.ts` | Pure: `productEnquiryHref` (wraps `buildWhatsAppLink`), `enquiryLabel`, `splitOptions`, `toggleOption`, `telHref` |
-| `src/lib/storefront/related.ts` | Pure: `pickRelated` |
-| `src/lib/storefront/preview.ts` | Server, uncached: `loadPreviewCandidate` (any product by current slug) |
-| `tests/storefront-product.test.ts` | Unit tests for all of the pure parts |
-| `src/components/storefront/product/ProductTopBar.tsx` | ZP-503, client: phone top bar (back to the feed, wordmark, Share) |
-| `src/components/storefront/product/StoreVisitRow.tsx` | ZP-503, client: "Try it on in store" row |
-| `src/components/storefront/product/RelatedRow.tsx` | ZP-503: phone "You may also like" row of 140px cards |
-| `src/components/storefront/product/ProductBottomBar.tsx` | ZP-503, client: pinned phone bar (Enquire / Ask about restock / Visit us, Call) |
-| `src/components/storefront/product/NavMemory.tsx` | ZP-503, client: previous in-app pathname (rendered by the site layout) |
-| `src/lib/storefront/back-target.ts` | ZP-503, pure: `shouldGoBack`, `feedLookHref`, `isHomePath` |
-| `src/lib/storefront/product-page-enquiry.ts` | ZP-503, pure: `productPageEnquiryHref` (enquiry template, or the feed's restock message when sold out; passes the ZP-504 ref) |
-| `src/lib/storefront/menu-model.ts` | ZP-503, pure: `buildStoreVisit`, `todayLine` (shared with the menu) |
-| `tests/storefront-menu-product.test.ts` | ZP-503 unit tests (menu model, visit, back button, enquiry link) |
+ZP-512: there is no separate product page any more. This URL renders the
+flip feed on that look with its details sheet open (see the end of
+`docs/storefront/feed.md`). Route: `src/app/site/p/[slug]/page.tsx`; pure parts:
+`src/lib/storefront/product-route.ts`, `product-landing.ts`, `product-enquiry.ts`,
+`product-page-enquiry.ts`; tests: `tests/storefront-product.test.ts`,
+`tests/storefront-product-landing.test.ts`.
 
 ## Route decision
 
@@ -34,7 +15,7 @@ Brand rules: `docs/storefront/brand-refinements.md`. Shared plumbing:
 | Case | Result |
 |---|---|
 | Invalid slug | 404, no lookup at all |
-| Public product | Page (a `?preview=` token is ignored: no banner) |
+| Public product | The feed on that look, sheet open (a `?preview=` token is ignored: no banner) |
 | Old slug of a public product (`ProductSlugRedirect`, via the cached catalogue) | `permanentRedirect` (308) to `sitePath(base, SITE_ROUTES.product(current))`, so it works on both hosts |
 | Not public, no token | 404 |
 | Not public, token valid for exactly this product (`verifyPreviewTokenFor(token, productId)`) | Owner preview |
@@ -61,7 +42,8 @@ now `true`, so the button reads "Preview on site".
   so the preview DTO points them at the signed-in route `/api/images/<hex>.webp`
   (no width variants). The owner opening the link from the back office is
   signed in on that host. Anyone else with the link sees the cream fallback.
-- The page shows a "Preview, not public" banner, and metadata
+- ZP-512: the feed with just that look and its sheet open (details from the
+  server, no heart, no Share) under a slim "Preview, not public" strip; metadata
   `robots: noindex, nofollow, nocache` and `referrer: no-referrer`.
 - **Headers.** In Next 16.4.3 a page component cannot set response headers
   (only Route Handlers, `next.config` `headers()` and the proxy can). The
@@ -79,41 +61,6 @@ now `true`, so the button reads "Preview on site".
   payload of the current URL inside that private, no-store response; it never
   appears in a link, image URL or the WhatsApp message.
 
-## Layout
-
-ZP-503 refreshed the page to match the flip-feed design.
-
-- **Phones:** slim sticky top bar (back, wordmark, Share; the site header is
-  hidden by a CSS `:has()` rule on `[data-product-topbar]`, so a product 404
-  keeps it) → gallery full width (4:5, about 470–520px tall) with a "1 / N"
-  counter (Gallery `counter` prop, replaces the dots) → category label →
-  serif name → price or "ASK FOR PRICE" with a tag (Sold out, else Few left,
-  else New) → colour and size chips → description → "Try it on in store"
-  (collapsed: today's hours from the server render; open: week, holiday
-  note, address, directions; hidden when nothing is set) → "You may also
-  like" as a horizontal row of 140px cards → pinned bottom bar.
-- **Back button:** a real link to the feed at this look (`/#look-<slug>`).
-  When the previous in-app page was the landing page (`NavMemory`), or on a
-  first page load the referrer is the same-origin landing page, a click uses
-  `history.back()` so the feed comes back with its collection and position.
-- **Bottom bar (phones):** "ENQUIRE ON WHATSAPP" (olive; "ASK ABOUT RESTOCK"
-  when sold out) plus a Call icon button when a phone is set. No WhatsApp
-  number: "VISIT US". It is the article's last child, so it never covers the
-  footer.
-- **Desktop (lg):** site header and breadcrumb; thumbnail rail and large
-  photo on the left; details in a sticky right column with "Try it on in
-  store", the inline enquiry button, Call us and Share; the 4-column related
-  grid below.
-- Owner preview: banner below the top bar, no Share, metadata unchanged.
-- **Zoom:** click/tap the photo or the expand button. Native modal `<dialog>`
-  (rest of the page inert), arrows change photo, Esc closes, Tab cycles the
-  dialog's buttons, focus returns to the expand button. The fade and smooth
-  scrolling are off under `prefers-reduced-motion` (existing `globals.css`).
-- Item number ("Ref AUG-45") only when the settings `showItemNumber` is on;
-  the DTO then carries `itemNumber` (`includeItemNumber`).
-- No stock counts, cost or other private fields: the page only sees
-  `PublicProduct` and `PublicSiteSettings`.
-
 ## WhatsApp enquiry
 
 - Built only with `buildWhatsAppLink` (through `productEnquiryHref`) from the
@@ -125,11 +72,8 @@ ZP-503 refreshed the page to match the flip-feed design.
   sold-out pieces send the feed's restock message (`RESTOCK_TEMPLATE`) through
   `productPageEnquiryHref`; the public ref (ZP-504, `product.ref`) is passed
   to the link builder in both cases.
-- No WhatsApp number: no button; "Available in-store" and a "Visit us" link.
-- Phones: the button lives in the pinned bottom bar (`ProductBottomBar`, with
-  `env(safe-area-inset-bottom)` padding), the last child of the `<article>`.
-- Secondary: "Call us" (`tel:`) when a phone is set; "Share" when the absolute
-  URL is known.
+- ZP-512: the button is the details sheet footer's (with Call and Share);
+  no WhatsApp number: Visit us.
 
 ### Absolute product URL
 
@@ -147,9 +91,3 @@ Built on the shared `absoluteSiteUrl` / `cleanHost` in `src/lib/storefront/publi
 
 A preview never puts the token in the URL it shares or sends.
 
-## Related products
-
-`pickRelated(listPublishedProducts({ categorySlug, pageSize: 48 }).items, product)`:
-up to 4 from the same category, never the product itself, in catalogue
-order, available pieces first; sold-out pieces only fill remaining places,
-last. No related products: the section is hidden.

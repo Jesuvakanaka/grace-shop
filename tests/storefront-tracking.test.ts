@@ -2,8 +2,7 @@
  * ZP-493 wave 2: the storefront's event prop builders (src/lib/storefront/tracking.ts).
  * - `image` is the stored file name (<32 hex>.webp), never a URL.
  * - photo props are 1-based among the photos (a video first does not count).
- * - product_open `from`: feed / collection / shop / new / related / shared / other,
- *   from the in-app previous path or a same-origin referrer, on /site (UAT) and clean paths.
+ * (ZP-512: product_open's `from` helper went with the product page.)
  * - video viewing: start, 25/50/75/100 once per viewing, replays on loop, seconds watched.
  * Every built event must pass the shared allow-list (validateEvent).
  */
@@ -17,7 +16,6 @@ import {
   createVideoWatch,
   imageFileName,
   photoProps,
-  productOpenSource,
   type VideoWatchEvent,
 } from '../src/lib/storefront/tracking'
 
@@ -106,48 +104,6 @@ describe('photo props', () => {
     const lots = Array.from({ length: 60 }, () => ({ src: `/api/images/public/${HEX}.webp` }))
     assert.deepStrictEqual(photoProps(lots, 3), { index: 4, of: 50, image: `${HEX}.webp` })
     assert.strictEqual(photoProps(lots, 55), null)
-  })
-})
-
-describe('product_open source', () => {
-  const origin = 'https://vyra.example'
-  const at = (previousPath: string | null, referrer = '', currentPath = '/p/linen-dress') =>
-    productOpenSource({ previousPath, referrer, origin, currentPath })
-
-  test('in-app navigation (previous path), clean paths and /site', () => {
-    assert.strictEqual(at('/'), 'feed')
-    assert.strictEqual(at('/site', '', '/site/p/linen-dress'), 'feed')
-    assert.strictEqual(at('/site/', '', '/site/p/linen-dress'), 'feed')
-    assert.strictEqual(at('/collections/dresses'), 'collection')
-    assert.strictEqual(at('/site/collections'), 'collection')
-    assert.strictEqual(at('/shop'), 'shop')
-    assert.strictEqual(at('/site/new'), 'new')
-    assert.strictEqual(at('/p/silk-top'), 'related')
-    assert.strictEqual(at('/site/p/silk-top', '', '/site/p/linen-dress'), 'related')
-    assert.strictEqual(at('/about'), 'other')
-    assert.strictEqual(at('/sitemap'), 'other')
-  })
-
-  test('first page of a load: the same-origin referrer decides', () => {
-    assert.strictEqual(at(null, `${origin}/?c=dresses`), 'feed')
-    assert.strictEqual(at(null, `${origin}/site/collections/dresses`), 'collection')
-    assert.strictEqual(at(null, `${origin}/p/silk-top`), 'related')
-  })
-
-  test('no referrer, or another site: a shared link', () => {
-    assert.strictEqual(at(null, ''), 'shared')
-    assert.strictEqual(at(null, 'https://l.instagram.com/'), 'shared')
-    assert.strictEqual(at(null, 'not a url'), 'shared')
-  })
-
-  test('the same page again (reload): other', () => {
-    assert.strictEqual(at(null, `${origin}/p/linen-dress`), 'other')
-  })
-
-  test('every result is a valid product_open', () => {
-    for (const from of ['feed', 'collection', 'shop', 'new', 'related', 'shared', 'other']) {
-      assert.strictEqual(valid('product_open', 'linen-dress', { from }), null)
-    }
   })
 })
 

@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useId,
   useLayoutEffect,
@@ -22,6 +24,8 @@ import {
   sheetHasMore,
   sheetMaxHeight,
   morePillText,
+  reviewsMore,
+  SHEET_TOP_REVIEWS,
   sheetModel,
   sheetScrollStep,
   type SheetCloseReason,
@@ -86,10 +90,16 @@ function fetchExtras(slug: string): Promise<SheetExtras | null> {
   return pending;
 }
 
-function useSheetExtras(slug: string | null): Loaded | null {
+/**
+ * The extras of the open look. `seed` (ZP-512: the owner preview of an
+ * unpublished piece, rendered by the server) is used as is for its slug:
+ * the server action only knows published pieces.
+ */
+function useSheetExtras(slug: string | null, seed: SheetExtras | null): Loaded | null {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const seeded = seed !== null && seed.slug === slug;
   useEffect(() => {
-    if (!slug) return;
+    if (!slug || seeded) return;
     let live = true;
     fetchExtras(slug).then(
       (extras) => {
@@ -104,9 +114,13 @@ function useSheetExtras(slug: string | null): Loaded | null {
     return () => {
       live = false;
     };
-  }, [slug]);
+  }, [slug, seeded]);
+  if (seeded) return { slug: seed.slug, extras: seed, failed: false };
   return loaded && loaded.slug === slug ? loaded : null;
 }
+
+/** ZP-512: the sheet of an owner preview (unpublished piece): no heart. */
+const SheetPreviewContext = createContext(false);
 
 // ---------------------------------------------------------------- sheet
 
@@ -122,6 +136,10 @@ type DetailsSheetProps = {
   links: SheetLinks;
   /** A close from the sheet's own controls (drag, backdrop, ✕, Escape). */
   onRequestClose: (reason: SheetCloseReason) => void;
+  /** ZP-512: extras rendered by the server (owner preview), used instead of fetching. */
+  seedExtras?: SheetExtras | null;
+  /** ZP-512: owner preview of an unpublished piece (no heart). */
+  preview?: boolean;
 };
 
 /**
@@ -130,17 +148,25 @@ type DetailsSheetProps = {
  * (showModal: the feed behind is inert), labelled by the piece's name, which
  * takes the focus. Details only, no photos: collection, name, price, tag,
  * rating and the heart, colour and size (the chosen size goes into the
- * WhatsApp message), description, "Try it on in store", the first two
- * reviews, "View full page"; a pinned footer with the WhatsApp button (or
- * Visit us) and Share. At most 62% of the visible viewport high, so the top
+ * WhatsApp message), description, "Try it on in store", the reviews (two,
+ * then "See all N reviews" opens the rest here, ZP-512); a pinned footer with
+ * the WhatsApp button (or Visit us), Call and Share. At most 62% of the visible viewport high, so the top
  * of the look stays visible. Closes by dragging the handle down, a tap on the
  * backdrop, ✕, Escape and the browser back button (FlipFeed owns the
  * `?d=<slug>` history entry). See docs/storefront/feed.md.
  */
-export function DetailsSheet({ dialogRef, item, collection, links, onRequestClose }: DetailsSheetProps) {
+export function DetailsSheet({
+  dialogRef,
+  item,
+  collection,
+  links,
+  onRequestClose,
+  seedExtras = null,
+  preview = false,
+}: DetailsSheetProps) {
   const titleId = useId();
   const slug = item?.slug ?? null;
-  const loaded = useSheetExtras(slug);
+  const loaded = useSheetExtras(slug, seedExtras);
   const [maxHeight, setMaxHeight] = useState<number | null>(null);
   const [drag, setDrag] = useState(0);
   const dragStart = useRef<number | null>(null);
@@ -241,6 +267,7 @@ export function DetailsSheet({ dialogRef, item, collection, links, onRequestClos
       </style>
       {item ? (
         // Keyed per piece: the chosen size and the scroll start afresh.
+        <SheetPreviewContext.Provider value={preview}>
         <SheetContent
           key={item.slug}
           item={item}
@@ -251,6 +278,7 @@ export function DetailsSheet({ dialogRef, item, collection, links, onRequestClos
           onClose={() => onRequestClose("button")}
           handle={{ onPointerDown: onHandleDown, onPointerMove: onHandleMove, onPointerUp: onHandleUp, onPointerCancel: onHandleCancel }}
         />
+        </SheetPreviewContext.Provider>
       ) : null}
     </dialog>
   );
@@ -337,6 +365,7 @@ function SheetLayout({
   const content = useRef<HTMLDivElement>(null);
   const [more, setMore] = useState(false);
   const reviewsId = useId();
+  const preview = useContext(SheetPreviewContext);
 
   const measure = useCallback(() => {
     const el = scroller.current;
@@ -372,9 +401,20 @@ function SheetLayout({
 
   const visit = extras?.visit ?? null;
   const summary = extras?.reviews.summary ?? null;
+  // ZP-512: the first 2 reviews, more on request (SheetContent is keyed per piece, so this starts afresh).
+  const [reviewsShown, setReviewsShown] = useState(SHEET_TOP_REVIEWS);
+  const moreReviews = extras && summary
+    ? reviewsMore({ shown: reviewsShown, total: extras.reviews.list.length, count: summary.count })
+    : null;
 
   return (
-    <div className="flex max-h-[inherit] flex-col">
+    <div
+      className="flex max-h-[inherit] flex-col"
+      // ZP-512: "Get directions" in "Try it on in store" (VisitDetails marks it) counts as `directions`.
+      onClickCapture={(event) => {
+        if ((event.target as Element).closest('[data-track="directions"]')) track("directions", { screen: "feed" });
+      }}
+    >
       {/* Handle row: drag it down to close. The title and ✕ live here too (the design). */}
       <div
         {...handle}
@@ -442,7 +482,7 @@ function SheetLayout({
               ) : (
                 <span />
               )}
-              <LoveButton slug={item.slug} name={item.name} loves={item.loves} variant="pill" />
+              {!preview ? <LoveButton slug={item.slug} name={item.name} loves={item.loves} variant="pill" /> : null}
             </div>
 
             {extras ? (
@@ -474,7 +514,7 @@ function SheetLayout({
                 </div>
                 {summary ? (
                   <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
-                    {extras.reviews.top.map((r, i) => (
+                    {extras.reviews.list.slice(0, reviewsShown).map((r, i) => (
                       <li key={`${r.dateTime}-${i}`} className="flex flex-col gap-1 border-b border-brand-ink/10! pb-2.5">
                         <span role="img" aria-label={r.starsLabel} className="text-[13px] tracking-[0.06em] text-brand-olive-700">
                           {r.starsText}
@@ -495,23 +535,18 @@ function SheetLayout({
                 ) : (
                   <p className="m-0 text-sm leading-relaxed text-brand-ink-soft">No reviews for this piece yet.</p>
                 )}
-                {model.seeAll ? (
-                  <Link
-                    href={model.seeAll.href}
+                {/* ZP-512: the rest of the reviews open here, 5 at a time (no product page any more). */}
+                {moreReviews ? (
+                  <button
+                    type="button"
+                    onClick={() => setReviewsShown(moreReviews.next)}
                     className="sf-focus inline-flex min-h-10 items-center self-start rounded-[2px] text-xs font-medium uppercase tracking-[0.16em] text-brand-olive-700"
                   >
-                    {model.seeAll.text}
-                  </Link>
+                    {moreReviews.label}
+                  </button>
                 ) : null}
               </section>
             ) : null}
-
-            <Link
-              href={model.fullPageHref}
-              className="sf-focus inline-flex min-h-11 items-center self-center rounded-[2px] px-2 text-xs uppercase tracking-[0.12em] text-brand-ink-soft underline underline-offset-4"
-            >
-              View full page
-            </Link>
           </div>
         </div>
 

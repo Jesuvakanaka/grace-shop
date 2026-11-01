@@ -38,10 +38,10 @@ export const SHEET_DRAG_CLOSE_PX = 90
 export const SHEET_MORE_SLACK_PX = 24
 /** The "More" pill scrolls this share of the visible height. */
 export const SHEET_SCROLL_RATIO = 0.7
-/** Approved reviews shown in the sheet; the rest are on the full page. */
+/** Approved reviews shown when the sheet opens; "See all N reviews" shows more inside it. */
 export const SHEET_TOP_REVIEWS = 2
-/** The anchor of the reviews section on the product page. */
-export const SHEET_REVIEWS_ANCHOR = 'reviews'
+/** ZP-512: reviews added per "See all" / "Show more reviews" tap. */
+export const SHEET_REVIEWS_STEP = 5
 export const VISIT_LABEL = 'Visit us'
 
 // ------------------------------------------------------------------- URL
@@ -203,7 +203,8 @@ export type SheetExtras = {
   availability: Availability
   /** The WhatsApp fields of the public site settings (the message names the chosen size). */
   contacts: WhatsAppContactSettings
-  reviews: { summary: RatingSummary | null; top: SheetReview[]; shop: RatingSummary | null }
+  /** ZP-512: every approved review of the piece (display order, at most MAX_REVIEWS_PER_PIECE); the sheet shows 2, then more on request. */
+  reviews: { summary: RatingSummary | null; list: SheetReview[]; shop: RatingSummary | null }
   /** "Try it on in store"; null hides the row. */
   visit: StoreVisit | null
 }
@@ -248,7 +249,7 @@ export function buildSheetExtras(
     },
     reviews: {
       summary: ctx.reviews?.summary ?? null,
-      top: (ctx.reviews?.reviews ?? []).slice(0, SHEET_TOP_REVIEWS).map((r) => toSheetReview(r, ctx.now)),
+      list: (ctx.reviews?.reviews ?? []).map((r) => toSheetReview(r, ctx.now)),
       shop: ctx.shop,
     },
     visit: ctx.visit,
@@ -263,12 +264,21 @@ export type SheetModel = {
   /** Stars (null until the extras arrive), the visible line and its accessible label; null without reviews. */
   rating: { stars: string | null; text: string; label: string } | null
   primary: SheetPrimary
-  fullPageHref: string
-  /** "See all N reviews" to the full page's reviews, when there are more than the sheet shows. */
-  seeAll: { text: string; href: string } | null
   shopRating: { text: string; label: string } | null
   /** The reviews block shows (a piece or shop rating exists). */
   showReviews: boolean
+}
+
+/**
+ * ZP-512: the reviews button under the shown reviews: "See all N reviews"
+ * (N = the piece's review count) after the first 2, then "Show more reviews
+ * (k)"; each tap shows SHEET_REVIEWS_STEP more. Null when all are shown.
+ */
+export function reviewsMore(input: { shown: number; total: number; count: number }): { label: string; next: number } | null {
+  if (input.shown >= input.total) return null
+  const next = Math.min(input.total, input.shown + SHEET_REVIEWS_STEP)
+  const label = input.shown <= SHEET_TOP_REVIEWS ? `See all ${input.count} reviews` : `Show more reviews (${input.total - input.shown})`
+  return { label, next }
 }
 
 export function sheetModel(item: FeedItem, extras: SheetExtras | null): SheetModel {
@@ -284,15 +294,9 @@ export function sheetModel(item: FeedItem, extras: SheetExtras | null): SheetMod
     : item.soldOut
       ? { kind: 'restock', label: RESTOCK_LABEL }
       : { kind: 'enquire', label: ENQUIRE_LABEL }
-  const shown = extras ? extras.reviews.top.length : 0
   return {
     rating,
     primary,
-    fullPageHref: item.href,
-    seeAll:
-      summary && summary.count > Math.max(shown, SHEET_TOP_REVIEWS)
-        ? { text: `See all ${summary.count} reviews`, href: `${item.href}#${SHEET_REVIEWS_ANCHOR}` }
-        : null,
     shopRating: shop ? { text: `VYRA shop rating ${formatAverage(shop.average)} ★`, label: shopRatingLine(shop) as string } : null,
     showReviews: Boolean(summary || shop),
   }

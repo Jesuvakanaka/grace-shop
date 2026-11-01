@@ -82,6 +82,8 @@ type FeedSlideProps = {
   onOpenDetails: (slug: string, opener: HTMLElement) => void;
   /** ZP-510: this look's details sheet is open (its playing video pauses until it closes). */
   sheetOpen: boolean;
+  /** ZP-512: owner preview of an unpublished piece (no heart: the piece is not public yet). */
+  preview?: boolean;
 };
 
 /**
@@ -112,6 +114,7 @@ export function FeedSlide({
   callHref,
   onOpenDetails,
   sheetOpen,
+  preview = false,
 }: FeedSlideProps) {
   const strip = useRef<HTMLDivElement>(null);
   const [photo, setPhoto] = useState(0);
@@ -153,7 +156,9 @@ export function FeedSlide({
   };
   const leave = () => onLeave(item.slug);
   const nav = photoNav(photo, count);
-  const rail = railItems({ details, enquire: item.enquireHref !== null, share: item.shareUrl !== null, call: callHref !== null });
+  const rail = railItems({ details, enquire: item.enquireHref !== null, share: item.shareUrl !== null, call: callHref !== null }).filter(
+    (kind) => !(preview && kind === "love"),
+  );
 
   // ZP-510: while the details sheet is open over this look, its playing video
   // pauses; it resumes when the sheet closes (if it was playing).

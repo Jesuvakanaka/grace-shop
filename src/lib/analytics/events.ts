@@ -181,7 +181,8 @@ export const EVENT_SPECS: Readonly<Record<AnalyticsEventType, EventSpec>> = {
   love_off: { slug: 'required', props: {} },
 
   // ZP-510: the rollup counts details_sheet_open as a product_open (funnel "opened a piece").
-  details_sheet_open: { slug: 'required', props: {} },
+  // ZP-512: from 'shared' = the landing of a /p/<slug> link (the old product page URL).
+  details_sheet_open: { slug: 'required', props: { from: opt(oneOf(['shared'])) } },
   details_sheet_close: { slug: 'required', props: { reason: oneOf(SHEET_CLOSE_REASONS) } },
 
   load_error: { slug: 'optional', props: { what: oneOf(LOAD_ERROR_KINDS) } },

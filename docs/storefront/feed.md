@@ -25,7 +25,7 @@ pure model and tests stay).
 | `src/lib/storefront/feed-guide.ts` | Pure (ZP-509): guide "seen" storage, when it opens, `?guide=1`, steps and copy, ring position. Tested in `tests/storefront-feed-guide.test.ts`. |
 | `src/components/storefront/feed/FeedGuide.tsx` | Client (ZP-509): the first-visit guide dialog. |
 | `src/lib/storefront/feed-media.ts` | Pure (ZP-502): strip / gallery item list with the video first, autoplay and preload rules. Tested in `tests/storefront-feed-media.test.ts`. |
-| `src/components/storefront/video/*` | Client (ZP-502): `FeedVideo` (strip item), `GalleryVideo` (product page), `useVideoPlayback`. See `docs/storefront/videos.md`. |
+| `src/components/storefront/video/*` | Client (ZP-502): `FeedVideo` (strip item), `GalleryVideo` (the /site/preview component gallery), `useVideoPlayback`. See `docs/storefront/videos.md`. |
 | `src/components/storefront/ShellMenu.tsx` | The storefront menu dialog, moved out of `Header` so the feed opens the same menu (ZP-503 redesigns it). |
 | `src/components/storefront/product/useShare.ts` | Share logic (Web Share API, else copy link), shared by `ShareButton` and the feed. |
 
@@ -244,14 +244,15 @@ sheet over the current look instead of navigating; the feed does not move.
 - **Content** (details only, no photos): collection label, serif name, price
   or "Ask for price", tag; star summary + review count ("4.7 · 3 reviews") and
   the heart pill ("Love it" / "Loved by N"); colour and size chips (the same
-  `ProductEnquiryProvider` / `ProductOptions` as the product page, so the
+  `ProductEnquiryProvider` / `ProductOptions` the old product page used, so the
   chosen size goes into the WhatsApp message, with the public ref);
   description; "Try it on in store" (`StoreVisitRow`: today's hours, the week,
   address, directions; every missing part hidden, never "TBC"); the first 2
-  approved reviews (no review photos), "See all N reviews" (to the full
-  page's `#reviews`, only when there are more) and the VYRA shop rating;
-  a small **View full page** link (`/p/<slug>`, unchanged for shared links
-  and Google).
+  approved reviews (no review photos) and the VYRA shop rating. ZP-512:
+  "See all N reviews" (only when there are more) opens the rest **inside the
+  sheet**, 5 at a time ("Show more reviews (k)", `reviewsMore`; the extras
+  carry every approved review, at most 100). There is no full-page link any
+  more: the product page is gone (owner, ZP-512; see the end of this file).
 - **Pinned footer**: **Enquire on WhatsApp** (or **Ask about restock** with
   the restock message for sold-out pieces; **Visit us** without a WhatsApp
   number), **Call** (when a phone is set), **Share** (when there is a share URL).
@@ -325,8 +326,8 @@ The current slide is kept in the URL hash, `#look-<slug>` (each slide has
 that id), written with `history.replaceState` 250 ms after the slide stops
 changing (not for every slide crossed: Safari throws after 100 history calls
 in 10 seconds; the call is also wrapped in try/catch), and at once when the
-visitor opens a product page (no hash on the first slide). Browser back
-from a product page lands on
+visitor leaves the feed (no hash on the first slide). Browser back
+to the feed lands on
 `/?c=<tab>#look-<slug>`; on mount the feed switches to that tab if needed,
 loads through that slug if it is beyond the first page, and jumps there
 without animation. A shared `/#look-<slug>` link opens on that look. The
@@ -386,5 +387,56 @@ stays at least 4.5:1 on light photos.
 - The first slide's first photo is eager with `fetchpriority="high"`; the
   second slide's first photo is eager (normal priority), ready for the first
   flick; every other photo is `loading="lazy"`.
-- Real `<a href>` links to each product page are in the server HTML.
+- Real `<a href>` links to each piece's `/p/<slug>` are in the server HTML
+  (a plain tap opens the details sheet instead).
 - The page stays `noindex` and takes its title from the layout template.
+
+## /p/<slug>: the feed on that look (ZP-512)
+
+The separate product page is gone (owner: "it is redundant"). `/p/<slug>`
+(`/site/p/<slug>` on UAT; the storefront host's clean path) is still the
+piece's URL (Share, the WhatsApp message, collection / shop cards, Google),
+but it renders the **flip feed on that look with its details sheet open**,
+exactly like `/?d=<slug>`:
+
+- The server loads New in through that look (`loadFeed` with `through`; a
+  look further down than one load reaches is put first, `withLandingItem`)
+  and renders `FlipFeed` with `landing={ slug, mode: "product" }`. The sheet
+  is held open from the first render (its content is in the server HTML
+  inside the closed `<dialog>`) and opens as a modal on hydration; the feed
+  starts on that look.
+- After hydration (from a timer, after Next.js patched `history`) the URL
+  becomes the feed's: the /p entry is replaced by `<home>#look-<slug>` and
+  `<home>?d=<slug>#look-<slug>` is pushed (`productLandingHistory`; campaign
+  parameters kept, `preview` / an old `d` dropped). Closing (✕, drag,
+  backdrop, Escape, back) leaves the visitor on that look in the feed; back
+  once more leaves as from any page. The first open sends
+  `details_sheet_open` with `from: "shared"`. The tab title stays the
+  piece's until the next navigation.
+- The full-screen frame (no header / footer) is decided by `isFeedFrame`:
+  home, or the `p` segment (also after the address became the home path); a
+  404 under /p (segment null) keeps the header.
+- **Per-piece server render** (`generateMetadata`): title, description,
+  canonical `/p/<slug>`, Open Graph and Twitter title / description / image
+  (the primary photo, absolute URL: WhatsApp / Instagram previews), and
+  JSON-LD Product with AggregateRating only when the piece has approved
+  reviews (`productReviewsJsonLd`). The name, collection, price and
+  description are also in an sr-only summary in the HTML.
+- Unknown / unpublished slug without a valid preview token: 404 as before;
+  an old slug: 308 to the current one (`decideProductRoute`).
+- **Owner preview** (`/p/<slug>?preview=<token>`, unpublished): the feed with
+  just that look (`mode: "preview"`), its sheet open with details rendered by
+  the server (`buildSheetExtras`, passed in as `extras`; the sheet's action
+  only knows published pieces), no heart, no Share, a slim "Preview, not
+  public" strip (taps go through to the top bar), and the URL untouched (no
+  history writes; closing just closes). noindex / no-referrer /
+  `private, no-store` and the enquiry links as before (they only work once
+  the piece is published).
+- Removed with the page: `ProductView`, `ProductTopBar` + `back-target`,
+  `NavMemory`, `ProductTracking` (`product_open` is no longer sent),
+  `ProductBottomBar`, `RelatedRow` + `related.ts`, `ShareButton`,
+  `ProductReviews` / `ReviewList` / `ShopRatingBox`, `ProductEnquiryButton`,
+  the header's product-top-bar rule. Kept: `ProductEnquiry` (provider,
+  chips), `StoreVisitRow`, `useShare`, `LoveButton`, `Gallery` /
+  `GalleryVideo` (the /site/preview component gallery), the public data
+  layer's `listRelatedProducts`.

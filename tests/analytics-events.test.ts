@@ -470,4 +470,10 @@ describe('details_sheet_open / details_sheet_close', () => {
     badEvent(ev('details_sheet_close', { reason: 'link' }, { slug: 'a' }), /reason/)
     badEvent(ev('details_sheet_close', { reason: 'swipe', seconds: 3 }, { slug: 'a' }), /seconds/)
   })
+
+  // ZP-512: a landing on /p/<slug> (a shared link) opens the sheet with from: 'shared'.
+  test('open: optional from, only "shared"', () => {
+    assert.notStrictEqual(typeof validateEvent(ev('details_sheet_open', { from: 'shared' }, { slug: 'a' }), NOW), 'string')
+    badEvent(ev('details_sheet_open', { from: 'feed' }, { slug: 'a' }), /from/)
+  })
 })

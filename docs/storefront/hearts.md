@@ -9,8 +9,9 @@ No sign-in. One heart per piece per device; un-love is allowed.
   eye, also in clean view. Under it: "Love", or the number from 3 loves.
   The rail order, top to bottom, is Share / Details (with details only), the
   WhatsApp button, the heart and the eye (`railItems`, see feed.md).
-- **Product page** (`ProductView`): a pill under the price, "Love it", or
-  "Loved by 24" from 3 loves. Not shown on an owner preview.
+- **Details sheet** (ZP-510; the product page is gone, ZP-512): a pill next to
+  the rating, "Love it", or "Loved by 24" from 3 loves. Not shown on an
+  owner preview.
 - A real `<button>`, `aria-pressed`, named "Love <piece name>" plus the
   visible text (`loveButtonLabel`): rail "Love <name>", pill "Love it, <name>",
   from 3 loves "Love <name>, loved by 24". Loving pops the heart once

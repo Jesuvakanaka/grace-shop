@@ -56,7 +56,7 @@ export type LookRow = {
   photoSwipeRate: number | null
   /** Show details taps per look view. */
   detailsRate: number | null
-  /** Visits that opened the piece (product page or ZP-510 details sheet) / visits that saw the look. */
+  /** Visits that opened the piece (ZP-510 details sheet; earlier days also the old product page) / visits that saw the look. */
   openRate: number | null
   whatsapp: number
   shares: number
