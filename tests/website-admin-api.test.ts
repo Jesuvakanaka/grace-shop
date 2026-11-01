@@ -204,7 +204,12 @@ describe('admin website API (ZP-483)', () => {
   })
 
   describe('website fields and slug', () => {
-    test('saves allow-listed fields and rejects unknown or invalid ones', async () => {
+    test('saves allow-listed fields and rejects unknown or invalid ones', async (t) => {
+      // ZP-506: Featured is set by hand only with the feed on "Newest first"; while it
+      // ranks automatically Featured is read-only (covered in tests/ranking-db.test.ts).
+      const mode = (await prisma.siteSettings.findUnique({ where: { id: 1 } }))?.feedRanking ?? 'AUTO'
+      await prisma.siteSettings.upsert({ where: { id: 1 }, create: { id: 1, feedRanking: 'NEWEST' }, update: { feedRanking: 'NEWEST' } })
+      t.after(() => prisma.siteSettings.update({ where: { id: 1 }, data: { feedRanking: mode } }))
       const cat = await category()
       const p = await product()
       const res = await call(websiteProduct.PATCH, 'PATCH', { id: String(p.id) }, {

@@ -92,6 +92,8 @@ model Product {
   reviews        Review[]
   reviewInvites  ReviewInvite[]
   loves          ProductLove[]
+  // ZP-506: popularity score and today's feed rank (nightly).
+  popularity     ProductPopularity?
 
   @@index([categoryId])
 }
@@ -153,6 +155,38 @@ model ProductLove {
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([productId])
+}
+
+// ZP-506: popularity score and feed rank of a public piece, written by the
+// nightly step after the analytics rollups (src/lib/ranking/job.ts). One row
+// per piece that was public at the last run; the whole table is replaced on
+// every run (idempotent). See docs/storefront/ranking.md.
+model ProductPopularity {
+  productId  Int      @id
+  /// Analytics day (Harare) of the run that wrote the row; the window ends the day before.
+  day        DateTime @db.Date
+  /// 100 = the average look (see src/lib/ranking/score.ts).
+  score      Float
+  /// Why: attention / curiosity / intent indices, evidence and every signal (ScoreParts).
+  parts      Json
+  /// Raw look views in the 28-day window.
+  views      Int      @default(0)
+  /// Position in today's feed (1 = first; available pieces before sold-out). Null while there is too little data (newest first).
+  rank       Int?
+  /// Had the new-piece (cold start) boost.
+  coldStart  Boolean  @default(false)
+  /// Picked for the automatic Featured set (top by score).
+  featured   Boolean  @default(false)
+  computedAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+// ZP-506: "Rank automatically" (popularity decides the feed order and Featured)
+// or "Newest first" (the owner's emergency switch; Featured is manual again).
+enum FeedRanking {
+  AUTO
+  NEWEST
 }
 
 // How the public site shows the price. The public price is sellingPriceUsd.
@@ -489,6 +523,9 @@ model SiteSettings {
   // Reviews (ZP-508): optional "Review us on Google" link on the thank-you screen.
   googleReviewUrl String?
 
+  // ZP-506: feed order. AUTO = by popularity (also sets Featured); NEWEST = newest first.
+  feedRanking FeedRanking @default(AUTO)
+
   updatedBy String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -599,6 +636,19 @@ model AnalyticsDailyPiece {
   exits           Int      @default(0)
   /// ZP-505: distinct visits that reached a 2nd (or later) photo (photo-swipe rate = photoSwipers / viewers).
   photoSwipers    Int      @default(0)
+
+  /// ZP-506 ranking: DISTINCT visits, counted only for visits that also had a
+  /// look_view of the piece that day (so one visit repeating an event counts once).
+  /// Visits with look_dwell; their day's dwell on the piece, capped at 60 s per visit.
+  dwellVisits       Int   @default(0)
+  dwellVisitSeconds Float @default(0)
+  /// Visits that reached a 2nd photo / Show details / opened (OPEN_TYPES) / WhatsApp / restock request / shared.
+  swipeVisits       Int   @default(0)
+  detailsVisits     Int   @default(0)
+  openVisits        Int   @default(0)
+  enquiryVisits     Int   @default(0)
+  restockVisits     Int   @default(0)
+  shareVisits       Int   @default(0)
 
   @@id([day, productId])
   @@index([productId, day])

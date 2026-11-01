@@ -8,6 +8,7 @@ import prisma from '@/lib/db'
 import { readSiteSettings, updateSiteSettings } from '@/lib/site-settings/db'
 import { revalidateSiteSettings, settingsRevalidateScope } from '@/lib/site-settings/revalidate'
 import { validateSiteSettingsInput } from '@/lib/site-settings/validate'
+import { runRanking } from '@/lib/ranking/job'
 
 export async function GET(request: Request) {
   const auth = await authorize(request, OWNER_ONLY)
@@ -41,9 +42,24 @@ export async function PUT(request: Request) {
   }
 
   try {
-    const before = await readSiteSettings(prisma)
-    const settings = await updateSiteSettings(prisma, result.value, auth.session.username)
-    // A changed few-left threshold expires the whole storefront (product DTOs embed it).
+    // ZP-506: the same row lock the ranking run holds (src/lib/ranking/job.ts),
+    // so a save waits for a running ranking and is never overwritten by it.
+    const { before, settings } = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "SiteSettings" WHERE id = 1 FOR UPDATE`
+      const before = await readSiteSettings(tx)
+      return { before, settings: await updateSiteSettings(tx, result.value, auth.session.username) }
+    })
+    // ZP-506: back to "Rank automatically": rank now (scores, today's order,
+    // the automatic Featured set) instead of waiting for the nightly job.
+    if (before.feedRanking !== 'AUTO' && settings.feedRanking === 'AUTO') {
+      try {
+        await runRanking(prisma)
+      } catch (error) {
+        // The switch is saved; the nightly job ranks again.
+        console.error('[site-settings] ranking after the switch failed:', error instanceof Error ? error.message : error)
+      }
+    }
+    // A changed few-left threshold or feed order expires the whole storefront (product DTOs embed them).
     revalidateSiteSettings(settingsRevalidateScope(before, settings))
     return NextResponse.json({ settings })
   } catch (error) {

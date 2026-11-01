@@ -1,7 +1,8 @@
 // Cached storefront reads (ZP-484). Server only.
 //
-// Exactly THREE cache entries exist, whatever the request: the public
-// catalogue, the category list and (ZP-508) the approved reviews. Their keys take no arguments, so
+// Exactly FOUR cache entries exist, whatever the request: the public
+// catalogue, the category list, (ZP-508) the approved reviews and (ZP-506)
+// the feed ranking. Their keys take no arguments, so
 // anonymous traffic (any category, page, sort or unknown slug) can never add
 // entries. Everything else is answered in memory from those two (./catalogue).
 // `cache` is unstable_cache in ./index; tests pass a recording stand-in.
@@ -21,6 +22,8 @@ import {
 } from './catalogue'
 import type { PublicCategory, PublicProduct } from './dto'
 import { loadPublicCatalogue, loadPublicCategories } from './queries'
+import type { FeedRanking } from '@/lib/ranking/feed-order'
+import { loadFeedRanking } from '@/lib/ranking/read'
 import { loadPublicReviews, type PublicReviewsIndex } from './reviews'
 
 if (typeof window !== 'undefined') throw new Error('src/lib/storefront is server-only')
@@ -65,7 +68,23 @@ export function createStorefront(deps: { db: Db; cache: CacheFn }) {
     },
   )
 
+  // ZP-506: a fourth argument-free entry: the feed ranking mode and today's
+  // rank per public slug (written nightly). Settings tag: the "Newest first"
+  // switch; products / categories tags: slugs and visibility.
+  const ranking = deps.cache(
+    (): Promise<FeedRanking> => loadFeedRanking(deps.db),
+    ['storefront', 'ranking', CACHE_VERSION],
+    {
+      tags: [STOREFRONT_TAGS.all, STOREFRONT_TAGS.ranking, STOREFRONT_TAGS.settings, STOREFRONT_TAGS.products, STOREFRONT_TAGS.categories],
+      revalidate: STOREFRONT_REVALIDATE_SECONDS,
+    },
+  )
+
   return {
+    /** ZP-506: the feed order mode and today's ranks (src/lib/ranking/feed-order.ts). */
+    getFeedRanking(): Promise<FeedRanking> {
+      return ranking()
+    },
     /** One page of public products. */
     async listPublishedProducts(options: CatalogueListOptions = {}): Promise<PublicProductPage> {
       return selectProducts(await catalogue(), options)

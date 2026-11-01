@@ -22,6 +22,7 @@ import {
 import { getImageStorage, imageUrlForKey } from '@/lib/storage/images'
 import { CONFLICT_MESSAGE, describeMissing, GALLERY_MAX_IMAGES, websiteStatus } from './labels'
 import { WebsiteError } from './http'
+import { isAutoRanking } from '@/lib/ranking/job'
 import type { ImagePatch, ProductWebsitePatch } from './validation'
 
 type Tx = Prisma.TransactionClient
@@ -62,6 +63,8 @@ export async function getWebsiteProduct(db: PrismaClient, productId: number, now
       loveCount: true, // ZP-507: hearts, with a reset in the editor
       category: { select: { id: true, name: true, slug: true, published: true } },
       images: true,
+      // ZP-506: score and today's feed position (nightly).
+      popularity: { select: { score: true, rank: true, computedAt: true } },
     },
   })
   if (!p) return null
@@ -69,6 +72,8 @@ export async function getWebsiteProduct(db: PrismaClient, productId: number, now
   const newArrival = isNewArrival(p, now)
   return {
     ...p,
+    /** ZP-506: Featured is set by popularity (read-only) while the feed ranks automatically. */
+    featuredAuto: await isAutoRanking(db),
     images: [...p.images].sort(compareGalleryImages).map(toGalleryDto),
     readiness,
     status: websiteStatus(p.published, readiness.missing),

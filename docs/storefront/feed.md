@@ -41,7 +41,15 @@ pure model and tests stay).
 
 ## Order (`orderFeed`, `feedProducts`)
 
-Input is the catalogue's "newest" sort (newest published first). Output:
+ZP-506: the feed is ordered by the nightly **popularity ranking**
+(`docs/storefront/ranking.md`): available pieces by today's rank (pieces
+published since the last run first), sold-out pieces last. With the admin
+switch on "Newest first", or while there is too little data, it is newest
+first (sold-out last). Featured no longer has precedence: it is itself set
+automatically by the ranking. Input is the catalogue's "newest" sort;
+`feedProducts(products, ranking)` with the cached `getFeedRanking()`.
+
+Before ZP-506 (still `orderFeed`, used without a ranking):
 
 1. available featured pieces,
 2. the other available pieces (newest first),

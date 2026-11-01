@@ -215,7 +215,9 @@ describe('past range (rollups only)', () => {
               (SUM((props->>'seconds')::float8) FILTER (WHERE type = 'look_dwell') / COUNT(*) FILTER (WHERE type = 'look_dwell'))::float8 AS dwell,
               (COUNT(DISTINCT "visitId") FILTER (WHERE type = 'photo_view' AND (props->>'index') <> '1'))::float8
                 / COUNT(DISTINCT "visitId") FILTER (WHERE type = 'look_view') AS swipe,
-              COUNT(*) FILTER (WHERE type = 'product_open')::float8 / COUNT(*) FILTER (WHERE type = 'look_view') AS open_rate,
+              -- ZP-506 / ZP-510: visits that opened it (OPEN_TYPES, each visit once) / visits that saw it.
+              (COUNT(DISTINCT "visitId") FILTER (WHERE type IN ('product_open', 'details_sheet_open')))::float8
+                / COUNT(DISTINCT "visitId") FILTER (WHERE type = 'look_view') AS open_rate,
               COUNT(*) FILTER (WHERE type = 'whatsapp_enquire')::int AS whatsapp
        FROM "AnalyticsEvent" WHERE "productId" = $1 AND day BETWEEN $2::date AND $3::date`,
       P1,

@@ -16,9 +16,12 @@ type Revalidate = (tag: string, profile: { expire: number }) => void
 /**
  * What a save must expire. The few-left threshold is baked into every product
  * DTO in the cached catalogue, so changing it expires the whole storefront
- * (no scope). Anything else only touches the settings and home entries.
+ * (no scope). So does the feed order switch (ZP-506: it changes the feed
+ * order and the Featured flags). Anything else only touches the settings and
+ * home entries.
  */
 export function settingsRevalidateScope(before: SiteSettingsData, after: SiteSettingsData): RevalidateScope | undefined {
+  if (before.feedRanking !== after.feedRanking) return undefined
   return before.fewLeftThreshold !== after.fewLeftThreshold ? undefined : { settings: true }
 }
 

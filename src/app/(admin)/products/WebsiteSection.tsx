@@ -49,6 +49,10 @@ interface WebsiteProduct {
   newUntil: string | null;
   /** ZP-507: "Love it" hearts from website visitors. */
   loveCount: number;
+  /** ZP-506: Featured is set automatically by popularity (read-only here). */
+  featuredAuto: boolean;
+  /** ZP-506: popularity score (100 = average look) and today's feed position. */
+  popularity: { score: number; rank: number | null; computedAt: string } | null;
 }
 
 interface CategoryOption {
@@ -186,8 +190,9 @@ export function WebsiteSection({
       priceDisplay: fields.priceDisplay,
       colours: fields.colours || null,
       sizes: fields.sizes || null,
-      featured: fields.featured,
     };
+    // ZP-506: Featured is read-only while the feed ranks automatically.
+    if (!product.featuredAuto) body.featured = fields.featured;
     // An untouched slug is generated on publish (unique); only send one the owner typed or changed.
     if (slugTouched && fields.slug.trim() && fields.slug !== product.slug) body.slug = fields.slug;
     const r = await send(`/api/website/products/${productId}`, 'PATCH', body);
@@ -519,10 +524,33 @@ export function WebsiteSection({
         </div>
       </div>
 
-      <label className="flex items-center gap-2 text-sm cursor-pointer">
-        <input type="checkbox" checked={fields.featured} onChange={(e) => set('featured', e.target.checked)} data-testid="website-featured" />
-        Featured on the home page
-      </label>
+      {product.featuredAuto ? (
+        <div className="text-sm" data-testid="website-featured-auto">
+          <label className="flex items-center gap-2 text-slate-500">
+            <input
+              type="checkbox"
+              checked={product.featured}
+              disabled
+              readOnly
+              aria-describedby="website-featured-auto-note"
+              data-testid="website-featured"
+            />
+            Featured
+          </label>
+          <p id="website-featured-auto-note" className="text-xs text-slate-500 mt-1">
+            Featured automatically by popularity
+            {product.popularity
+              ? ` (score ${Math.round(product.popularity.score)}${product.popularity.rank ? `, #${product.popularity.rank} in today's feed` : ''})`
+              : ''}
+            . To choose by hand, set the feed to “Newest first” in Website settings.
+          </p>
+        </div>
+      ) : (
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" checked={fields.featured} onChange={(e) => set('featured', e.target.checked)} data-testid="website-featured" />
+          Featured on the home page
+        </label>
+      )}
 
       <div className="flex flex-wrap gap-2 justify-end">
         <button type="button" className="btn btn-secondary" onClick={preview} data-testid="website-preview">

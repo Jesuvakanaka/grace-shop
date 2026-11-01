@@ -2,6 +2,7 @@
 // (report.ts, csv.ts) and the admin page. No personal data: only totals per
 // day / source / piece / photo. Rates are 0..1 (or null when there is
 // nothing to divide by); seconds are means, not medians.
+import type { ScoreParts } from '@/lib/ranking/score'
 import type { InsightsRange } from './range'
 
 /** Below these the page says "too few to rank" instead of ranking. */
@@ -55,16 +56,37 @@ export type LookRow = {
   photoSwipeRate: number | null
   /** Show details taps per look view. */
   detailsRate: number | null
-  /** Piece opens per look view. */
+  /** Visits that opened the piece (product page or ZP-510 details sheet) / visits that saw the look. */
   openRate: number | null
   whatsapp: number
   shares: number
   restockRequests: number
   /** loveOn - loveOff in the range (hearts, ZP-507). */
   hearts: number
-  /** ZP-506 fills this (popularity score). */
+  /**
+   * ZP-506: the popularity score from the latest nightly run (100 = average
+   * look; last 28 days, decayed, not the selected range). null before the
+   * piece was first ranked (not public at the last run).
+   */
   popularity: number | null
+  /** ZP-506: position in today's feed (null while the feed is newest first). */
+  rank: number | null
+  /** ZP-506: why it scores what it does. */
+  scoreParts: ScoreParts | null
+  /** ZP-506: got the new-piece boost today. */
+  coldStart: boolean
+  /** ZP-506: picked for the automatic Featured set. */
+  autoFeatured: boolean
   enough: boolean
+}
+
+/** ZP-506: the latest ranking run, for the Top looks note. */
+export type RankingStatus = {
+  mode: 'AUTO' | 'NEWEST'
+  /** false: too little data, the feed is newest first. */
+  ranked: boolean
+  day: string
+  computedAt: string
 }
 
 export type PhotoRow = {
@@ -90,7 +112,14 @@ export type PiecePhotos = {
   viewers: number
   photos: PhotoRow[]
   /** The photo that holds people longest, when it is not the cover already and has enough data. */
-  bestCover: { image: string; index: number; url: string | null; meanSeconds: number } | null
+  bestCover: {
+    image: string
+    index: number
+    url: string | null
+    meanSeconds: number
+    /** ZP-506: the gallery image id, for "Use as first photo"; null when the photo is no longer in the gallery. */
+    imageId: number | null
+  } | null
 }
 
 export type VideoRow = {
@@ -188,7 +217,8 @@ export type InsightsReport = {
   }
   thresholds: typeof THRESHOLDS
   overview: Overview
-  looks: { rows: LookRow[]; hasHearts: boolean }
+  /** ranking (ZP-506): the latest nightly ranking run, null before the first one. Optional for older fixtures. */
+  looks: { rows: LookRow[]; hasHearts: boolean; ranking?: RankingStatus | null }
   photos: PiecePhotos[]
   videos: VideoRow[]
   funnel: Funnel

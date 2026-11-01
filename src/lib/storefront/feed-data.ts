@@ -2,8 +2,8 @@
 //
 // Only the existing cached reads: the public catalogue (listPublishedProducts,
 // answered in memory from the one cached entry), the published categories and
-// the public site settings. No new cache entries and no per-visitor database
-// query. Ordering, tabs and paging are the pure functions in ./feed.ts.
+// the public site settings, plus (ZP-506) the cached feed ranking. No
+// per-visitor database query. Ordering, tabs and paging are the pure functions in ./feed.ts.
 import 'server-only'
 import { headers } from 'next/headers'
 import { cache } from 'react'
@@ -21,7 +21,7 @@ import {
   type FeedPage,
   type FeedTab,
 } from './feed'
-import { getReviewsIndex, listPublishedCategories, listPublishedProducts, type PublicProduct } from './index'
+import { getFeedRanking, getReviewsIndex, listPublishedCategories, listPublishedProducts, type PublicProduct } from './index'
 import { productAbsoluteUrl } from './product-route'
 import { getSiteBase } from './site-base'
 
@@ -35,10 +35,15 @@ async function newestFirst(): Promise<PublicProduct[]> {
   }
 }
 
-/** The ordered feed and its tabs, once per request (React cache). */
+/**
+ * The ordered feed and its tabs, once per request (React cache). ZP-506: the
+ * order is the nightly popularity ranking (cached entry `getFeedRanking`;
+ * newest first with "Newest first" or too little data). The ranks are for
+ * the day, so the order is stable all day and the same for every visitor.
+ */
 const feedSource = cache(async (): Promise<{ ordered: PublicProduct[]; tabs: FeedTab[] }> => {
-  const [products, categories] = await Promise.all([newestFirst(), listPublishedCategories()])
-  const ordered = feedProducts(products)
+  const [products, categories, ranking] = await Promise.all([newestFirst(), listPublishedCategories(), getFeedRanking()])
+  const ordered = feedProducts(products, ranking)
   return { ordered, tabs: feedTabs(categories, ordered) }
 })
 

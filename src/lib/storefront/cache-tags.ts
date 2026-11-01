@@ -16,6 +16,8 @@ export const STOREFRONT_TAGS = {
   home: 'storefront:home',
   /** ZP-508: approved reviews and their aggregates (one entry, ./reviews.ts). */
   reviews: 'storefront:reviews',
+  /** ZP-506: the feed ranking (mode + today's ranks, one entry). */
+  ranking: 'storefront:ranking',
 } as const
 
 /**

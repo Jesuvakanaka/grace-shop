@@ -414,6 +414,18 @@ npm run analytics:rollup -- --no-prune
 - Then retention: `AnalyticsEvent` rows with `day` older than 90 days, and
   rollup rows older than 25 months, are deleted.
 - Prints one JSON line of counts; exit code 1 on failure.
+- ZP-506: then the **popularity ranking** step (scores, today's feed order,
+  automatic Featured; `docs/storefront/ranking.md`), unless `--no-rank`, then
+  the review-photo cleanup. Each step runs in its own try/catch (one failing
+  never skips the others); exit 1 at the end if any failed.
+- ZP-506 review: `AnalyticsDailyPiece` also has distinct-visit columns for the
+  ranking (`dwellVisits`, `dwellVisitSeconds` capped at 60 s per visit,
+  `swipeVisits`, `detailsVisits`, `openVisits`, `enquiryVisits`,
+  `restockVisits`, `shareVisits`; migration `20261108090000_ranking_visit_rollups`).
+  "Opened" = `OPEN_TYPES` (`product_open`, `details_sheet_open`).
+  `productOpens` is now **distinct visits** with any `OPEN_TYPES` event (a
+  sheet open → "View full page" → back is one visit, not three events);
+  Insights' open rate = `productOpens / viewers`.
 
 ### Scheduling (orchestrator, not done in this change)
 
