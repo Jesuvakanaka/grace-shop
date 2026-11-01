@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Footer, Header, SiteBaseProvider } from "@/components/storefront";
 import { StorefrontFrame } from "@/components/storefront/feed/StorefrontFrame";
+import { NavMemory } from "@/components/storefront/product/NavMemory";
+import { ShellMenuProvider } from "@/components/storefront/ShellMenu";
+import { getMenuData } from "@/lib/storefront/menu-data";
 import { getShellData } from "@/lib/storefront/shell";
 
 // ZP-487: the VYRA storefront shell. Served at /site/** on the admin/UAT host
@@ -30,39 +33,43 @@ export default async function StorefrontLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const shell = await getShellData();
+  const [shell, menu] = await Promise.all([getShellData(), getMenuData()]);
   return (
     <SiteBaseProvider base={shell.base}>
-      <StorefrontFrame
-        skipLink={
-          <a
-            href="#main"
-            className="sf-focus sf-label sr-only z-50 bg-brand-ink px-4 py-4 text-brand-cream focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:inline-flex focus:min-h-11 focus:items-center"
-          >
-            Skip to content
-          </a>
-        }
-        header={
-          <Header nav={shell.nav} homeHref={shell.homeHref} whatsappHref={shell.whatsappHref} social={shell.social} />
-        }
-        footer={
-          <Footer
-            tagline={shell.tagline}
-            address={shell.address}
-            hours={shell.hours}
-            holidayNote={shell.holidayNote}
-            phone={shell.phone}
-            email={shell.email}
-            whatsappHref={shell.whatsappHref}
-            columns={shell.footerColumns}
-            social={shell.social}
-            homeHref={shell.homeHref}
-            year={new Date().getFullYear()}
-          />
-        }
-      >
-        {children}
-      </StorefrontFrame>
+      {/* ZP-503: the menu's content for the header and the landing feed; NavMemory feeds the product page's back button. */}
+      <ShellMenuProvider menu={menu}>
+        <NavMemory />
+        <StorefrontFrame
+          skipLink={
+            <a
+              href="#main"
+              className="sf-focus sf-label sr-only z-50 bg-brand-ink px-4 py-4 text-brand-cream focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:inline-flex focus:min-h-11 focus:items-center"
+            >
+              Skip to content
+            </a>
+          }
+          header={
+            <Header nav={shell.nav} homeHref={shell.homeHref} whatsappHref={shell.whatsappHref} social={shell.social} />
+          }
+          footer={
+            <Footer
+              tagline={shell.tagline}
+              address={shell.address}
+              hours={shell.hours}
+              holidayNote={shell.holidayNote}
+              phone={shell.phone}
+              email={shell.email}
+              whatsappHref={shell.whatsappHref}
+              columns={shell.footerColumns}
+              social={shell.social}
+              homeHref={shell.homeHref}
+              year={new Date().getFullYear()}
+            />
+          }
+        >
+          {children}
+        </StorefrontFrame>
+      </ShellMenuProvider>
     </SiteBaseProvider>
   );
 }

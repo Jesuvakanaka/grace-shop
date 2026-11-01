@@ -111,8 +111,10 @@ function NavDisclosure({ item, active, current }: { item: NavItem & { children: 
  * Sticky cream header. Hairline border appears once the page scrolls.
  * Phones: hamburger, centred wordmark, WhatsApp. Desktop: the wordmark lockup
  * with WEAR DIFFERENT, nav (Collections opens the category list), WhatsApp.
- * The phone menu is a native modal <dialog>: full-screen cream, large serif
- * links, focus trapped, Esc closes it and focus returns to the hamburger.
+ * The phone menu is the shared ShellMenuDialog (native modal <dialog>,
+ * ZP-503 content from ShellMenuProvider): Esc closes it and focus returns to
+ * the hamburger. On phones the header is left out on product pages, which
+ * have their own slim top bar (ZP-503).
  */
 export function Header({ nav = DEFAULT_NAV, homeHref = "/", whatsappHref, social = [], currentHref }: HeaderProps) {
   const pathname = usePathname();
@@ -158,6 +160,8 @@ export function Header({ nav = DEFAULT_NAV, homeHref = "/", whatsappHref, social
       className={cn(
         "sticky top-0 z-40 border-b bg-brand-cream/95 backdrop-blur-sm transition-colors duration-200",
         scrolled ? "border-brand-ink/10!" : "border-transparent!",
+        // ZP-503: on phones a product page has its own slim bar (data-product-topbar: back, wordmark, Share); a product 404 keeps the header.
+        "max-lg:[&:has(~main_[data-product-topbar])]:hidden",
       )}
     >
       <div className="mx-auto grid h-16 max-w-[1200px] grid-cols-[44px_1fr_44px] items-center gap-2 px-2 sm:px-4 lg:flex lg:h-24 lg:justify-between lg:gap-8 lg:px-8">

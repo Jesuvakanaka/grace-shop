@@ -10,6 +10,7 @@ import {
   getPublishedProductBySlug,
   listPublishedProducts,
 } from "@/lib/storefront";
+import { buildStoreVisit, todayLine } from "@/lib/storefront/menu-model";
 import { SITE_ROUTES, sitePath } from "@/lib/storefront/paths";
 import { decideProductRoute, previewTokenFrom, productAbsoluteUrl } from "@/lib/storefront/product-route";
 import { pickRelated } from "@/lib/storefront/related";
@@ -98,6 +99,8 @@ export default async function ProductPage(props: Props) {
 
   const { product } = decision;
   const preview = decision.kind === "preview";
+  // ZP-503: "Try it on in store". The page renders per request, so "today" is current.
+  const visit = buildStoreVisit(settings);
   const [url, related] = await Promise.all([
     absoluteUrl(product.slug),
     product.category.slug
@@ -117,6 +120,8 @@ export default async function ProductPage(props: Props) {
       hasWhatsApp={buildWhatsAppLink(settings) !== null}
       showItemNumber={settings.showItemNumber}
       base={base}
+      visit={visit}
+      today={visit ? todayLine(visit.hours, new Date()) : null}
     />
   );
 }

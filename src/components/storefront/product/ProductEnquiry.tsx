@@ -4,10 +4,12 @@
 // chosen colour and size; the chips, the inline (desktop) enquiry button and
 // the sticky (phone) bar all read it, so the WhatsApp message always names
 // what the visitor picked. The link itself is built only by
-// buildWhatsAppLink (via productEnquiryHref) from the site settings template.
+// buildWhatsAppLink (via productPageEnquiryHref: the site settings template,
+// or the feed's restock message for sold-out pieces, ZP-503).
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import type { WhatsAppContactSettings } from "@/lib/site-settings/whatsapp";
-import { enquiryLabel, productEnquiryHref, toggleOption } from "@/lib/storefront/product-enquiry";
+import { enquiryLabel, toggleOption } from "@/lib/storefront/product-enquiry";
+import { productPageEnquiryHref } from "@/lib/storefront/product-page-enquiry";
 import type { Availability } from "@/lib/storefront-model/rules";
 import { EnquiryButton } from "../EnquiryButton";
 import { cn } from "../cn";
@@ -23,7 +25,7 @@ type EnquiryState = {
 
 const EnquiryContext = createContext<EnquiryState | null>(null);
 
-function useEnquiry(): EnquiryState {
+export function useEnquiry(): EnquiryState {
   const value = useContext(EnquiryContext);
   if (!value) throw new Error("Product enquiry components must be inside <ProductEnquiryProvider>");
   return value;
@@ -34,6 +36,7 @@ export function ProductEnquiryProvider({
   productName,
   productUrl,
   availability,
+  productRef,
   children,
 }: {
   /** Only the WhatsApp fields of the public site settings. */
@@ -42,6 +45,8 @@ export function ProductEnquiryProvider({
   /** Absolute public URL (never a preview URL), or null. */
   productUrl: string | null;
   availability: Availability;
+  /** ZP-504: the public ref ("V-0099"), never the item number. */
+  productRef?: string | null;
   children: ReactNode;
 }) {
   const [colour, setColour] = useState<string | null>(null);
@@ -52,10 +57,11 @@ export function ProductEnquiryProvider({
       size,
       setColour,
       setSize,
-      href: productEnquiryHref({ contacts }, { name: productName, url: productUrl, colour, size }),
+      // ZP-503: sold-out pieces send the restock message; ZP-504: the public ref goes along.
+      href: productPageEnquiryHref(contacts, availability, { name: productName, url: productUrl, colour, size, ref: productRef }),
       label: enquiryLabel(availability),
     }),
-    [colour, size, contacts, productName, productUrl, availability],
+    [colour, size, contacts, productName, productUrl, availability, productRef],
   );
   return <EnquiryContext.Provider value={value}>{children}</EnquiryContext.Provider>;
 }
