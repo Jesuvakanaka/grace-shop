@@ -8,7 +8,7 @@
 import 'server-only'
 import { cache } from 'react'
 import { feedProducts, feedTabs } from './feed'
-import { listPublishedProducts, type PublicProduct } from './index'
+import { getReviewsIndex, listPublishedProducts, type PublicProduct } from './index'
 import { MAX_PAGE_SIZE } from './listing'
 import { buildMenuModel, type MenuModel } from './menu-model'
 import { getShellData } from './shell'
@@ -23,7 +23,8 @@ async function allPublished(): Promise<PublicProduct[]> {
 }
 
 export const getMenuData = cache(async (): Promise<MenuModel> => {
-  const [shell, products] = await Promise.all([getShellData(), allPublished()])
+  const [shell, products, reviews] = await Promise.all([getShellData(), allPublished(), getReviewsIndex()])
   const tabs = feedTabs(shell.categories, feedProducts(products))
-  return buildMenuModel({ settings: shell.settings, tabs, base: shell.base })
+  // ZP-508: the shop rating box (cached reviews entry).
+  return buildMenuModel({ settings: shell.settings, tabs, base: shell.base, shopRating: reviews.shop })
 })

@@ -177,6 +177,66 @@ export function toPublicProduct(row: PublicProductRow, options: ProductDtoOption
   return dto
 }
 
+// ─── Reviews (ZP-508) ──────────────────────────────────────────────────────
+
+/** One APPROVED customer review as the storefront shows it. */
+export type PublicReview = {
+  /** 1-5. */
+  stars: number
+  /** Plain text; render as text (escaped), never as HTML or links. */
+  comment: string
+  /** "Tendai M." */
+  name: string
+  /** When it was written (ISO); the page shows "2 weeks ago". */
+  date: string
+  /** "Reply from VYRA", or null. */
+  reply: string | null
+  /** Only with the customer's consent; null otherwise. */
+  photo: { url: string; srcSet: string; alt: string } | null
+}
+
+/**
+ * The Review columns the data layer may read. Status, consent and the photo
+ * key decide what is public; ids, the invite, shop stars, the private note,
+ * the flag and moderator are never copied.
+ */
+export type PublicReviewRow = {
+  id: number
+  inviteId: number
+  shopOnly: boolean
+  productId: number | null
+  stars: number
+  shopStars: number | null
+  comment: string
+  displayName: string
+  photoKey: string | null
+  photoConsent: boolean
+  status: 'PENDING' | 'APPROVED' | 'HIDDEN'
+  flagged: boolean
+  ownerReply: string | null
+  privateNote: string | null
+  moderatedBy: string | null
+  createdAt: Date
+  approvedAt: Date | null
+}
+
+/** The public DTO of an APPROVED review, else null. The photo only with consent. */
+export function toPublicReview(row: PublicReviewRow, productName: string): PublicReview | null {
+  if (row.status !== 'APPROVED') return null
+  const photo =
+    row.photoConsent && row.photoKey && isValidImageKey(row.photoKey)
+      ? { url: publicImageSrc(row.photoKey), srcSet: publicImageSrcSet(row.photoKey), alt: `Photo from ${row.displayName} wearing the ${productName}` }
+      : null
+  return {
+    stars: row.stars,
+    comment: row.comment,
+    name: row.displayName,
+    date: row.createdAt.toISOString(),
+    reply: text(row.ownerReply),
+    photo,
+  }
+}
+
 export function toPublicCategory(row: PublicCategoryRow): PublicCategory {
   return {
     slug: row.slug,

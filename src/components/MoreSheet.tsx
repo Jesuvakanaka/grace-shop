@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
+import { pendingReviewsLabel, usePendingReviews } from '@/components/usePendingReviews';
 import { Sheet } from '@/components/ui/Sheet';
 
 const moreItems = [
@@ -24,6 +25,8 @@ interface MoreSheetProps {
 export function MoreSheet({ open, onClose }: MoreSheetProps) {
   const { user } = useAuth();
   const visible = moreItems.filter((item) => !(item.ownerOnly && user?.role !== 'OWNER'));
+  // ZP-508: reviews waiting for the owner, as a badge on "Website".
+  const pendingReviews = usePendingReviews();
 
   return (
     <Sheet open={open} onClose={onClose} title="More">
@@ -38,6 +41,12 @@ export function MoreSheet({ open, onClose }: MoreSheetProps) {
           >
             <span className="text-xl">{item.icon}</span>
             <span className="font-medium">{item.label}</span>
+            {item.href === '/website' && pendingReviews > 0 ? (
+              <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-xs font-semibold text-white" data-testid="more-reviews-badge">
+                {pendingReviews}
+                <span className="sr-only"> {pendingReviewsLabel(pendingReviews)}</span>
+              </span>
+            ) : null}
           </Link>
         ))}
       </div>

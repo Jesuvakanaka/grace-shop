@@ -45,6 +45,10 @@ export class LocalImageStorage implements ImageStorage {
     }
   }
 
+  async delete(key: string): Promise<void> {
+    await rm(this.pathFor(key), { force: true })
+  }
+
   async get(key: string): Promise<StoredImage | null> {
     if (!isValidImageKey(key)) return null
     const file = this.pathFor(key)

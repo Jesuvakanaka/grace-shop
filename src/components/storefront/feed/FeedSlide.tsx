@@ -241,6 +241,13 @@ export function FeedSlide({
             <h2 className="m-0 truncate font-serif text-[21px] font-semibold leading-[1.15]">{item.name}</h2>
             <span className="flex items-center gap-2 text-sm font-medium">
               {item.price}
+              {/* ZP-508: only with at least one approved review. */}
+              {item.rating ? (
+                <span className="text-[13px] font-medium">
+                  <span aria-hidden="true">{item.rating.text}</span>
+                  <span className="sr-only">{item.rating.label}</span>
+                </span>
+              ) : null}
               {item.badge ? (
                 <span
                   className={cn(

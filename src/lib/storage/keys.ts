@@ -46,4 +46,10 @@ export interface ImageStorage {
   /** Null when the key does not exist. */
   get(key: string): Promise<StoredImage | null>
   exists(key: string): Promise<boolean>
+  /**
+   * ZP-508: remove the bytes; a missing key is not an error. Keys are
+   * content-hashed and SHARED, so callers must first check that nothing else
+   * references the key (src/lib/reviews/photos.ts).
+   */
+  delete(key: string): Promise<void>
 }

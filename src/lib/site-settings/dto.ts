@@ -57,6 +57,8 @@ export type PublicSiteSettings = {
   fewLeftThreshold: number
   /** Show the internal item number publicly ("Ref AUG-45"). */
   showItemNumber: boolean
+  /** ZP-508: the optional "Review us on Google" link (validated https Google link). */
+  reviews: { googleReviewUrl: string | null }
 }
 
 export function toPublicSiteSettings(s: SiteSettingsData): PublicSiteSettings {
@@ -91,5 +93,6 @@ export function toPublicSiteSettings(s: SiteSettingsData): PublicSiteSettings {
     seo: { title: s.seoTitle, description: s.seoDescription, shareImageUrl: publicSettingsImageUrl(s.seoShareImageKey) },
     fewLeftThreshold: s.fewLeftThreshold,
     showItemNumber: s.showItemNumber,
+    reviews: { googleReviewUrl: s.googleReviewUrl },
   }
 }

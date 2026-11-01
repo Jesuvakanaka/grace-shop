@@ -6,6 +6,7 @@
 // in ./feed-data.ts (server), the UI in src/components/storefront/feed/*.
 // Tested in tests/storefront-feed.test.ts. See docs/storefront/feed.md.
 import { ASK_FOR_PRICE, formatPriceUsd } from '@/components/storefront/product'
+import { feedRatingText, ratingLabel, type RatingSummary } from '@/lib/reviews/aggregate'
 import { buildWhatsAppLink, type WhatsAppContactSettings } from '@/lib/site-settings/whatsapp'
 import { isValidSlug } from '@/lib/storefront-model/slug'
 import type { PublicCategory, PublicProduct, PublicVideo } from './dto'
@@ -187,6 +188,12 @@ export type FeedItem = {
   shareUrl: string | null
   /** wa.me link (enquiry, or the restock message when sold out); null when no WhatsApp number is set. */
   enquireHref: string | null
+  /**
+   * ZP-508: "★ 4.8 (12)" and its accessible label, shown in the caption with
+   * the details; absent when the piece has no approved review (never "0").
+   * Optional so hand-written items (fixtures) need not list it.
+   */
+  rating?: { text: string; label: string } | null
 }
 
 export type FeedItemContext = {
@@ -194,6 +201,8 @@ export type FeedItemContext = {
   contacts: WhatsAppContactSettings
   /** Absolute public product URL (productAbsoluteUrl), or null. */
   productUrl: (slug: string) => string | null
+  /** ZP-508: the piece's approved-review summary, or null. */
+  rating?: (slug: string) => RatingSummary | null
 }
 
 export function toFeedItem(p: PublicProduct, ctx: FeedItemContext): FeedItem {
@@ -214,7 +223,14 @@ export function toFeedItem(p: PublicProduct, ctx: FeedItemContext): FeedItem {
     href: sitePath(ctx.base, SITE_ROUTES.product(p.slug)),
     shareUrl: url,
     enquireHref,
+    // Only set when there is a rating, so slides without reviews keep their shape.
+    ...withRating(ctx.rating?.(p.slug) ?? null),
   }
+}
+
+function withRating(summary: RatingSummary | null): Pick<FeedItem, 'rating'> {
+  const text = feedRatingText(summary)
+  return summary && text ? { rating: { text, label: ratingLabel(summary) } } : {}
 }
 
 /**

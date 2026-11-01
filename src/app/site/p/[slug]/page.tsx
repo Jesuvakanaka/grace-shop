@@ -8,12 +8,14 @@ import { buildWhatsAppLink, getPublicSiteSettings } from "@/lib/site-settings/pu
 import {
   getProductPreviewCandidate,
   getPublishedProductBySlug,
+  getReviewsIndex,
   listPublishedProducts,
 } from "@/lib/storefront";
 import { buildStoreVisit, todayLine } from "@/lib/storefront/menu-model";
 import { SITE_ROUTES, sitePath } from "@/lib/storefront/paths";
 import { decideProductRoute, previewTokenFrom, productAbsoluteUrl } from "@/lib/storefront/product-route";
 import { pickRelated } from "@/lib/storefront/related";
+import { jsonLdScript, productReviewsJsonLd } from "@/lib/reviews/structured-data";
 import { getSiteBase } from "@/lib/storefront/site-base";
 import { VYRA_TAGLINE } from "@/lib/storefront/shell-model";
 import { verifyPreviewTokenFor } from "@/lib/website/preview-token";
@@ -101,16 +103,32 @@ export default async function ProductPage(props: Props) {
   const preview = decision.kind === "preview";
   // ZP-503: "Try it on in store". The page renders per request, so "today" is current.
   const visit = buildStoreVisit(settings);
-  const [url, related] = await Promise.all([
+  const [url, related, reviewsIndex] = await Promise.all([
     absoluteUrl(product.slug),
     product.category.slug
       ? listPublishedProducts({ categorySlug: product.category.slug, pageSize: 48 }).then((page) =>
           pickRelated(page.items, product),
         )
       : Promise.resolve([]),
+    // ZP-508: approved reviews (cached entry); none for an owner preview.
+    preview ? Promise.resolve(null) : getReviewsIndex(),
   ]);
+  const pieceReviews = reviewsIndex?.products[product.slug] ?? null;
+  const reviews = reviewsIndex
+    ? { summary: pieceReviews?.summary ?? null, reviews: pieceReviews?.reviews ?? [], shop: reviewsIndex.shop }
+    : null;
+  const origin = url ? new URL(url).origin : null;
+  const jsonLd = productReviewsJsonLd({
+    name: product.name,
+    url,
+    image: origin && product.images[0] ? `${origin}${product.images[0].url}` : null,
+    summary: reviews?.summary ?? null,
+    reviews: reviews?.reviews ?? [],
+  });
 
   return (
+    <>
+    {jsonLd ? <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(jsonLd) }} /> : null}
     <ProductView
       product={product}
       preview={preview}
@@ -122,6 +140,8 @@ export default async function ProductPage(props: Props) {
       base={base}
       visit={visit}
       today={visit ? todayLine(visit.hours, new Date()) : null}
+      reviews={reviews}
     />
+    </>
   );
 }

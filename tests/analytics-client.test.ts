@@ -408,6 +408,13 @@ describe('analytics client', () => {
     }
   })
 
+  test('ZP-508: the one-time review page is never collected (its URL holds a token)', () => {
+    for (const pathname of ['/site/review/abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG', '/review/abc', '/REVIEW/x']) {
+      const f = fakeEnv({ location: { pathname, search: '', host: 'x' } })
+      assert.strictEqual(createAnalyticsClient(f.env).enabled, false, pathname)
+    }
+  })
+
   test('storage blocked: still collects, without a device id', () => {
     const f = fakeEnv({ session: throwing, local: throwing })
     const client = createAnalyticsClient(f.env)

@@ -5,6 +5,7 @@
 // Every block is null/empty when its data is missing, never "TBC".
 // Tested in tests/storefront-menu-product.test.ts.
 import { buildWhatsAppLink } from '@/lib/site-settings/whatsapp'
+import { formatAverage, shopRatingLine, starsText, type RatingSummary } from '@/lib/reviews/aggregate'
 import type { PublicSiteSettings } from '@/lib/site-settings/dto'
 import type { OpeningHours } from '@/lib/site-settings/schema'
 import type { SocialLink } from '@/components/storefront/types'
@@ -99,6 +100,16 @@ export type MenuModel = {
   whatsappHref: string | null
   social: SocialLink[]
   tagline: string
+  /** ZP-508: the shop rating box ("Rated 4.8 out of 5 by 36 verified customers"); null until approved reviews exist. */
+  shopRating: MenuShopRating | null
+}
+
+export type MenuShopRating = { average: string; stars: string; line: string }
+
+/** The menu's shop rating box, or null (never "0 reviews"). */
+export function menuShopRating(summary: RatingSummary | null | undefined): MenuShopRating | null {
+  const line = shopRatingLine(summary ?? null)
+  return summary && line ? { average: formatAverage(summary.average), stars: starsText(summary.average), line } : null
 }
 
 export function buildMenuModel(input: {
@@ -106,6 +117,8 @@ export function buildMenuModel(input: {
   /** The feed's collections (feedTabs): New in, then categories with at least one look. */
   tabs: readonly FeedTab[]
   base: SiteBase
+  /** ZP-508: the shop's approved-review summary; null/absent hides the rating box. */
+  shopRating?: RatingSummary | null
 }): MenuModel {
   const { settings, tabs, base } = input
   const to = (path: string) => sitePath(base, path)
@@ -127,5 +140,6 @@ export function buildMenuModel(input: {
     // Same social list (labels, order) as the header and footer.
     social: buildShellModel({ settings, categories: [], base }).social,
     tagline: VYRA_TAGLINE,
+    shopRating: menuShopRating(input.shopRating),
   }
 }

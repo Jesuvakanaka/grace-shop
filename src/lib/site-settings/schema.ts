@@ -61,6 +61,8 @@ export type SiteSettingsData = {
   // Availability / product display
   fewLeftThreshold: number
   showItemNumber: boolean
+  // Reviews (ZP-508): "Review us on Google" on the review thank-you screen; null hides it.
+  googleReviewUrl: string | null
 }
 
 export type SiteSettingsField = keyof SiteSettingsData
@@ -96,6 +98,7 @@ export const SITE_SETTINGS_DEFAULTS: Readonly<SiteSettingsData> = Object.freeze(
   seoShareImageKey: null,
   fewLeftThreshold: 3,
   showItemNumber: false,
+  googleReviewUrl: null,
 })
 
 /** The PUT allow-list. Anything else in a request body is rejected. */
@@ -125,6 +128,14 @@ export const MAX_LENGTH = {
   seoTitle: 70,
   seoDescription: 300,
 } as const
+
+/**
+ * ZP-508: a "Review us on Google" link may only be on these exact hosts (any
+ * path): g.page/r/…, search.google.com/local/writereview…, maps.app.goo.gl/…
+ */
+export const GOOGLE_REVIEW_HOSTS = ['g.page', 'search.google.com', 'maps.app.goo.gl'] as const
+/** ...or on these hosts under /maps only (google.com/maps/place/…). */
+export const GOOGLE_MAPS_HOSTS = ['www.google.com', 'google.com'] as const
 
 /** Allowed host names (and their subdomains) per social link. */
 export const SOCIAL_DOMAINS = {

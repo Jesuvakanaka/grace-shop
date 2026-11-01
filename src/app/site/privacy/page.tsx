@@ -42,7 +42,7 @@ export default async function PrivacyPage() {
           <span className="sf-rule" aria-hidden="true" />
           <h1 className="sf-display text-balance">Privacy</h1>
           <p className="sf-body text-lg text-brand-ink-soft">
-            The short version: this website does not ask for your name, phone number, email or payment details. To
+            The short version: browsing this website does not ask for your name, phone number, email or payment details. To
             learn which pieces people like, it counts visits anonymously, on our own systems. Nothing is sold or
             shared, there are no cookies and no advertising trackers.
           </p>
@@ -128,6 +128,22 @@ export default async function PrivacyPage() {
             send. Nothing is sent until you press send. Your conversation with us then happens on WhatsApp, under
             WhatsApp&apos;s own terms and privacy policy. We only use what you tell us to answer your enquiry. The site
             counts that the button was tapped, not what you write.
+          </p>
+        </Section>
+
+        {/* ZP-508: customer reviews. */}
+        <Section id="privacy-reviews" title="Reviews">
+          <p className="sf-body text-brand-ink-soft">
+            If you bought from us, we may send you a one-time link to review your piece or our shop. The review form is
+            the only place on this site that asks for your name. A review shows your first name and the initial of your
+            last name (for example &ldquo;Tendai M.&rdquo;), your star rating, your words and the date; your full name
+            is not kept. Location and camera details are removed from a photo you add. The photo is only kept, and
+            only shown with your review, if you tick the box allowing it; otherwise it is deleted when you send the
+            review. A photo you remove or replace is deleted straight away, and a photo added to a link that is never
+            used is deleted within a day after the link expires (30 days). Your phone number is never published, and
+            the review page itself is not counted in our visit statistics. Every review is checked by us before it
+            appears. To change or remove your review, just ask us using the details below: deleting a review also
+            deletes its photo.
           </p>
         </Section>
 

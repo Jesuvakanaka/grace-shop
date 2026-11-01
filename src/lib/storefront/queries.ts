@@ -145,15 +145,21 @@ export async function getPublishedCategory(db: Db, slug: string): Promise<Public
  * of a public product (any one of them; keys are shared between products),
  * or it is the hero image of a published category, or it is one of the
  * CURRENT site settings pictures (hero desktop/mobile, about, share image;
- * settingsImageKeys, ZP-486). Not cached, so unpublishing or replacing a
+ * settingsImageKeys, ZP-486), or an APPROVED review photo the customer agreed
+ * to show, on a public piece (ZP-508). Not cached, so unpublishing or replacing a
  * picture takes effect at once for this check.
  */
 export async function isPublicImageKey(db: Db, key: string): Promise<boolean> {
   if (!isValidImageKey(key)) return false
-  const [image, category, settings] = await Promise.all([
+  const [image, category, settings, review] = await Promise.all([
     db.productImage.findFirst({ where: { imageKey: key, product: PUBLIC_PRODUCT_WHERE }, select: { id: true } }),
     db.category.findFirst({ where: { heroImageKey: key, published: true }, select: { id: true } }),
     isSettingsImageKey(db, key),
+    // ZP-508: a customer's review photo, only when APPROVED, with consent, on a public piece.
+    db.review.findFirst({
+      where: { photoKey: key, status: 'APPROVED', photoConsent: true, product: PUBLIC_PRODUCT_WHERE },
+      select: { id: true },
+    }),
   ])
-  return image !== null || category !== null || settings
+  return image !== null || category !== null || settings || review !== null
 }

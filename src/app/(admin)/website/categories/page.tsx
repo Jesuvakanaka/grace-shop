@@ -129,6 +129,9 @@ export default function WebsiteCategoriesPage() {
         <span className="pb-2 border-b-2 border-brand-olive text-brand-olive-700 font-medium" aria-current="page">
           Categories
         </span>
+        <Link href="/website/reviews" className="pb-2 text-slate-600 hover:text-slate-900" data-testid="website-nav-reviews">
+          Reviews
+        </Link>
         <Link href="/website/settings" className="pb-2 text-slate-600 hover:text-slate-900" data-testid="website-nav-settings">
           Site settings
         </Link>

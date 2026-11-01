@@ -19,7 +19,7 @@
 //   memory for this page and no device id is sent.
 import { campaignFromSearch, deviceClass, normalizePage, visitSource } from './context'
 import type { PageVisibilitySource } from './dwell'
-import { BATCH_VERSION, MAX_BATCH_EVENTS, validateEvent, type AnalyticsEventType, type PropValue } from './events'
+import { BATCH_VERSION, MAX_BATCH_EVENTS, isPrivatePagePath, validateEvent, type AnalyticsEventType, type PropValue } from './events'
 import { isAutomatedClient, isOptedOutClient, type PrivacyNavigator } from './privacy'
 
 export const ANALYTICS_ENDPOINT = '/api/public/events'
@@ -132,6 +132,8 @@ function parseVisit(raw: string | null): VisitState | null {
 
 function isPreviewPage(location: { pathname: string; search: string }): boolean {
   if (/^\/(site\/)?preview(\/|$)/.test(location.pathname)) return true
+  // ZP-508: the one-time review page is never tracked (its URL holds a token).
+  if (isPrivatePagePath(location.pathname)) return true
   try {
     return new URLSearchParams(location.search).has('preview')
   } catch {

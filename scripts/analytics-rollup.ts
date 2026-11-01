@@ -10,6 +10,7 @@
 // Scheduling: docs/storefront/analytics.md ("Rollup job").
 import { PrismaClient } from '@prisma/client'
 import { parseRollupArgs, runRollup } from '../src/lib/analytics/rollup'
+import { runReviewPhotoCleanup } from '../src/lib/reviews/cleanup-job'
 
 async function main() {
   const plan = parseRollupArgs(process.argv.slice(2))
@@ -28,6 +29,9 @@ async function main() {
         ms: Date.now() - started,
       }),
     )
+    // ZP-508: the nightly review-photo sweep rides on this job. Its failure
+    // fails the job (exit 1) after the rollup has been written.
+    console.log(JSON.stringify({ job: 'reviews-cleanup', ...(await runReviewPhotoCleanup(prisma)) }))
   } finally {
     await prisma.$disconnect()
   }

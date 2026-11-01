@@ -3,7 +3,7 @@
 // Only coarse values leave the browser: a referrer bucket and the referring
 // domain (never the full referrer URL), a campaign tag, the device class,
 // the viewport size, the language and the landing path (no query string).
-import type { DeviceClass, ReferrerBucket } from './events'
+import { isPrivatePagePath, type DeviceClass, type ReferrerBucket } from './events'
 
 type KnownBucket = Exclude<ReferrerBucket, 'direct' | 'other'>
 
@@ -120,6 +120,8 @@ export function normalizePage(pathname: string): string {
   let p = pathname || '/'
   if (p === '/site' || p.startsWith('/site/')) p = p.slice('/site'.length) || '/'
   if (!p.startsWith('/')) p = `/${p}`
+  // ZP-508: never the one-time review token (/review/<token> -> /review).
+  if (isPrivatePagePath(p)) return '/review'
   if (p.length > 1) p = p.replace(/\/+$/, '') || '/'
   p = p.replace(/[^A-Za-z0-9\-._~%!$&'()*+,;=:@/]/g, (c) => encodeURIComponent(c))
   return p.slice(0, 200)

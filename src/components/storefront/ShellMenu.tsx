@@ -152,9 +152,20 @@ function MenuContent({ menu, onNavigate }: { menu: MenuModel; onNavigate: () => 
         ) : null}
       </div>
 
-      {/* ZP-508 slot: the shop rating line ("Rated 4.8 out of 5 by N verified
-          customers") goes here, between WhatsApp and the tagline. Nothing is
-          shown until reviews exist. */}
+      {/* ZP-508: the shop rating, between WhatsApp and the tagline; only once approved reviews exist. */}
+      {menu.shopRating ? (
+        <div className="mx-6 mt-6 flex items-center gap-3 rounded-[2px] bg-brand-cream-100 px-4 py-3.5 text-[13px] text-brand-ink-soft">
+          <span aria-hidden="true" className="font-serif text-[34px] font-semibold leading-none text-brand-ink">
+            {menu.shopRating.average}
+          </span>
+          <span className="flex flex-col gap-0.5">
+            <span aria-hidden="true" className="tracking-[0.06em] text-brand-olive-700">
+              {menu.shopRating.stars}
+            </span>
+            <span>{menu.shopRating.line}</span>
+          </span>
+        </div>
+      ) : null}
 
       <div className="mt-auto flex flex-col items-center gap-3 px-6 pb-7 pt-8">
         <p className="text-xs font-medium uppercase tracking-[0.26em]">{menu.tagline}</p>

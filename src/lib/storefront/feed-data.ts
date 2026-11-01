@@ -21,7 +21,7 @@ import {
   type FeedPage,
   type FeedTab,
 } from './feed'
-import { listPublishedCategories, listPublishedProducts, type PublicProduct } from './index'
+import { getReviewsIndex, listPublishedCategories, listPublishedProducts, type PublicProduct } from './index'
 import { productAbsoluteUrl } from './product-route'
 import { getSiteBase } from './site-base'
 
@@ -49,11 +49,12 @@ export type FeedLoad = { tab: string; tabs: FeedTab[]; page: FeedPage<FeedItem> 
  * in). `through` extends the load to a remembered slide.
  */
 export async function loadFeed(input: { tab: unknown; offset?: number; limit?: number; through?: string | null }): Promise<FeedLoad> {
-  const [{ ordered, tabs }, settings, base, h] = await Promise.all([
+  const [{ ordered, tabs }, settings, base, h, reviews] = await Promise.all([
     feedSource(),
     getPublicSiteSettings(),
     getSiteBase(),
     headers(),
+    getReviewsIndex(), // ZP-508: cached entry; "★ 4.8 (12)" in the caption
   ])
   const tab = resolveFeedTab(input.tab, tabs)
   const storefrontHosts = hostRoutingConfigFromEnv().storefrontHosts
@@ -63,6 +64,7 @@ export async function loadFeed(input: { tab: unknown; offset?: number; limit?: n
     base,
     contacts: settings.contacts,
     productUrl: (slug: string) => productAbsoluteUrl({ slug, storefrontHosts, host }),
+    rating: (slug: string) => reviews.products[slug]?.summary ?? null,
   }
   return { tab, tabs, page: { ...page, items: page.items.map((p) => toFeedItem(p, ctx)) } }
 }
