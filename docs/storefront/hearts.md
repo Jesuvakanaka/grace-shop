@@ -7,8 +7,8 @@ No sign-in. One heart per piece per device; un-love is allowed.
 
 - **Feed** (`FeedSlide`): a round heart button on the rail, directly above the
   eye, also in clean view. Under it: "Love", or the number from 3 loves.
-  The rail order, top to bottom, is Enquire / Share / Details (with details),
-  then the heart and the eye, so the eye no longer moves when details open.
+  The rail order, top to bottom, is Share / Details (with details only), the
+  WhatsApp button, the heart and the eye (`railItems`, see feed.md).
 - **Product page** (`ProductView`): a pill under the price, "Love it", or
   "Loved by 24" from 3 loves. Not shown on an owner preview.
 - A real `<button>`, `aria-pressed`, named "Love <piece name>" plus the

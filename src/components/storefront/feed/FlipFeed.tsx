@@ -112,14 +112,12 @@ export function FlipFeed({
   const [nextOffset, setNextOffset] = useState(initialNextOffset);
   const [total, setTotal] = useState(initialTotal);
   const [active, setActive] = useState(0);
-  const [hinted, setHinted] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   /** Caption and rail shown. Clean view (photos only) by default; the choice is kept for the session. */
   const [details, setDetails] = useState(false);
   /**
    * ZP-509 first-visit guide: "pending" until the browser has been asked
-   * (server render and hydration: no guide, no swipe hint), then "open" or
-   * "done". The swipe hint shows only once it is "done".
+   * (server render and hydration: no guide), then "open" or "done".
    */
   const [guide, setGuide] = useState<"pending" | "open" | "done">("pending");
   /**
@@ -170,8 +168,6 @@ export function FlipFeed({
   const slideCount = items.length + 1; // the looks, then the end (or loading) slide
   const tabLabel = tabs.find((t) => t.id === tab)?.label ?? tabs[0]?.label ?? "";
   const atEnd = nextOffset === null && active >= items.length;
-  /** "Swipe up for the next look": after the guide (or when it is not shown), until the first scroll. */
-  const showHint = !hinted && items.length > 0 && guide === "done";
 
   // ------------------------------------------------------------ helpers
 
@@ -187,7 +183,6 @@ export function FlipFeed({
     if (!el) return;
     setActive(slideIndexAt(el.scrollTop, el.clientHeight, el.childElementCount));
     setSynced(true);
-    if (el.scrollTop > 40) setHinted(true);
     ready.current = true;
   }, []);
 
@@ -396,7 +391,6 @@ export function FlipFeed({
     const el = scroller.current;
     if (!el) return;
     ready.current = true;
-    if (!hinted && el.scrollTop > 40) setHinted(true);
     const index = slideIndexAt(el.scrollTop, el.clientHeight, slideCount);
     if (index !== active) setActive(index);
     if (!synced) setSynced(true);
@@ -425,7 +419,6 @@ export function FlipFeed({
   // ---------------------------------------------------------- actions
 
   const selectTab = (id: string) => {
-    setHinted(true);
     if (id === tab) {
       scrollToIndex(0, true);
       return;
@@ -570,7 +563,6 @@ export function FlipFeed({
               item={item}
               index={i}
               total={total}
-              lifted={showHint}
               priority={i === 0 ? "high" : i === 1 ? "eager" : "lazy"}
               // Null until the current slide is read from the scroll position (a #look- reload starts elsewhere).
               slideOffset={synced ? i - active : null}
@@ -617,15 +609,6 @@ export function FlipFeed({
           )}
         </div>
 
-        {showHint ? (
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 bottom-2.5 z-10 flex flex-col items-center text-brand-cream motion-safe:animate-pulse"
-          >
-            <ChevronIcon direction="up" className="h-5 w-5" />
-            <span className="text-[10px] font-medium uppercase tracking-[0.2em]">Swipe up for the next look</span>
-          </div>
-        ) : null}
       </div>
 
       <div className="hidden w-12 flex-col gap-3 md:flex">

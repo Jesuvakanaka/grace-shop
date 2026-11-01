@@ -236,6 +236,48 @@ function withRating(summary: RatingSummary | null): Pick<FeedItem, 'rating'> {
   return summary && text ? { rating: { text, label: ratingLabel(summary) } } : {}
 }
 
+/** A control of a slide's right-hand rail. */
+export type RailItem = 'share' | 'details' | 'enquire' | 'visit' | 'love' | 'eye'
+
+/**
+ * The rail, top to bottom. The WhatsApp button (Enquire / Restock, or Visit
+ * us without a WhatsApp number), the heart and the eye always show, clean
+ * view too; "Show details" adds Share (when there is a share URL) and Details
+ * on top. The eye is always last, so it never moves.
+ */
+export function railItems(input: { details: boolean; enquire: boolean; share: boolean }): RailItem[] {
+  return [
+    ...(input.details && input.share ? (['share'] as const) : []),
+    ...(input.details ? (['details'] as const) : []),
+    input.enquire ? 'enquire' : 'visit',
+    'love',
+    'eye',
+  ]
+}
+
+/** The previous / next photo arrows of a slide's strip: not before the first item, not after the last. */
+export function photoNav(index: number, count: number): { prev: boolean; next: boolean } {
+  return { prev: count > 1 && index > 0, next: count > 1 && index < count - 1 }
+}
+
+/**
+ * The feed frame's height fix for browsers whose 100dvh / 100svh / 100vh is
+ * taller than what is on screen (bottom toolbars, Samsung Internet): the
+ * visible height (visualViewport, or innerHeight while pinch-zoomed or
+ * without it) when the frame is taller than that, else null (no fix).
+ */
+export function frameHeightFix(input: {
+  frameHeight: number
+  innerHeight: number
+  visualHeight: number | null
+  visualScale: number
+}): number | null {
+  const zoomed = Math.abs(input.visualScale - 1) > 0.01
+  const visible = input.visualHeight && input.visualHeight > 0 && !zoomed ? input.visualHeight : input.innerHeight
+  if (!(visible > 0) || !(input.frameHeight > 0)) return null
+  return input.frameHeight > visible + 1 ? Math.round(visible) : null
+}
+
 /**
  * The accessible name of a slide's first photo link in clean view (no
  * caption on screen): "<name>, <price>[, <tag>]. View details".

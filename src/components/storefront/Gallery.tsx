@@ -12,6 +12,20 @@ import type { StorefrontImageData } from "./types";
 import { GalleryVideo } from "./video/GalleryVideo";
 import { PlayIcon } from "./video/video-icons";
 
+/**
+ * Where a cover crop keeps the picture (as the feed does): the top, so heads
+ * stay in view. GalleryVideo uses the same position for the video and its poster.
+ */
+const GALLERY_OBJECT_POSITION = "object-[50%_20%]";
+/**
+ * The main photo / video box. Phones: 2:3, the shape of the photos, so
+ * nothing is cropped, capped at 75% of the small viewport height on short
+ * phones (then the top-weighted crop above applies). lg: 4:5 beside the
+ * details column, as before.
+ */
+const galleryFrame =
+  "relative aspect-[2/3] max-h-[75vh] w-full overflow-hidden bg-brand-cream-100 supports-[height:100svh]:max-h-[75svh] lg:aspect-[4/5] lg:max-h-none lg:supports-[height:100svh]:max-h-none";
+
 type GalleryProps = {
   images: StorefrontImageData[];
   /** ZP-502: the product video, shown first (before the photos); not in the full-screen view. */
@@ -198,9 +212,9 @@ export function Gallery({ images, video, label, eager = true, counter = false, c
                 aria-roledescription="slide"
                 aria-label={`${i + 1} of ${count}, video`}
               >
-                <ImageFrame ratio="4 / 5">
+                <div className={galleryFrame}>
                   <GalleryVideo video={item.video} name={label} eager={eager} slug={slug} />
-                </ImageFrame>
+                </div>
               </div>
             ) : (
               <div
@@ -213,9 +227,14 @@ export function Gallery({ images, video, label, eager = true, counter = false, c
                 aria-roledescription="slide"
                 aria-label={`${i + 1} of ${count}`}
               >
-                <ImageFrame ratio="4 / 5">
-                  <StorefrontImg image={item.image} eager={eager && i === 0} sizes="(min-width: 1024px) 560px, 100vw" />
-                </ImageFrame>
+                <div className={galleryFrame}>
+                  <StorefrontImg
+                    image={item.image}
+                    eager={eager && i === 0}
+                    sizes="(min-width: 1024px) 560px, 100vw"
+                    className={GALLERY_OBJECT_POSITION}
+                  />
+                </div>
               </div>
             ),
           )}

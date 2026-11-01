@@ -93,8 +93,11 @@ Input is the catalogue's "newest" sort (newest published first). Output:
 ## Slide
 
 - Photos side by side with horizontal scroll snap; thin progress bars just
-  under the top bar (68px from the top) when there is more than one photo;
-  on mouse devices, previous/next photo buttons.
+  under the top bar (68px from the top) when there is more than one photo.
+  Previous / next photo buttons on every device (`photoNav`): small round
+  pills beside the progress bars (82px from the top, left and right edge),
+  so they never sit under the rail; "Next photo" only when there is a next
+  item, "Previous photo" only after the first. Swiping stays the main gesture.
 - A look goes back to its first photo once it is fully off screen: each
   slide has an IntersectionObserver, and when its intersection ratio drops
   to 0 its own strip is set to `scrollLeft = 0` (instant) and its progress
@@ -141,7 +144,7 @@ once with a React `<style href precedence>`):
 - Contrast: cream text and the lime-200 step label stay above 4.5:1 even
   over a white photo (70% ink layer plus a text shadow); Next is cream on olive.
 - **When**: only on the landing feed (`FlipFeed`), decided after hydration
-  (nothing in the server HTML; the swipe hint waits for it). "Seen" is
+  (nothing in the server HTML). "Seen" is
   `localStorage` `vyra:feed:guide` = `seen`, written when the guide is
   finished, skipped or closed (read and written in try/catch: storage
   unavailable means it shows again next time). Never when the page opens on
@@ -154,10 +157,12 @@ once with a React `<style href precedence>`):
 
 ### Clean view and "Show details"
 
-- The feed opens on the clothes alone: no caption, no rail, no bottom scrim.
-  An eye button at the bottom right reads **Show details**. Its accessible
+- The feed opens on the clothes: no caption, no bottom scrim, and a short
+  rail (owner, after the Samsung test): the WhatsApp button (Enquire / Restock,
+  or Visit us), the heart and the eye. The eye at the bottom right reads
+  **Show details**. Its accessible
   name is always "Show details" and `aria-pressed` gives the state.
-  Tapping it shows the caption and the rail on every slide; the visible text
+  Tapping it shows the caption, Share and Details on every slide; the visible text
   then reads **Hide** (`aria-pressed="true"`).
 - The choice is kept in `sessionStorage` (`vyra:feed:details`, "shown" or
   "hidden"; read and written in try/catch, `parseDetailsPreference`), so it
@@ -167,9 +172,11 @@ once with a React `<style href precedence>`):
   "<name>, <price>[, <tag>]. View details" (`photoLinkLabel`), and an
   sr-only `<h2>` keeps the look's heading, so keyboard and screen reader
   users still get the name, price and tag and reach the product page.
-- The first-slide swipe hint shows after the first-visit guide (below),
-  until the first scroll. While it shows, the caption and the rail sit higher (48px from the bottom) so they
-  never touch it.
+- "Swipe up for the next look" (a small chevron and text, 80% cream with a
+  text shadow) shows at the bottom of **every** look, always (owner), not on
+  the end slide. It sits on the safe bottom (`max(env(safe-area-inset-bottom),
+  12px)`); the caption and the rail sit 38–40px above it, in clean view and
+  with details.
 
 ### With details
 
@@ -179,10 +186,12 @@ once with a React `<style href precedence>`):
   caption is one link to the product page.
 - A light, short bottom scrim (190px, up to 72% ink; at least 62% behind the
   caption, plus a text shadow).
-- ZP-507: a **heart** sits directly above the eye, in clean view too ("Love",
-  or the number from 3 loves; see `docs/storefront/hearts.md`). The eye stays
-  at the bottom of the rail, so it does not move when details open.
-- Rail, above the heart: **Enquire** (wa.me link from `buildWhatsAppLink` with the owner's
+- The rail, top to bottom (`railItems`): **Share**, **Details** (with details
+  only), the WhatsApp button, the **heart** (ZP-507: "Love", or the number from
+  3 loves; see `docs/storefront/hearts.md`), the **eye**. The WhatsApp button,
+  heart and eye always show; the eye stays at the bottom, so it never moves
+  (the guide's step 3 ring measures the real eye, so it follows).
+- The WhatsApp button: **Enquire** (wa.me link from `buildWhatsAppLink` with the owner's
   enquiry template, via `productEnquiryHref`), or **Restock** for sold-out
   pieces (`RESTOCK_TEMPLATE`: "Hi VYRA, please let me know when the
   {product} is back in stock. ({url})", also through `buildWhatsAppLink`).
@@ -214,8 +223,12 @@ scrolled to the anchor before hydration, which fires no scroll event).
 
 ## Phones and computers
 
-- Phones: the feed fills the screen. The frame is `100svh` high (`100vh`
-  where svh is unsupported) and the document never scrolls (the feed scrolls inside itself and the page locks
+- Phones: the feed fills the screen. The frame (`.sf-feed-frame`) is
+  `100dvh` high (`100svh`, then `100vh` where unsupported). Where the result
+  is still taller than what is on screen (Samsung Internet, some Android
+  Chrome bottom toolbars), `StorefrontFrame` pins it from JS to the visible
+  height (`frameHeightFix`: `visualViewport.height`, or `innerHeight` while
+  pinch-zoomed; checked on mount and on resize only). The document never scrolls (the feed scrolls inside itself and the page locks
   `html` overflow while mounted), so on iOS the URL bar does not collapse
   and nothing jumps.
 - md (768px) and up: the same feed in a centred phone-shaped column (9:16,
@@ -228,8 +241,7 @@ scrolled to the anchor before hydration, which fires no scroll event).
   Page Up/Down, Space (on the feed itself), Home and End move between
   slides. Keys are handled on the feed element only (no global keydown).
 - `prefers-reduced-motion`: every programmatic scroll is instant.
-- "Swipe up for the next look" shows once the first-visit guide is done (or
-  was not shown), until the first scroll.
+- "Swipe up for the next look" shows on every look (see Clean view).
 
 ## Header and footer
 

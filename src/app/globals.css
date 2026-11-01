@@ -486,6 +486,21 @@ body {
   outline: none;
 }
 
+/*
+ * The landing feed's frame (StorefrontFrame): the visible viewport. Each line
+ * overrides the previous one only where the browser understands it. Where the
+ * result is still taller than what is on screen (bottom toolbars), the frame
+ * gets data-vh and the measured --sf-visible-h from JS.
+ */
+.sf-feed-frame {
+  height: 100vh;
+  height: 100svh;
+  height: 100dvh;
+}
+.sf-feed-frame[data-vh] {
+  height: var(--sf-visible-h);
+}
+
 /* ZP-507: the heart's small pop when it is loved (none with reduced motion: motion-safe: in LoveButton). */
 @keyframes sf-heart-pop {
   0% {

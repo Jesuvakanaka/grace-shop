@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { track, useActiveDwell, useDwell } from "@/lib/analytics/client";
-import { lookAnchorId, photoLinkLabel, type FeedBadge, type FeedItem } from "@/lib/storefront/feed";
+import { lookAnchorId, photoLinkLabel, photoNav, railItems, type FeedBadge, type FeedItem } from "@/lib/storefront/feed";
 import { mediaItems } from "@/lib/storefront/feed-media";
 import { enquiryEvent, photoProps } from "@/lib/storefront/tracking";
 import { cn } from "../cn";
@@ -28,12 +28,20 @@ const railRing = "flex h-[50px] w-[50px] items-center justify-center rounded-ful
 const railQuiet = "border border-brand-cream-50/25 bg-[rgba(20,20,18,0.45)]";
 const railLabel = "text-[11px] font-medium tracking-[0.06em] [text-shadow:0_1px_3px_rgba(0,0,0,0.6)]";
 
+// Bottom offsets clear of the phone's gesture bar / browser toolbar: the
+// safe-area inset or at least 12px. The swipe hint sits there on every look;
+// the caption and rail sit above it.
+const hintBottom = "bottom-[max(env(safe-area-inset-bottom),12px)]";
+const railBottom = "bottom-[calc(max(env(safe-area-inset-bottom),12px)_+_40px)]";
+const captionBottom = "bottom-[calc(max(env(safe-area-inset-bottom),12px)_+_38px)]";
+// The previous / next photo pills, beside the progress bars (top 68px), clear of the rail.
+const photoArrow =
+  "sf-focus absolute top-[82px] z-[1] flex h-9 w-9 items-center justify-center rounded-full border border-brand-cream-50/30 bg-[rgba(20,20,18,0.5)] text-brand-cream-50";
+
 type FeedSlideProps = {
   item: FeedItem;
   index: number;
   total: number;
-  /** The first-slide swipe hint is showing: lift the caption and rail clear of it. */
-  lifted: boolean;
   /**
    * The first photo: "high" (first slide, the LCP: eager + fetchpriority
    * high), "eager" (second slide, ready for the first flick), else "lazy".
@@ -58,10 +66,12 @@ type FeedSlideProps = {
  * One look: its photos side by side (swipe sideways, thin progress bars just
  * under the top bar; ZP-502: the video, if any, first, see FeedVideo) and, at the bottom right, the "Show details" eye.
  *
- * Clean view (the default): the clothes alone. With details: a light bottom
- * scrim, a slim caption (one-line serif name, price, tag, "Tap for details";
- * the caption links to the product page) and the rail (Enquire / Restock on
- * WhatsApp or Visit us, Share, Details). Every way into the product page is
+ * Clean view (the default): the clothes, the WhatsApp button (Enquire /
+ * Restock, or Visit us), the heart and the eye. With details: a light bottom
+ * scrim, a slim caption (one-line serif name, price, rating, tag, "Tap for
+ * details"; the caption links to the product page) and Share and Details on
+ * top of the rail (railItems). "Swipe up for the next look" and the photo
+ * arrows show on every look. Every way into the product page is
  * a real <a href>. In clean view the first photo link is in the tab order,
  * named "<name>, <price>[, <tag>]. View details" (photoLinkLabel), and an
  * sr-only <h2> keeps the look's heading.
@@ -70,7 +80,6 @@ export function FeedSlide({
   item,
   index,
   total,
-  lifted,
   priority,
   slideOffset,
   details,
@@ -118,6 +127,8 @@ export function FeedSlide({
     el.scrollTo({ left: (photo + dir) * el.clientWidth, behavior: reduce ? "auto" : "smooth" });
   };
   const leave = () => onLeave(item.slug);
+  const nav = photoNav(photo, count);
+  const rail = railItems({ details, enquire: item.enquireHref !== null, share: item.shareUrl !== null });
 
   // ZP-493 analytics (docs/storefront/analytics.md). No scroll handlers: the
   // current slide comes from the feed, dwell from IntersectionObserver.
@@ -237,27 +248,28 @@ export function FeedSlide({
               />
             ))}
           </div>
-          {/* Mouse users: step through the photos (touch and trackpads swipe). */}
-          <div className="pointer-events-none absolute inset-x-2 top-1/2 hidden -translate-y-1/2 justify-between [@media(hover:hover)_and_(pointer:fine)]:flex">
+          {/* Previous / next photo (all devices; swiping stays the main gesture): beside the
+              progress bars at the top, never under the rail. Only when there is one to go to. */}
+          {nav.prev ? (
             <button
               type="button"
               onClick={() => stepPhoto(-1)}
-              disabled={photo === 0}
-              aria-label={`Previous photo of the ${item.name}`}
-              className="sf-focus pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full bg-[rgba(20,20,18,0.55)] text-brand-cream-50 transition-opacity disabled:opacity-0"
+              aria-label="Previous photo"
+              className={cn(photoArrow, "left-3")}
             >
-              <ChevronIcon direction="left" className="h-5 w-5" />
+              <ChevronIcon direction="left" className="h-[18px] w-[18px]" />
             </button>
+          ) : null}
+          {nav.next ? (
             <button
               type="button"
               onClick={() => stepPhoto(1)}
-              disabled={photo >= count - 1}
-              aria-label={`Next photo of the ${item.name}`}
-              className="sf-focus pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full bg-[rgba(20,20,18,0.55)] text-brand-cream-50 transition-opacity disabled:opacity-0"
+              aria-label="Next photo"
+              className={cn(photoArrow, "right-3")}
             >
-              <ChevronIcon direction="right" className="h-5 w-5" />
+              <ChevronIcon direction="right" className="h-[18px] w-[18px]" />
             </button>
-          </div>
+          ) : null}
         </>
       ) : null}
 
@@ -277,7 +289,7 @@ export function FeedSlide({
             className={cn(
               "sf-focus absolute left-4 right-[84px] flex flex-col gap-[3px] rounded-[2px] p-1 text-brand-cream-50 [text-shadow:0_1px_3px_rgba(0,0,0,0.55)]",
               // Clear of the first-slide swipe hint while it shows.
-              lifted ? "bottom-12" : "bottom-[22px]",
+              captionBottom,
             )}
           >
             <h2 className="m-0 truncate font-serif text-[21px] font-semibold leading-[1.15]">{item.name}</h2>
@@ -308,66 +320,95 @@ export function FeedSlide({
         </>
       ) : null}
 
-      {/* The rail, bottom up: the eye, the heart (ZP-507: both also in clean view), then with details Details, Share, Enquire. */}
-      <div className={cn("absolute right-3 flex flex-col items-center gap-3.5", lifted ? "bottom-12" : "bottom-6")}>
-        {details ? (
-          <>
-            {item.enquireHref ? (
-              <a
-                href={item.enquireHref}
-                onClick={enquire}
-                className={railItem}
-                aria-label={item.soldOut ? `Ask about a restock of the ${item.name} on WhatsApp` : `Enquire about the ${item.name} on WhatsApp`}
-              >
-                <span className={cn(railRing, "border border-brand-olive bg-brand-olive")}>
-                  <EnquireIcon className="h-6 w-6" />
-                </span>
-                <span className={railLabel}>{item.soldOut ? "Restock" : "Enquire"}</span>
-              </a>
-            ) : (
-              <Link href={visitHref} onClick={() => track("visit_us", { screen: "feed" })} className={railItem}>
-                <span className={cn(railRing, "border border-brand-olive bg-brand-olive")}>
-                  <PinIcon className="h-6 w-6" />
-                </span>
-                <span className={railLabel}>Visit us</span>
-              </Link>
-            )}
-            {item.shareUrl ? (
-              <button
-                type="button"
-                onClick={() => void onShare()}
-                className={railItem}
-                aria-label={`Share the ${item.name}`}
-              >
-                <span className={cn(railRing, railQuiet)}>
-                  <ShareIcon className="h-[22px] w-[22px]" />
-                </span>
-                <span className={railLabel}>Share</span>
-              </button>
-            ) : null}
-            <Link href={item.href} onClick={leave} className={railItem} aria-label={`Details of the ${item.name}`}>
-              <span className={cn(railRing, railQuiet)}>
-                <DetailsIcon className="h-[22px] w-[22px]" />
-              </span>
-              <span className={railLabel}>Details</span>
-            </Link>
-          </>
-        ) : null}
-        <LoveButton slug={slug} name={item.name} loves={item.loves} variant="rail" />
-        <button
-          type="button"
-          onClick={onToggleDetails}
-          // One fixed name; aria-pressed says whether details are shown.
-          aria-pressed={details}
-          aria-label="Show details"
-          className={railItem}
-        >
-          {/* data-feed-eye: the first-visit guide rings this button (FeedGuide). */}
-          <span data-feed-eye="" className={cn("flex h-11 w-11 items-center justify-center rounded-full", railQuiet)}>
-            <EyeIcon className="h-5 w-5" />
-          </span>
-          <span className={railLabel}>{details ? "Hide" : "Show details"}</span>
-        </button>
+      {/* The rail, top to bottom (railItems): [Share, Details: with details only], WhatsApp
+          (Enquire / Restock, or Visit us), the heart, the eye. The WhatsApp button, the heart and
+          the eye float in clean view too; the eye stays at the bottom and never moves. */}
+      <div className={cn("absolute right-3 flex flex-col items-center gap-3.5", railBottom)}>
+        {rail.map((kind) => {
+          switch (kind) {
+            case "share":
+              return (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => void onShare()}
+                  className={railItem}
+                  aria-label={`Share the ${item.name}`}
+                >
+                  <span className={cn(railRing, railQuiet)}>
+                    <ShareIcon className="h-[22px] w-[22px]" />
+                  </span>
+                  <span className={railLabel}>Share</span>
+                </button>
+              );
+            case "details":
+              return (
+                <Link key={kind} href={item.href} onClick={leave} className={railItem} aria-label={`Details of the ${item.name}`}>
+                  <span className={cn(railRing, railQuiet)}>
+                    <DetailsIcon className="h-[22px] w-[22px]" />
+                  </span>
+                  <span className={railLabel}>Details</span>
+                </Link>
+              );
+            case "enquire":
+              return (
+                <a
+                  key={kind}
+                  href={item.enquireHref as string}
+                  onClick={enquire}
+                  className={railItem}
+                  aria-label={item.soldOut ? `Ask about a restock of the ${item.name} on WhatsApp` : `Enquire about the ${item.name} on WhatsApp`}
+                >
+                  <span className={cn(railRing, "border border-brand-olive bg-brand-olive")}>
+                    <EnquireIcon className="h-6 w-6" />
+                  </span>
+                  <span className={railLabel}>{item.soldOut ? "Restock" : "Enquire"}</span>
+                </a>
+              );
+            case "visit":
+              return (
+                <Link key={kind} href={visitHref} onClick={() => track("visit_us", { screen: "feed" })} className={railItem}>
+                  <span className={cn(railRing, "border border-brand-olive bg-brand-olive")}>
+                    <PinIcon className="h-6 w-6" />
+                  </span>
+                  <span className={railLabel}>Visit us</span>
+                </Link>
+              );
+            case "love":
+              return <LoveButton key={kind} slug={slug} name={item.name} loves={item.loves} variant="rail" />;
+            case "eye":
+              return (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={onToggleDetails}
+                  // One fixed name; aria-pressed says whether details are shown.
+                  aria-pressed={details}
+                  aria-label="Show details"
+                  className={railItem}
+                >
+                  {/* data-feed-eye: the first-visit guide rings this button (FeedGuide). */}
+                  <span data-feed-eye="" className={cn("flex h-11 w-11 items-center justify-center rounded-full", railQuiet)}>
+                    <EyeIcon className="h-5 w-5" />
+                  </span>
+                  <span className={railLabel}>{details ? "Hide" : "Show details"}</span>
+                </button>
+              );
+          }
+        })}
+      </div>
+
+      {/* "Swipe up for the next look" on every look, always (owner): small and quiet, over
+          the gesture bar / toolbar inset, below the caption and the rail. */}
+      <div
+        aria-hidden="true"
+        className={cn(
+          "pointer-events-none absolute inset-x-0 flex flex-col items-center text-brand-cream-50/80 [text-shadow:0_1px_3px_rgba(0,0,0,0.75)]",
+          hintBottom,
+        )}
+      >
+        <ChevronIcon direction="up" className="h-4 w-4 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]" />
+        <span className="text-[10px] font-medium uppercase tracking-[0.2em]">Swipe up for the next look</span>
       </div>
 
       <p

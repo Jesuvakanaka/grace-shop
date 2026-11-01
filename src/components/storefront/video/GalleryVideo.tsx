@@ -29,7 +29,14 @@ export function GalleryVideo({ video, name, eager, slug }: GalleryVideoProps) {
 
   return (
     <>
-      <StorefrontImg image={{ src: video.poster, alt: "" }} decorative eager={eager} sizes="(min-width: 1024px) 560px, 100vw" />
+      {/* object-[50%_20%]: a crop keeps the top (heads) in view, like the gallery photos. */}
+      <StorefrontImg
+        image={{ src: video.poster, alt: "" }}
+        decorative
+        eager={eager}
+        sizes="(min-width: 1024px) 560px, 100vw"
+        className="object-[50%_20%]"
+      />
       {!failed ? (
         <video
           ref={ref}
@@ -52,7 +59,7 @@ export function GalleryVideo({ video, name, eager, slug }: GalleryVideoProps) {
           }}
           onTimeUpdate={tracking.onTimeUpdate}
           onEnded={tracking.onEnded}
-          className="sf-focus absolute inset-0 h-full w-full bg-transparent object-cover"
+          className="sf-focus absolute inset-0 h-full w-full bg-transparent object-cover object-[50%_20%]"
         />
       ) : null}
     </>

@@ -1,8 +1,53 @@
 "use client";
 
 import { usePathname, useSelectedLayoutSegment } from "next/navigation";
+import { useEffect, useRef, type ReactNode } from "react";
 import { STOREFRONT_PREFIX } from "@/lib/host-routing";
-import type { ReactNode } from "react";
+import { frameHeightFix } from "@/lib/storefront/feed";
+
+/**
+ * Samsung Internet and some Android Chrome versions size 100dvh / 100svh /
+ * 100vh taller than the area left by their bottom toolbar or gesture bar,
+ * which cuts off the bottom of the feed (the swipe hint, caption, rail). After
+ * mount and on every viewport change, compare the frame with what is really
+ * visible (visualViewport.height when not pinch-zoomed, else innerHeight) and,
+ * only when the frame is taller, pin it to that height (`data-vh` +
+ * `--sf-visible-h`). No scroll listeners: resize events only.
+ */
+function useVisibleViewportHeight(active: boolean) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!active || !el) return;
+    let frame = 0;
+    const check = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const vv = window.visualViewport;
+        // Measure with the CSS height (without a previous fix).
+        el.removeAttribute("data-vh");
+        const fix = frameHeightFix({
+          frameHeight: el.getBoundingClientRect().height,
+          innerHeight: window.innerHeight,
+          visualHeight: vv?.height ?? null,
+          visualScale: vv?.scale ?? 1,
+        });
+        if (fix === null) return;
+        el.style.setProperty("--sf-visible-h", `${fix}px`);
+        el.setAttribute("data-vh", "");
+      });
+    };
+    check();
+    window.addEventListener("resize", check);
+    window.visualViewport?.addEventListener("resize", check);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", check);
+      window.visualViewport?.removeEventListener("resize", check);
+    };
+  }, [active]);
+  return ref;
+}
 
 /**
  * ZP-500: the storefront layout's frame, with a layout flag for the landing
@@ -32,10 +77,13 @@ export function StorefrontFrame({
   const segment = useSelectedLayoutSegment();
   const pathname = usePathname();
   const home = segment === null && (pathname === STOREFRONT_PREFIX || pathname === "/");
+  const frameRef = useVisibleViewportHeight(home);
   if (home) {
     return (
-      // 100vh where svh is unsupported, else 100svh (never jumps with the iOS URL bar).
-      <div className="h-screen overflow-hidden supports-[height:100svh]:h-svh bg-brand-cream text-brand-ink">
+      // The visible viewport: 100dvh, else 100svh, else 100vh (.sf-feed-frame in
+      // globals.css), corrected from JS where the browser still makes it taller
+      // than what is on screen (useVisibleViewportHeight).
+      <div ref={frameRef} className="sf-feed-frame overflow-hidden bg-brand-cream text-brand-ink">
         {skipLink}
         <main id="main" tabIndex={-1} className="h-full focus:outline-none">
           {children}
