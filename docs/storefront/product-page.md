@@ -17,6 +17,15 @@ Brand rules: `docs/storefront/brand-refinements.md`. Shared plumbing:
 | `src/lib/storefront/related.ts` | Pure: `pickRelated` |
 | `src/lib/storefront/preview.ts` | Server, uncached: `loadPreviewCandidate` (any product by current slug) |
 | `tests/storefront-product.test.ts` | Unit tests for all of the pure parts |
+| `src/components/storefront/product/ProductTopBar.tsx` | ZP-503, client: phone top bar (back to the feed, wordmark, Share) |
+| `src/components/storefront/product/StoreVisitRow.tsx` | ZP-503, client: "Try it on in store" row |
+| `src/components/storefront/product/RelatedRow.tsx` | ZP-503: phone "You may also like" row of 140px cards |
+| `src/components/storefront/product/ProductBottomBar.tsx` | ZP-503, client: pinned phone bar (Enquire / Ask about restock / Visit us, Call) |
+| `src/components/storefront/product/NavMemory.tsx` | ZP-503, client: previous in-app pathname (rendered by the site layout) |
+| `src/lib/storefront/back-target.ts` | ZP-503, pure: `shouldGoBack`, `feedLookHref`, `isHomePath` |
+| `src/lib/storefront/product-page-enquiry.ts` | ZP-503, pure: `productPageEnquiryHref` (enquiry template, or the feed's restock message when sold out; passes the ZP-504 ref) |
+| `src/lib/storefront/menu-model.ts` | ZP-503, pure: `buildStoreVisit`, `todayLine` (shared with the menu) |
+| `tests/storefront-menu-product.test.ts` | ZP-503 unit tests (menu model, visit, back button, enquiry link) |
 
 ## Route decision
 
@@ -72,12 +81,30 @@ now `true`, so the button reads "Preview on site".
 
 ## Layout
 
-- **Phones:** gallery (swipe, dots) → serif name → price or "ASK FOR PRICE" →
-  availability badge (Few left / Sold out only) → colour and size chips →
-  description → "Available in-store and on WhatsApp" → Call us / Share →
-  enquiry button → "You may also like".
-- **Desktop (lg):** thumbnail rail and large photo on the left; details in a
-  sticky right column with the inline enquiry button.
+ZP-503 refreshed the page to match the flip-feed design.
+
+- **Phones:** slim sticky top bar (back, wordmark, Share; the site header is
+  hidden by a CSS `:has()` rule on `[data-product-topbar]`, so a product 404
+  keeps it) → gallery full width (4:5, about 470–520px tall) with a "1 / N"
+  counter (Gallery `counter` prop, replaces the dots) → category label →
+  serif name → price or "ASK FOR PRICE" with a tag (Sold out, else Few left,
+  else New) → colour and size chips → description → "Try it on in store"
+  (collapsed: today's hours from the server render; open: week, holiday
+  note, address, directions; hidden when nothing is set) → "You may also
+  like" as a horizontal row of 140px cards → pinned bottom bar.
+- **Back button:** a real link to the feed at this look (`/#look-<slug>`).
+  When the previous in-app page was the landing page (`NavMemory`), or on a
+  first page load the referrer is the same-origin landing page, a click uses
+  `history.back()` so the feed comes back with its collection and position.
+- **Bottom bar (phones):** "ENQUIRE ON WHATSAPP" (olive; "ASK ABOUT RESTOCK"
+  when sold out) plus a Call icon button when a phone is set. No WhatsApp
+  number: "VISIT US". It is the article's last child, so it never covers the
+  footer.
+- **Desktop (lg):** site header and breadcrumb; thumbnail rail and large
+  photo on the left; details in a sticky right column with "Try it on in
+  store", the inline enquiry button, Call us and Share; the 4-column related
+  grid below.
+- Owner preview: banner below the top bar, no Share, metadata unchanged.
 - **Zoom:** click/tap the photo or the expand button. Native modal `<dialog>`
   (rest of the page inert), arrows change photo, Esc closes, Tab cycles the
   dialog's buttons, focus returns to the expand button. The fade and smooth
@@ -94,14 +121,13 @@ now `true`, so the button reads "Preview on site".
   (each on its own line unless the template names `{colour}` / `{size}`), and
   the absolute product URL. Tests decode the link and check spaces, `&`, `#`,
   `?`, new lines and emoji round-trip exactly.
-- Label "ENQUIRE ON WHATSAPP", or "ASK ABOUT RESTOCK" when sold out.
+- Label "ENQUIRE ON WHATSAPP", or "ASK ABOUT RESTOCK" when sold out. ZP-503:
+  sold-out pieces send the feed's restock message (`RESTOCK_TEMPLATE`) through
+  `productPageEnquiryHref`; the public ref (ZP-504, `product.ref`) is passed
+  to the link builder in both cases.
 - No WhatsApp number: no button; "Available in-store" and a "Visit us" link.
-- Phones: the button is a sticky bar (`EnquiryButton placement="sticky"`, with
-  `env(safe-area-inset-bottom)` padding) placed as a direct child of the
-  `<article>` between the details and "You may also like". It pins to the
-  bottom of the screen while the content above it is on screen and then
-  settles in its place, so it is in the flow (its own height is the bottom
-  padding) and never covers the related products or the footer.
+- Phones: the button lives in the pinned bottom bar (`ProductBottomBar`, with
+  `env(safe-area-inset-bottom)` padding), the last child of the `<article>`.
 - Secondary: "Call us" (`tel:`) when a phone is set; "Share" when the absolute
   URL is known.
 

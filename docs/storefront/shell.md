@@ -24,6 +24,39 @@ about/visit ZP-491) use. Brand rules: `docs/storefront/brand-refinements.md`
 | `src/components/storefront/LookbookImage.tsx` | `<LookbookImage stem>`: plain `<img srcset>` with width/height and alt. |
 | `src/components/storefront/SocialIcons.tsx` | Row of 44px social icon links (footer, phone menu). |
 | `tests/storefront-shell.test.ts` | Unit tests for the pure parts and the manifest. |
+| `src/components/storefront/ShellMenu.tsx` | ZP-503: `ShellMenuProvider` (menu content for every page, set by the layout) and `ShellMenuDialog` (the full-screen menu used by the header and the landing feed). See "The menu" below. |
+| `src/components/storefront/VisitDetails.tsx` | ZP-503: today's hours, week, holiday note, address, directions (menu "Visit us" and product "Try it on in store"). |
+| `src/lib/storefront/menu-model.ts` | ZP-503, pure: `buildMenuModel`, `buildStoreVisit`, `todayLine`, `aboutExcerpt`, `GUIDE_PARAM`. |
+| `src/lib/storefront/menu-data.ts` | ZP-503, server: `getMenuData()` (cached reads only). |
+| `src/components/storefront/product/NavMemory.tsx` | ZP-503: rendered by the layout; remembers the previous in-app pathname for the product page's back button. |
+
+## The menu (ZP-503)
+
+`ShellMenuDialog` is a native modal `<dialog>` (rest of the page inert, Esc
+closes it, the opener returns focus to its button in `onClose`). It reads its
+content from `ShellMenuProvider`, which `src/app/site/layout.tsx` fills with
+`getMenuData()`, so the landing feed (which has no header) and the header
+show the same menu without passing data down. Content, top to bottom:
+
+- Close button and wordmark.
+- "Collections": New in (the landing feed) and each published category that
+  has looks, with "N looks" (the feed's own counts: `feedProducts` +
+  `feedTabs`). Every row links to the landing page, categories as
+  `/?c=<slug>` (the feed follows `?c=`), from every page.
+- "About VYRA": expands to the first paragraph of the About story (cut at
+  180 characters) and a link to /about. No story: a plain link to /about.
+- "Visit us": expands to today's hours (highlighted; worked out in the
+  browser when opened, shop time zone), the week, holiday note, address,
+  "Get directions" and a link to /visit. Nothing set: a plain link to /visit.
+  Placeholders such as "TBC" are never shown.
+- "How to use VYRA": the landing page with `?guide=1` (the feed opens the
+  guide and removes the parameter, ZP-509).
+- "Chat on WhatsApp" (general enquiry, `buildWhatsAppLink`); hidden without a
+  number.
+- A marked slot for the shop rating line (ZP-508); nothing is shown yet.
+- WEAR DIFFERENT. and the social icons.
+
+Without a provider the dialog falls back to the plain `nav` links.
 
 ## 1. Links: always `sitePath(base, SITE_ROUTES.x)`
 

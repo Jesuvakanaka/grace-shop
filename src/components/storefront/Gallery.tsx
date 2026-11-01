@@ -12,6 +12,8 @@ type GalleryProps = {
   label: string;
   /** First photo is above the fold on a product page: load it eagerly. */
   eager?: boolean;
+  /** ZP-503: a "1 / N" counter on the photo instead of the phone dots. */
+  counter?: boolean;
   className?: string;
 };
 
@@ -21,7 +23,7 @@ type GalleryProps = {
  * a native <dialog>. The track is the source of truth; thumbnails and dots
  * scroll it, and an IntersectionObserver reports which photo is showing.
  */
-export function Gallery({ images, label, eager = true, className }: GalleryProps) {
+export function Gallery({ images, label, eager = true, counter = false, className }: GalleryProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef<HTMLDialogElement>(null);
   const zoomButtonRef = useRef<HTMLButtonElement>(null);
@@ -155,8 +157,13 @@ export function Gallery({ images, label, eager = true, className }: GalleryProps
                 <ChevronRightIcon />
               </button>
             </div>
+            {counter ? (
+              <p aria-hidden="true" className="pointer-events-none absolute bottom-3 right-3 rounded-[2px] bg-brand-ink/70 px-2.5 py-1 text-xs tracking-[0.08em] text-brand-cream-50">
+                {active + 1} / {count}
+              </p>
+            ) : null}
             {/* Dots (phones). Each dot is a 44px tap target around a small mark. */}
-            <div className="mt-1 flex justify-center lg:hidden">
+            <div className={counter ? "hidden" : "mt-1 flex justify-center lg:hidden"}>
               {images.map((_, i) => (
                 <button
                   key={i}
