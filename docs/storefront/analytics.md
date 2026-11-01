@@ -423,6 +423,9 @@ npm run analytics:rollup -- --no-prune
   `swipeVisits`, `detailsVisits`, `openVisits`, `enquiryVisits`,
   `restockVisits`, `shareVisits`; migration `20261108090000_ranking_visit_rollups`).
   "Opened" = `OPEN_TYPES` (`product_open`, `details_sheet_open`).
+  `productOpens` is now **distinct visits** with any `OPEN_TYPES` event (a
+  sheet open → "View full page" → back is one visit, not three events);
+  Insights' open rate = `productOpens / viewers`.
 
 ### Scheduling (orchestrator, not done in this change)
 

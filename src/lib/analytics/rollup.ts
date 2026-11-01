@@ -175,7 +175,9 @@ export const ROLLUP_SELECTS = {
                ${count('photo_view')} AS photo_views,
                ${count('video_start')} AS video_starts,
                ${count('details_show')} AS details_shows,
-               ${count('product_open')} AS product_opens,
+               -- Distinct visits that opened the piece (any OPEN_TYPES): a sheet open, "View full page"
+               -- and back is one visit, not three events (ZP-510 / ZP-506 review).
+               (COUNT(DISTINCT "visitId") FILTER (WHERE type IN (${OPEN_TYPES.map((t) => `'${t}'`).join(', ')})))::int AS product_opens,
                ${count('size_select')} AS size_selects,
                ${count('colour_select')} AS colour_selects,
                ${count('gallery_zoom')} AS gallery_zooms,

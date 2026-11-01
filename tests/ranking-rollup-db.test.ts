@@ -65,6 +65,7 @@ describe('distinct-visit rollup columns for the ranking (ZP-506 review)', () => 
         ev(v1, 'details_show'),
         ev(v1, 'product_open', { from: 'feed' }),
         ev(v1, 'product_open', { from: 'feed' }),
+        ev(v1, 'product_open', { from: 'feed' }),
         ...Array.from({ length: 5 }, () => ev(v1, 'whatsapp_enquire', { screen: 'feed' })),
         ev(v1, 'share', { method: 'copy' }),
         ev(v1, 'share', { method: 'copy' }),
@@ -80,8 +81,12 @@ describe('distinct-visit rollup columns for the ranking (ZP-506 review)', () => 
         // v4: the ZP-510 details sheet counts as an open.
         ev(v4, 'look_view', { position: 1 }),
         ev(v4, 'details_sheet_open'),
-        // v5: dwell without a view (late beacon): not counted.
+        // v5: dwell without a view (late beacon): not counted. Then ZP-510's
+        // sheet open -> "View full page" -> back: three open events, one visit.
         ev(v5, 'look_dwell', { seconds: 30 }),
+        ev(v5, 'details_sheet_open'),
+        ev(v5, 'product_open', { from: 'feed' }),
+        ev(v5, 'details_sheet_open'),
       ],
     })
     const r = await rollupDay(prisma, D, { now: NOW })
@@ -108,7 +113,10 @@ describe('distinct-visit rollup columns for the ranking (ZP-506 review)', () => 
     assert.strictEqual(row.enquiryVisits, 1, 'v1 once; v3 never saw the look')
     assert.strictEqual(row.restockVisits, 1)
     assert.strictEqual(row.shareVisits, 1)
-    // The event counts the Insights page shows are unchanged.
+    // productOpens (Insights' open rate) = DISTINCT visits with any OPEN_TYPES event,
+    // whether or not they saw the look: v1 (3 opens), v3, v4 (sheet), v5 (sheet, page, sheet).
+    assert.strictEqual(row.productOpens, 4)
+    // The other event counts the Insights page shows are unchanged.
     assert.strictEqual(row.enquiries, 6)
     assert.strictEqual(row.detailsShows, 4)
     assert.strictEqual(row.loveOn, 4)

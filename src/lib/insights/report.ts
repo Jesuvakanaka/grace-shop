@@ -407,7 +407,8 @@ async function buildReport(
       meanDwell: ratio(s.dwellSeconds, s.dwellCount),
       photoSwipeRate: ratio(s.photoSwipers, s.viewers),
       detailsRate: ratio(s.detailsShows, s.views),
-      openRate: ratio(s.productOpens, s.views),
+      // productOpens = distinct visits that opened it (OPEN_TYPES), per visit that saw it.
+      openRate: ratio(s.productOpens, s.viewers),
       whatsapp: s.enquiries,
       shares: s.shares,
       restockRequests: s.restockRequests,

@@ -76,7 +76,7 @@ const LOOK_COLUMNS: { key: SortKey; label: string; title: string; render: (r: Lo
   { key: 'meanDwell', label: 'Dwell', title: 'Mean seconds on screen per view', render: (r) => fmt.secs(r.meanDwell) },
   { key: 'photoSwipeRate', label: 'Swiped', title: 'Share of viewers who swiped to a 2nd photo', render: (r) => fmt.pct(r.photoSwipeRate) },
   { key: 'detailsRate', label: 'Details', title: 'Show details taps per view', render: (r) => fmt.pct(r.detailsRate) },
-  { key: 'openRate', label: 'Opened', title: 'Piece opens per view', render: (r) => fmt.pct(r.openRate) },
+  { key: 'openRate', label: 'Opened', title: 'Share of the visits that saw the look and opened it (page or details sheet; each visit once)', render: (r) => fmt.pct(r.openRate) },
   { key: 'whatsapp', label: 'WhatsApp', title: 'WhatsApp taps on this piece', render: (r) => fmt.num(r.whatsapp) },
   { key: 'shares', label: 'Shares', title: 'Shares of this piece', render: (r) => fmt.num(r.shares) },
 ];

@@ -47,7 +47,7 @@ storefront host (`/api/...` and `insights` are blocked there by
 | # | Report | Source | Notes |
 |---|---|---|---|
 | 1 | Overview | Visits, Journey, Piece | visits, new vs returning, looks seen per visit (mean, over visits with a `visit_end`), time on site (mean visible seconds), WhatsApp taps (all taps of the visits, also from the menu), visits that tapped, restock requests, bounce rate, top sources |
-| 2 | Top looks | Piece | views, mean dwell, photo-swipe rate (visits that reached a 2nd photo / viewers), Show details per view, opens per view, WhatsApp taps, shares; sortable; cover thumbnail; **Score** (ZP-506 popularity, 100 = average look, with today's feed position; tap for the parts) |
+| 2 | Top looks | Piece | views, mean dwell, photo-swipe rate (visits that reached a 2nd photo / viewers), Show details per view, opened (visits that opened the piece, page or details sheet, each visit once / viewers; `productOpens` is distinct visits over `OPEN_TYPES` since ZP-506), WhatsApp taps, shares; sortable; cover thumbnail; **Score** (ZP-506 popularity, 100 = average look, with today's feed position; tap for the parts) |
 | 3 | Top photos per piece | Photo, Piece | mean seconds per photo, reach (photo viewers / the piece's viewers, or the most-seen photo's viewers when higher), "Best cover photo" when another photo holds people longer than the cover |
 | 4 | Top videos | Video | starts, share of starts reaching 25/50/75/100 %, mean seconds watched per start, replays |
 | 5 | Funnel + drop-off | Journey | landed → saw a 2nd look → Show details → opened a piece → chose a size → WhatsApp; % lost per step; by device and by source |
