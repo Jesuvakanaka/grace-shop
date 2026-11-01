@@ -1,6 +1,7 @@
 // ZP-481 design preview: placeholder catalogue. Not real stock, not real prices.
 import type { Availability, PublicImage, PublicProduct, StorefrontImageData } from "@/components/storefront/types";
-import { heroArt, productArt, type Garment, type ToneName } from "./placeholder-art";
+import { lookbookImage } from "@/components/storefront/lookbook";
+import { productArt, type Garment, type ToneName } from "./placeholder-art";
 
 /** Placeholder chat link; the real wa.me link logic is ZP-490. */
 export const WHATSAPP_HREF = "#enquire";
@@ -93,16 +94,20 @@ export const featured: PublicProduct = {
 };
 export const related = [products[4], products[5], products[8], products[1]];
 
-export const hero = heroArt("A model in a head-to-toe lime outfit against greenery and cream stone, holding a cream VYRA bag");
+// ZP-487: people and heroes use the owner's lookbook photos (brand
+// refinements, rule 4). Product cards keep the placeholder art: they are not
+// real products.
+export const hero = lookbookImage("lime-pleated-dress");
 
-export const editImage = productArt("blazer", "limeOnCream", "Lime tailored blazer on a hanger in a cream stone niche");
-export const visitImage = productArt("rail", "creamOnStone", "A clothes rail of lime, cream and black pieces in the VYRA store");
+export const editImage = lookbookImage("olive-print-pleated-dress");
+export const visitImage = lookbookImage("olive-print-jumpsuit");
 
+/** Tiles: the link names the category, so the photos are decorative (alt ""). */
 export const categories = [
-  { name: "Dresses", meta: "18 pieces", image: productArt("dress", "oliveOnCream", "") },
-  { name: "Tailoring", meta: "24 pieces", image: productArt("blazer", "inkOnLime", "") },
-  { name: "Knitwear", meta: "12 pieces", image: productArt("knit", "creamOnOlive", "") },
-  { name: "Accessories", meta: "9 pieces", image: productArt("tote", "limeOnCream", "") },
+  { name: "Dresses", meta: "18 pieces", image: lookbookImage("olive-print-pleated-dress", { alt: "" }) },
+  { name: "Tailoring", meta: "24 pieces", image: lookbookImage("olive-print-jumpsuit", { alt: "" }) },
+  { name: "Knitwear", meta: "12 pieces", image: lookbookImage("chartreuse-fringe-knit-set", { alt: "" }) },
+  { name: "Elegant looks", meta: "9 pieces", image: lookbookImage("bronze-pleated-set", { alt: "" }) },
 ];
 
 export const filterChips = [

@@ -3,7 +3,11 @@ import { cn } from "./cn";
 import { Mark } from "./Brand";
 
 type ColourBlockProps = {
-  /** Lime takes ink text and an ink button; olive takes white text and a cream button. */
+  /**
+   * Olive (default) takes white text and a cream button. Lime takes ink text and
+   * an ink button: an occasional accent only, never the default (brand
+   * refinements: no whole sections of bright lime).
+   */
   tone?: "lime" | "olive";
   statement: string;
   /** Optional small label above the statement. */
@@ -13,8 +17,8 @@ type ColourBlockProps = {
   className?: string;
 };
 
-/** Full-bleed colour-block section with one serif statement and one button. Use sparingly. */
-export function ColourBlock({ tone = "lime", statement, eyebrow, action, id, className }: ColourBlockProps) {
+/** Full-bleed colour-block section with one serif statement and one button. At most one per page. */
+export function ColourBlock({ tone = "olive", statement, eyebrow, action, id, className }: ColourBlockProps) {
   const lime = tone === "lime";
   return (
     <section

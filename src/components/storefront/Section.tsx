@@ -6,6 +6,10 @@ export function Container({ className, children }: { className?: string; childre
   return <div className={cn("mx-auto w-full max-w-[1200px] px-4 sm:px-6 lg:px-8", className)}>{children}</div>;
 }
 
+/**
+ * Cream is the default ground. "lime" exists for rare accents only: the brand
+ * refinements forbid whole sections of bright lime on real pages.
+ */
 export type SectionTone = "cream" | "cream-light" | "white" | "lime" | "olive" | "ink";
 
 const tones: Record<SectionTone, string> = {
