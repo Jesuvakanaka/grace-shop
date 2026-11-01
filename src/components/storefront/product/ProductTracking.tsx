@@ -11,7 +11,7 @@
 // On preview pages the tracker is off (src/lib/analytics/client-core.ts).
 import { useEffect, useRef } from "react";
 import { track } from "@/lib/analytics/client";
-import { productOpenSource } from "@/lib/storefront/tracking";
+import { enquiryEvent, productOpenSource } from "@/lib/storefront/tracking";
 import { previousPathname } from "./NavMemory";
 import { useEnquiry } from "./ProductEnquiry";
 
@@ -45,8 +45,9 @@ export function ProductTracking({ slug }: { slug: string }) {
       const kind = el.getAttribute("data-track");
       const o = options.current;
       if (kind === "enquire") {
-        if (o.soldOut) track("restock_request", { slug, screen: "product", size: o.size ?? undefined });
-        else track("whatsapp_enquire", { slug, screen: "product", size: o.size ?? undefined, colour: o.colour ?? undefined });
+        // An over-long size / colour is left out (the event is kept): see enquiryEvent.
+        const e = enquiryEvent({ soldOut: o.soldOut, screen: "product", size: o.size, colour: o.colour });
+        track(e.type, { slug, ...e.props });
       } else if (kind === "call") {
         track("call", { slug, screen: "product" });
       } else if (kind === "directions") {

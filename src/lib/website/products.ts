@@ -60,7 +60,6 @@ export async function getWebsiteProduct(db: PrismaClient, productId: number, now
       sellingPriceUsd: true,
       imageUrl: true,
       loveCount: true, // ZP-507: hearts, with a reset in the editor
-
       category: { select: { id: true, name: true, slug: true, published: true } },
       images: true,
     },

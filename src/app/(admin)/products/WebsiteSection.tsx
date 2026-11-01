@@ -274,7 +274,7 @@ export function WebsiteSection({
     toast.success('Hearts reset to 0');
   };
 
-  const showPriceWarning =fields.priceDisplay === 'SHOW_PRICE' && !(retailPriceUsd > 0);
+  const showPriceWarning = fields.priceDisplay === 'SHOW_PRICE' && !(retailPriceUsd > 0);
 
   return (
     <section className="border-t border-slate-200 pt-4 space-y-4" data-testid="website-section">

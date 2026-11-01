@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type SyntheticEvent } from "react";
-import { track } from "@/lib/analytics/client";
+import { currentPathname, track } from "@/lib/analytics/client";
 import { documentVisibility } from "@/lib/analytics/dwell";
 import { createVideoWatch, type VideoWatch } from "@/lib/storefront/tracking";
 
@@ -23,9 +23,11 @@ export function useVideoTracking(slug: string | null | undefined, visible: boole
 
   useEffect(() => {
     if (!slug) return;
+    // The page the video is on: its last events may be sent after a navigation (unmount).
+    const page = currentPathname();
     const w = createVideoWatch((e) => {
       const { slug: s, collection: c } = context.current;
-      if (s) track(e.type, { slug: s, ...(c ? { collection: c } : {}), ...(e.props ?? {}) });
+      if (s) track(e.type, { slug: s, ...(c ? { collection: c } : {}), ...(e.props ?? {}), page });
     });
     watch.current = w;
     const unsubscribe = documentVisibility.subscribe((v) => {

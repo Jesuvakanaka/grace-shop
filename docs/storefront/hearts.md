@@ -11,8 +11,9 @@ No sign-in. One heart per piece per device; un-love is allowed.
   then the heart and the eye, so the eye no longer moves when details open.
 - **Product page** (`ProductView`): a pill under the price, "Love it", or
   "Loved by 24" from 3 loves. Not shown on an owner preview.
-- A real `<button>`, `aria-pressed`, named "Love <piece name>"; the visible
-  count is its description. Loving pops the heart once
+- A real `<button>`, `aria-pressed`, named "Love <piece name>" plus the
+  visible text (`loveButtonLabel`): rail "Love <name>", pill "Love it, <name>",
+  from 3 loves "Love <name>, loved by 24". Loving pops the heart once
   (`sf-heart-pop` in `globals.css`, `motion-safe:` only).
 - Component: `src/components/storefront/loves/LoveButton.tsx`
   (`variant="rail" | "pill"`).
@@ -22,15 +23,17 @@ No sign-in. One heart per piece per device; un-love is allowed.
 - localStorage `vyra:loves`: JSON array of loved slugs (at most 500, most
   recent last; read and written in try/catch, blocked storage means the heart
   lasts for this page only). One store per page, so every heart of a piece
-  agrees; other tabs follow through the `storage` event.
+  agrees; other tabs follow through one page-wide `storage` listener.
 - Count shown = the cached server count (`PublicProduct.loves`) + what this
   phone changed since the page loaded (`displayLoves`), never below 0.
 - The server is told with `fetch(..., { keepalive: true })`, one request per
   piece at a time (`createLoveSync`): taps while one is in flight only change
   the wanted state, and the final one is sent when it returns.
 - Device token: the analytics device id, `localStorage['vyra:analytics:device']`
-  (owner decision: hearts reuse it). It is absent with GPC / DNT or blocked
-  storage: then the heart is kept on the phone only and nothing is sent.
+  (owner decision: hearts reuse it). When analytics is off
+  (`initAnalytics().enabled` false: GPC / DNT, automated browser, preview
+  page) or there is no device id (blocked storage), the heart still works on
+  the phone but the POST is skipped, so it is not counted on the server.
 - Also tracked: `love_on` / `love_off` (analytics).
 
 ## Server: `POST /api/public/loves`
@@ -42,17 +45,22 @@ text/plain): exactly `{ "slug": "<slug>", "on": true|false, "device": "<uuid v4>
 |---|---|
 | `Origin` missing / not this host, or `Sec-Fetch-Site` not `same-origin` | 403 |
 | bot or headless user agent / client hint | 204, nothing stored |
-| per IP (in memory, never stored): burst 120, 1/s | 429 + Retry-After |
+| per IP (in memory, never stored): burst 60, one every 4 s | 429 + Retry-After |
 | content type not JSON / text/plain | 415 |
 | body over 1 KB | 413 |
 | not exactly `{ slug, on, device }` | 400 |
+| new device ids per IP per hour: 15 (forged ids) | 429 |
 | per device: burst 30, one every 5 s; then 300 per device per 24 h | 429 |
+| per IP and piece: 20 per 24 h (love and un-love both count) | 429 |
 | not a published piece (published, slug, published category) | 404 |
+| no valid `LOVES_HASH_SECRET` (production) | 503 |
 | stored (or nothing to change) | 204, no body, `Cache-Control: no-store` |
 
-GPC / DNT do not block a heart (it is the visitor's own action; such a
-browser has no device id and sends nothing anyway). Staff signed in to the
-back office count like anyone. Limits are per instance, like analytics.
+The device id is made by the browser, so anyone can invent new ones. The
+new-device and per-IP-and-piece caps bound how far one address can inflate a
+count; what still gets through (many addresses) is fixed with the owner's
+**Reset** (below). Staff signed in to the back office count like anyone.
+Limits are per instance, like analytics.
 
 ## Data
 
@@ -65,15 +73,20 @@ back office count like anyone. Limits are per instance, like analytics.
   The product id (not the slug) is hashed so a slug rename keeps the dedupe.
   No device id, IP or user agent is stored, and one phone's hashes cannot be
   linked to each other.
-- Key (`src/lib/loves/hash.ts`): `LOVES_HASH_SECRET` (≥ 32 characters) if set,
-  else derived from the session secret as HMAC-SHA256(JWT secret,
-  "vyra:loves:v1"). Never logged. Changing the secret restarts the dedupe
-  (counts stay).
-- `setLove` (`src/lib/loves/db.ts`), one transaction: insert the hash with
+- Key (`src/lib/loves/hash.ts`): `LOVES_HASH_SECRET`, at least 32 characters.
+  **Required in production** (UAT: Secret Manager
+  `grace-shop-uat-loves-hash-secret`, passed to the web service only in
+  `deploy-uat.yml`); missing there, the endpoint fails closed with 503. Set
+  but shorter than 32 characters it throws everywhere. Only in development /
+  test, without it, a key derived from the session secret is used
+  (HMAC-SHA256(JWT secret, "vyra:loves:v1")). Placeholder in `.env.example`.
+  Never logged. Changing the secret restarts the dedupe (counts stay).
+- `setLove` (`src/lib/loves/db.ts`), one transaction that first locks the
+  product row (`resetLoves` too, so loves and resets serialise): insert the hash with
   ON CONFLICT DO NOTHING and +1 only if it is new; delete it and −1 only if a
   row went and the count is above 0. Concurrent duplicate taps count once.
   The counter is updated with SQL so `Product.updatedAt` is not touched.
-- Migration `20261104090000_product_loves`.
+- Migration `20261104100000_product_loves`.
 
 ## Admin
 

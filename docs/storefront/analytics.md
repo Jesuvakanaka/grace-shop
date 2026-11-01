@@ -305,6 +305,15 @@ Prop builders are pure and tested in `tests/storefront-tracking.test.ts`
 | `love_on` / `love_off` | `src/lib/loves/client.ts` (hearts, ZP-507) | |
 | `action_failed` | `FlipFeed` | `feed_load` (load more failed), `collection_switch` (fell back to a full load) |
 
+`useDwell` / `useActiveDwell` call `onDwell(seconds, page)` with the page the
+tracker started on, and `useVideoTracking` captures it too; they pass it as
+`track(type, { ..., page })` (`page` is lifted onto the event like `slug`), so
+a dwell that ends after a navigation (the feed slide unmounting when a
+product opens) keeps the feed's page. A size / colour longer than the
+allow-list takes (24 / 32) is left out of `whatsapp_enquire` /
+`restock_request` (the event is kept) and `size_select` / `colour_select`
+are skipped for it (`allowedOption`, `enquiryEvent`).
+
 The product page's server-rendered links are tracked by one delegated click
 listener in `ProductTracking` (capture phase) through `data-track="enquire" |
 "call" | "directions" | "visit_us"` attributes. Preview pages send nothing

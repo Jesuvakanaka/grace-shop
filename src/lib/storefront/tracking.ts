@@ -4,6 +4,54 @@
 // allow-list in src/lib/analytics/events.ts; optional props are left out, never
 // null. Tested in tests/storefront-tracking.test.ts. See docs/storefront/analytics.md.
 
+import { cleanText, EVENT_SPECS } from '@/lib/analytics/events'
+
+// ------------------------------------------------------------ size / colour
+
+const OPTION_MAX = {
+  size: maxOf(EVENT_SPECS.size_select.props.size),
+  colour: maxOf(EVENT_SPECS.colour_select.props.colour),
+} as const
+function maxOf(spec: unknown): number {
+  const max = (spec as { max?: unknown }).max
+  return typeof max === 'number' ? max : 0
+}
+/** Same rule as the allow-list's text props (control characters, U+2028/2029). */
+const CONTROL = new RegExp('[\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]')
+
+/**
+ * A size / colour chip value as the allow-list accepts it (size <= 24,
+ * colour <= 32 characters after cleaning), else undefined. Use it to leave
+ * an over-long option out of whatsapp_enquire / restock_request (the event
+ * is kept) and to skip size_select / colour_select for it; sending it would
+ * make the whole event invalid.
+ */
+export function allowedOption(kind: 'size' | 'colour', value: string | null | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const v = cleanText(value)
+  return v.length > 0 && v.length <= OPTION_MAX[kind] && !CONTROL.test(v) ? value : undefined
+}
+
+export type EnquiryEvent =
+  | { type: 'whatsapp_enquire'; props: { screen: 'feed' | 'product'; size?: string; colour?: string } }
+  | { type: 'restock_request'; props: { screen: 'feed' | 'product'; size?: string } }
+
+/**
+ * The enquiry tap: restock_request for a sold-out piece (size only), else
+ * whatsapp_enquire; chosen options that do not fit the allow-list are left out.
+ */
+export function enquiryEvent(input: {
+  soldOut: boolean
+  screen: 'feed' | 'product'
+  size?: string | null
+  colour?: string | null
+}): EnquiryEvent {
+  const size = allowedOption('size', input.size)
+  const colour = allowedOption('colour', input.colour)
+  if (input.soldOut) return { type: 'restock_request', props: { screen: input.screen, ...(size ? { size } : {}) } }
+  return { type: 'whatsapp_enquire', props: { screen: input.screen, ...(size ? { size } : {}), ...(colour ? { colour } : {}) } }
+}
+
 /** The analytics `image` prop: the stored file name (`<32 hex>.webp`) of a public image URL. */
 const IMAGE_FILE = /^[a-f0-9]{32}\.webp$/
 

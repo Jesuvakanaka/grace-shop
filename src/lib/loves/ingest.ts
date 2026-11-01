@@ -7,17 +7,23 @@
 //   4. Content type application/json or text/plain                      -> 415
 //   5. Body at most MAX_LOVE_BODY_BYTES                                 -> 413
 //   6. Exactly { slug, on, device } (parseLoveRequest)                  -> 400
-//   7. Per-device budget, then the daily cap per device                 -> 429
+//   7. New device ids per IP per hour (forged ids), per-device budget,
+//      daily cap per device, daily cap per IP and piece                 -> 429
 //   8. A published piece (published, slug, published category)          -> 404
-//   9. setLove with the salted hash of device + product                 -> 204
-// Unlike analytics, a heart is the visitor's own action: GPC / DNT do not
-// block it (the browser simply has no device id then and sends nothing),
-// and staff signed in to the back office count like anyone else.
+//   9. The hash key (LOVES_HASH_SECRET, required in production)         -> 503
+//  10. setLove with the salted hash of device + product                 -> 204
+// The device id is made by the browser, so anyone can invent new ones: the
+// new-device cap and the per-IP-and-piece cap bound how far one address can
+// inflate a piece's count. What still gets through (many addresses) is
+// fixed by the owner's reset in the admin Website section.
+// The browser sends nothing when analytics is off (GPC / DNT, preview, no
+// device id): the heart then stays on the phone only. Staff signed in to the
+// back office count like anyone else.
 // Responses have no body (except 400's reason) and Cache-Control: no-store.
 // Limits are in memory per instance, like src/lib/analytics/limits.ts.
 import type { PrismaClient } from '@prisma/client'
 import prisma from '@/lib/db'
-import { DailyCounter, EventBudget, type BudgetResult } from '@/lib/analytics/limits'
+import { DailyCounter, EventBudget, NewVisitLimiter, type BudgetResult } from '@/lib/analytics/limits'
 import { isSameOrigin } from '@/lib/analytics/ingest'
 import { isBotRequest } from '@/lib/analytics/privacy'
 import { PUBLIC_PRODUCT_WHERE } from '@/lib/storefront/queries'
@@ -30,10 +36,14 @@ import { parseLoveRequest } from './model'
 export const MAX_LOVE_BODY_BYTES = 1024
 
 /**
- * Per IP: ~30 people behind one carrier-NAT address, each tapping a few
- * hearts a minute (burst 120, 1 per second sustained).
+ * Per IP: ~30 people behind one carrier-NAT address tapping hearts now and
+ * then (burst 60, then one every 4 s for the whole address).
  */
-export const LOVE_IP_BUDGET = { capacity: 120, refillPerSecond: 1 }
+export const LOVE_IP_BUDGET = { capacity: 60, refillPerSecond: 0.25 }
+/** New device ids one IP may introduce per hour (real phones behind one address; forged ids beyond that are refused). */
+export const LOVE_NEW_DEVICES_PER_IP_PER_HOUR = 15
+/** Requests for one piece from one IP per 24 h (love + un-love both count). */
+export const LOVES_PER_IP_PER_PIECE_PER_DAY = 20
 /** Per device: a quick run of taps (burst 30), then one every 5 s. */
 export const LOVE_DEVICE_BUDGET = { capacity: 30, refillPerSecond: 0.2 }
 /** Per device per 24 h: far beyond a real visitor (the catalogue has ~50 pieces). */
@@ -44,6 +54,8 @@ type Db = Pick<PrismaClient, 'product' | '$transaction'>
 export type LovesHandlerOptions = {
   db?: Db
   ipBudget?: EventBudget
+  newDevices?: NewVisitLimiter
+  ipPieceDaily?: DailyCounter
   deviceBudget?: EventBudget
   deviceDaily?: DailyCounter
   /** The HMAC key; default loveHashKey() (resolved per request, so builds need no secret). */
@@ -86,6 +98,8 @@ async function readLimited(request: Request, max: number): Promise<string | null
 export function createLovesHandler(options: LovesHandlerOptions = {}) {
   const db = options.db ?? prisma
   const ipBudget = options.ipBudget ?? new EventBudget(LOVE_IP_BUDGET)
+  const newDevices = options.newDevices ?? new NewVisitLimiter({ perHour: LOVE_NEW_DEVICES_PER_IP_PER_HOUR })
+  const ipPieceDaily = options.ipPieceDaily ?? new DailyCounter({ limit: LOVES_PER_IP_PER_PIECE_PER_DAY })
   const deviceBudget = options.deviceBudget ?? new EventBudget(LOVE_DEVICE_BUDGET)
   const deviceDaily = options.deviceDaily ?? new DailyCounter({ limit: LOVES_PER_DEVICE_PER_DAY })
   const hashKey = options.hashKey ?? (() => loveHashKey())
@@ -95,7 +109,7 @@ export function createLovesHandler(options: LovesHandlerOptions = {}) {
     if (!isSameOrigin(headers)) return empty(403)
     if (isBotRequest(headers)) return empty(204)
 
-    const ip = ipBudget.take(clientKey(headers), 1)
+    const ip = ipBudget.take(clientKey(headers), 1) // (ipKey below is the same bucket)
     if (!ip.ok) return tooMany(ip)
 
     if (!contentTypeOk(headers.get('content-type'))) return empty(415)
@@ -124,14 +138,26 @@ export function createLovesHandler(options: LovesHandlerOptions = {}) {
     }
     const { slug, on, device } = body.value
 
+    const ipKey = clientKey(headers)
+    // Forged device ids: one address may only bring so many new ones per hour.
+    if (!newDevices.allow(ipKey, device)) return empty(429, { 'Retry-After': '600' })
     const perDevice = deviceBudget.take(device, 1)
     if (!perDevice.ok) return tooMany(perDevice)
     if (!deviceDaily.add(device, 1)) return empty(429, { 'Retry-After': '3600' })
+    if (!ipPieceDaily.add(`${ipKey}|${slug}`, 1)) return empty(429, { 'Retry-After': '3600' })
 
+    let key: Buffer
+    try {
+      key = hashKey()
+    } catch {
+      // No (valid) LOVES_HASH_SECRET in production: fail closed. The key is never logged.
+      console.error('Love not stored: hash key not configured')
+      return empty(503)
+    }
     try {
       const piece = await db.product.findFirst({ where: { ...PUBLIC_PRODUCT_WHERE, slug }, select: { id: true } })
       if (!piece) return empty(404)
-      await setLove(db, piece.id, loveHash(hashKey(), device, piece.id), on)
+      await setLove(db, piece.id, loveHash(key, device, piece.id), on)
       return empty(204)
     } catch (error) {
       // Never log the request, the device id or the key: only that it failed.

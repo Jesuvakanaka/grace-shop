@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { track, useActiveDwell, useDwell } from "@/lib/analytics/client";
 import { lookAnchorId, photoLinkLabel, type FeedBadge, type FeedItem } from "@/lib/storefront/feed";
 import { mediaItems } from "@/lib/storefront/feed-media";
-import { photoProps } from "@/lib/storefront/tracking";
+import { enquiryEvent, photoProps } from "@/lib/storefront/tracking";
 import { cn } from "../cn";
 import { LoveButton } from "../loves/LoveButton";
 import { useShare } from "../product/useShare";
@@ -126,7 +126,8 @@ export function FeedSlide({
   useEffect(() => {
     if (isCurrent) track("look_view", { slug, collection, position: index });
   }, [isCurrent, slug, collection, index]);
-  useDwell(article, (seconds) => track("look_dwell", { slug, collection, seconds }), { key: slug });
+  // `page`: where the dwell started (it may end after a navigation to the product page).
+  useDwell(article, (seconds, page) => track("look_dwell", { slug, collection, seconds, page }), { key: slug });
   // The photo on screen (null while the video item shows): 1-based among the photos.
   const current = media[photo];
   const shownPhoto = isCurrent && current?.kind === "image" ? photoProps(item.images, current.imageIndex) : null;
@@ -138,13 +139,15 @@ export function FeedSlide({
   }, [shownKey]);
   useActiveDwell(
     shownPhoto !== null,
-    (seconds) => {
-      if (shownPhoto) track("photo_dwell", { slug, collection, ...shownPhoto, seconds });
+    (seconds, page) => {
+      if (shownPhoto) track("photo_dwell", { slug, collection, ...shownPhoto, seconds, page });
     },
     shownKey,
   );
-  const enquire = () =>
-    track(item.soldOut ? "restock_request" : "whatsapp_enquire", { slug, collection, screen: "feed" });
+  const enquire = () => {
+    const e = enquiryEvent({ soldOut: item.soldOut, screen: "feed" });
+    track(e.type, { slug, collection, ...e.props });
+  };
   const onShare = async () => {
     const outcome = await share(item.shareUrl as string, `${item.name} – VYRA`);
     if (outcome === "native" || outcome === "copy") track("share", { slug, collection, method: outcome, screen: "feed" });

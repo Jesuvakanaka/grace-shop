@@ -1,13 +1,13 @@
 "use client";
 
 // ZP-507: the "Love it" heart. A real button, aria-pressed, named
-// "Love <piece name>". "rail": the round feed control (above the eye, also in
+// "Love <piece name>" plus the visible text (loveButtonLabel). "rail": the round feed control (above the eye, also in
 // clean view) with "Love" or the number (from 3) under it. "pill": the
 // product page's "Love it" / "Loved by 24" next to the price.
 // Loving pops the heart once (no animation with reduced motion).
 // State and the server call: src/lib/loves/client.ts.
-import { useId, useState } from "react";
-import { feedLoveText, productLoveText } from "@/lib/loves/model";
+import { useState } from "react";
+import { feedLoveText, loveButtonLabel, productLoveText } from "@/lib/loves/model";
 import { useLove } from "@/lib/loves/client";
 import { cn } from "../cn";
 
@@ -46,8 +46,8 @@ type LoveButtonProps = {
 export function LoveButton({ slug, name, loves: serverLoves, variant, className }: LoveButtonProps) {
   const { loved, loves, toggle } = useLove(slug, serverLoves);
   const [pop, setPop] = useState(0);
-  // The visible count ("24", "Loved by 24") is the description; the name stays "Love <name>".
-  const countId = useId();
+  // The name contains the visible text ("Love <name>, loved by 24"); see loveButtonLabel.
+  const label = loveButtonLabel(variant, name, loves);
   const onClick = () => {
     if (!loved) setPop((n) => n + 1);
     toggle();
@@ -59,15 +59,14 @@ export function LoveButton({ slug, name, loves: serverLoves, variant, className 
         type="button"
         onClick={onClick}
         aria-pressed={loved}
-        aria-label={`Love ${name}`}
-        aria-describedby={countId}
+        aria-label={label}
         data-love-button=""
         className={cn("sf-focus flex flex-col items-center gap-1.5 rounded-[2px] text-brand-cream-50", className)}
       >
         <span className="flex h-11 w-11 items-center justify-center rounded-full border border-brand-cream-50/25 bg-[rgba(20,20,18,0.45)]">
           <Heart filled={loved} pop={pop} className="h-[22px] w-[22px]" />
         </span>
-        <span id={countId} className="text-[11px] font-medium tracking-[0.06em] [text-shadow:0_1px_3px_rgba(0,0,0,0.6)]">
+        <span className="text-[11px] font-medium tracking-[0.06em] [text-shadow:0_1px_3px_rgba(0,0,0,0.6)]">
           {feedLoveText(loves)}
         </span>
       </button>
@@ -79,8 +78,7 @@ export function LoveButton({ slug, name, loves: serverLoves, variant, className 
       type="button"
       onClick={onClick}
       aria-pressed={loved}
-      aria-label={`Love ${name}`}
-      aria-describedby={countId}
+      aria-label={label}
       data-love-button=""
       className={cn(
         "sf-focus inline-flex min-h-11 items-center gap-2 rounded-full border border-brand-ink/25! px-3.5 text-[13px] text-brand-ink transition-colors duration-200 hover:border-brand-ink!",
@@ -88,7 +86,7 @@ export function LoveButton({ slug, name, loves: serverLoves, variant, className 
       )}
     >
       <Heart filled={loved} pop={pop} className={cn("h-[18px] w-[18px]", loved ? "text-brand-olive" : "text-brand-ink")} />
-      <span id={countId}>{productLoveText(loves)}</span>
+      <span>{productLoveText(loves)}</span>
     </button>
   );
 }

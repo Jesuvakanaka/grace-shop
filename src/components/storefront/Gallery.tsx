@@ -103,8 +103,8 @@ export function Gallery({ images, video, label, eager = true, counter = false, c
   }, [shownKey]);
   useActiveDwell(
     shownPhoto !== null,
-    (seconds) => {
-      if (slug && shownPhoto) trackEvent("photo_dwell", { slug, ...shownPhoto, seconds });
+    (seconds, page) => {
+      if (slug && shownPhoto) trackEvent("photo_dwell", { slug, ...shownPhoto, seconds, page });
     },
     shownKey,
   );

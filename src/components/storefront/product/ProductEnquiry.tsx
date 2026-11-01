@@ -11,6 +11,7 @@ import { track } from "@/lib/analytics/client";
 import type { WhatsAppContactSettings } from "@/lib/site-settings/whatsapp";
 import { enquiryLabel, toggleOption } from "@/lib/storefront/product-enquiry";
 import { productPageEnquiryHref } from "@/lib/storefront/product-page-enquiry";
+import { allowedOption } from "@/lib/storefront/tracking";
 import type { Availability } from "@/lib/storefront-model/rules";
 import { EnquiryButton } from "../EnquiryButton";
 import { cn } from "../cn";
@@ -121,14 +122,17 @@ function OptionGroup({
 export function ProductOptions({ colours, sizes }: { colours: string[]; sizes: string[] }) {
   const { colour, size, setColour, setSize, slug } = useEnquiry();
   if (colours.length === 0 && sizes.length === 0) return null;
-  // ZP-493: a chip picked (not cleared), sent exactly as the chip shows it.
+  // ZP-493: a chip picked (not cleared), sent exactly as the chip shows it;
+  // skipped when it is longer than the allow-list takes (allowedOption).
   const pickColour = (value: string | null) => {
     setColour(value);
-    if (value && slug) track("colour_select", { slug, colour: value });
+    const colour = allowedOption("colour", value);
+    if (colour && slug) track("colour_select", { slug, colour });
   };
   const pickSize = (value: string | null) => {
     setSize(value);
-    if (value && slug) track("size_select", { slug, size: value });
+    const size = allowedOption("size", value);
+    if (size && slug) track("size_select", { slug, size });
   };
   return (
     <div className="flex flex-col gap-6">

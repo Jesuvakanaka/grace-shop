@@ -56,8 +56,13 @@ export type AnalyticsEnv = {
   warn?: (message: string) => void
 }
 
-/** Props of one event as callers pass them: `slug` and `collection` are lifted onto the event. */
-export type TrackProps = { slug?: string; collection?: string } & Record<string, PropValue | undefined>
+/**
+ * Props of one event as callers pass them: `slug` and `collection` are lifted
+ * onto the event. `page` (a pathname, normalised like the current one)
+ * replaces the current page: dwell / video trackers pass the page they
+ * started on, so a dwell that ends after a navigation keeps its page.
+ */
+export type TrackProps = { slug?: string; collection?: string; page?: string } & Record<string, PropValue | undefined>
 
 export type QueuedEvent = {
   id: string
@@ -337,13 +342,13 @@ export function createAnalyticsClient(env: AnalyticsEnv): AnalyticsClient {
     track(type, input = {}) {
       try {
         rotateIfIdle()
-        const { slug, collection, ...rest } = input
+        const { slug, collection, page: startedOn, ...rest } = input
         const props: Record<string, PropValue> = {}
         for (const [k, v] of Object.entries(rest)) if (v !== undefined) props[k] = v
         const event = build({
           type,
           at: env.now(),
-          page: page(),
+          page: typeof startedOn === 'string' ? normalizePage(startedOn) : page(),
           ...(slug ? { slug } : {}),
           ...(collection ? { collection } : {}),
           props,

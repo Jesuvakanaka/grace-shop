@@ -15,6 +15,7 @@ import {
   feedLoveText,
   LOVE_COUNT_MIN_SHOWN,
   LOVED_MAX_STORED,
+  loveButtonLabel,
   parseLovedSlugs,
   parseLoveRequest,
   productLoveText,
@@ -53,20 +54,27 @@ describe('love hash', () => {
     assert.notStrictEqual(loveHash(other, DEVICE, 12), loveHash(key, DEVICE, 12))
   })
 
-  test('without LOVES_HASH_SECRET the key is derived from JWT_SECRET (not equal to it)', () => {
-    const derived = loveHashKey({ JWT_SECRET: SECRET_A, NODE_ENV: 'production' })
-    assert.notDeepStrictEqual(derived, Buffer.from(SECRET_A))
-    assert.notStrictEqual(loveHash(derived, DEVICE, 12), loveHash(key, DEVICE, 12))
-    assert.deepStrictEqual(loveHashKey({ JWT_SECRET: SECRET_A, NODE_ENV: 'production' }), derived)
+  test('development / test without LOVES_HASH_SECRET: a key derived from JWT_SECRET (not equal to it)', () => {
+    for (const NODE_ENV of ['development', 'test']) {
+      const derived = loveHashKey({ JWT_SECRET: SECRET_A, NODE_ENV })
+      assert.notDeepStrictEqual(derived, Buffer.from(SECRET_A))
+      assert.notStrictEqual(loveHash(derived, DEVICE, 12), loveHash(key, DEVICE, 12))
+      assert.deepStrictEqual(loveHashKey({ JWT_SECRET: SECRET_A, NODE_ENV }), derived)
+    }
   })
 
-  test('a short LOVES_HASH_SECRET is ignored (falls back to the derived key)', () => {
-    const short = loveHashKey({ LOVES_HASH_SECRET: 'short', JWT_SECRET: SECRET_A, NODE_ENV: 'production' })
-    assert.deepStrictEqual(short, loveHashKey({ JWT_SECRET: SECRET_A, NODE_ENV: 'production' }))
+  test('production REQUIRES LOVES_HASH_SECRET: no fallback to the JWT secret (fails closed)', () => {
+    assert.throws(() => loveHashKey({ JWT_SECRET: SECRET_A, NODE_ENV: 'production' }), /LOVES_HASH_SECRET/)
+    assert.throws(() => loveHashKey({ LOVES_HASH_SECRET: '', JWT_SECRET: SECRET_A, NODE_ENV: 'production' }), /LOVES_HASH_SECRET/)
+    assert.throws(() => loveHashKey({ NODE_ENV: 'production' }), /LOVES_HASH_SECRET/)
+    assert.throws(() => loveHashKey({}), /LOVES_HASH_SECRET/)
   })
 
-  test('fails closed in production without any secret', () => {
-    assert.throws(() => loveHashKey({ NODE_ENV: 'production' }))
+  test('a set but short LOVES_HASH_SECRET throws everywhere (never a silent fallback)', () => {
+    for (const NODE_ENV of ['production', 'development', 'test']) {
+      assert.throws(() => loveHashKey({ LOVES_HASH_SECRET: 'x'.repeat(31), JWT_SECRET: SECRET_A, NODE_ENV }), /at least 32/)
+    }
+    assert.doesNotThrow(() => loveHashKey({ LOVES_HASH_SECRET: 'x'.repeat(32), NODE_ENV: 'production' }))
   })
 })
 
@@ -123,6 +131,22 @@ describe('count display', () => {
     assert.strictEqual(productLoveText(3), 'Loved by 3')
     assert.strictEqual(productLoveText(24), 'Loved by 24')
     assert.strictEqual(productLoveText(1234), 'Loved by 1,234')
+  })
+})
+
+describe('accessible name contains the visible text', () => {
+  test('rail and pill, under and from 3 loves', () => {
+    const cases: [Parameters<typeof loveButtonLabel>, string, string][] = [
+      [['rail', 'Lime dress', 2], 'Love Lime dress', feedLoveText(2)],
+      [['rail', 'Lime dress', 24], 'Love Lime dress, loved by 24', feedLoveText(24)],
+      [['pill', 'Lime dress', 0], 'Love it, Lime dress', productLoveText(0)],
+      [['pill', 'Lime dress', 24], 'Love Lime dress, loved by 24', productLoveText(24)],
+      [['pill', 'Lime dress', 1234], 'Love Lime dress, loved by 1,234', productLoveText(1234)],
+    ]
+    for (const [args, label, visible] of cases) {
+      assert.strictEqual(loveButtonLabel(...args), label)
+      assert.ok(label.toLowerCase().includes(visible.toLowerCase()), `${label} / ${visible}`)
+    }
   })
 })
 

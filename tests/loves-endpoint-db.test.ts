@@ -12,10 +12,12 @@ import { describe, test, before, after, beforeEach } from 'node:test'
 import assert from 'node:assert'
 
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'zp507-loves-tests-secret-0123456789abcdef'
+// Synthetic test-only value (production requires a real one from Secret Manager).
+process.env.LOVES_HASH_SECRET = process.env.LOVES_HASH_SECRET || 'zp507-loves-hash-tests-only-0123456789abcdef'
 
 import prisma from '../src/lib/db'
 import { POST } from '../src/app/api/public/loves/route'
-import { DailyCounter, EventBudget } from '../src/lib/analytics/limits'
+import { DailyCounter, EventBudget, NewVisitLimiter } from '../src/lib/analytics/limits'
 import { createLovesHandler, MAX_LOVE_BODY_BYTES } from '../src/lib/loves/ingest'
 import { resetLoves, setLove } from '../src/lib/loves/db'
 import { loveHash, loveHashKey } from '../src/lib/loves/hash'
@@ -53,6 +55,8 @@ function request(body: unknown, headers: Record<string, string> = {}) {
 function handlerWith(overrides: Partial<Parameters<typeof createLovesHandler>[0]> = {}) {
   return createLovesHandler({
     ipBudget: new EventBudget({ capacity: 10_000, refillPerSecond: 100 }),
+    newDevices: new NewVisitLimiter({ perHour: 10_000 }),
+    ipPieceDaily: new DailyCounter({ limit: 100_000 }),
     deviceBudget: new EventBudget({ capacity: 10_000, refillPerSecond: 100 }),
     deviceDaily: new DailyCounter({ limit: 100_000 }),
     ...overrides,
@@ -185,6 +189,41 @@ describe('POST /api/public/loves', () => {
     // Another device is not affected.
     assert.strictEqual((await daily(request({ slug: SLUG, on: true, device: device(42) }))).status, 204)
   })
+
+  test('forged device ids: at most N new devices per IP per hour; known devices keep working', async () => {
+    const handle = handlerWith({ newDevices: new NewVisitLimiter({ perHour: 3 }) })
+    const from = { 'x-forwarded-for': '10.98.0.1' }
+    const statuses = []
+    for (let i = 0; i < 5; i += 1) statuses.push((await handle(request({ slug: SLUG, on: true, device: device(500 + i) }, from))).status)
+    assert.deepStrictEqual(statuses, [204, 204, 204, 429, 429])
+    assert.strictEqual(await count(), 3)
+    // A device already seen from this IP is not new.
+    assert.strictEqual((await handle(request({ slug: SLUG, on: false, device: device(500) }, from))).status, 204)
+    // Another address is not affected.
+    assert.strictEqual((await handle(request({ slug: SLUG, on: true, device: device(510) }, { 'x-forwarded-for': '10.98.0.2' }))).status, 204)
+  })
+
+  test('daily cap per IP and piece (other pieces / addresses unaffected)', async () => {
+    const handle = handlerWith({ ipPieceDaily: new DailyCounter({ limit: 2 }) })
+    const from = { 'x-forwarded-for': '10.97.0.1' }
+    const statuses = []
+    for (let i = 0; i < 4; i += 1) statuses.push((await handle(request({ slug: SLUG, on: true, device: device(600 + i) }, from))).status)
+    assert.deepStrictEqual(statuses, [204, 204, 429, 429])
+    assert.strictEqual(await count(), 2)
+    // Same address, another piece: its own budget (404 here: unpublished, but not 429).
+    assert.strictEqual((await handle(request({ slug: HIDDEN, on: true, device: device(604) }, from))).status, 404)
+    assert.strictEqual((await handle(request({ slug: SLUG, on: true, device: device(605) }, { 'x-forwarded-for': '10.97.0.2' }))).status, 204)
+  })
+
+  test('no valid hash key (production without LOVES_HASH_SECRET): 503, nothing stored', async () => {
+    const handle = handlerWith({
+      hashKey: () => {
+        throw new Error('LOVES_HASH_SECRET must be set outside development/test')
+      },
+    })
+    assert.strictEqual((await handle(request({ slug: SLUG, on: true, device: device(700) }))).status, 503)
+    assert.strictEqual(await count(), 0)
+  })
 })
 
 describe('love counts', () => {
@@ -225,6 +264,17 @@ describe('love counts', () => {
     assert.strictEqual(await hashes(), 0)
     await setLove(prisma, productId, loveHash(key, device(300), productId), true)
     assert.strictEqual(await count(), 1)
+  })
+
+  test('a reset racing loves and un-loves: count and stored hashes always agree (no deadlock)', async () => {
+    const key = loveHashKey()
+    for (let i = 0; i < 4; i += 1) await setLove(prisma, productId, loveHash(key, device(800 + i), productId), true)
+    await Promise.all([
+      ...Array.from({ length: 4 }, (_, i) => setLove(prisma, productId, loveHash(key, device(800 + i), productId), false)),
+      resetLoves(prisma, productId),
+      ...Array.from({ length: 4 }, (_, i) => setLove(prisma, productId, loveHash(key, device(810 + i), productId), true)),
+    ])
+    assert.strictEqual(await count(), await hashes())
   })
 
   test('public DTO: `loves`; admin: loves in the list and the editor', async () => {

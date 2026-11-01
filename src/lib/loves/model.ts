@@ -48,6 +48,17 @@ export function productLoveText(loves: number): string {
   return loves >= LOVE_COUNT_MIN_SHOWN ? `Loved by ${formatCount(loves)}` : 'Love it'
 }
 
+/**
+ * The heart button's accessible name. It contains the visible text (WCAG
+ * 2.5.3 label in name): "Love <name>" (rail, "Love" shown), "Love it, <name>"
+ * (pill, "Love it" shown), and from 3 loves "Love <name>, loved by 24"
+ * (rail "24", pill "Loved by 24"). aria-pressed says whether it is loved.
+ */
+export function loveButtonLabel(variant: 'rail' | 'pill', name: string, loves: number): string {
+  if (loves >= LOVE_COUNT_MIN_SHOWN) return `Love ${name}, loved by ${formatCount(loves)}`
+  return variant === 'pill' ? `Love it, ${name}` : `Love ${name}`
+}
+
 /** The stored list: valid slugs, unique, in order; anything else is an empty list. */
 export function parseLovedSlugs(raw: string | null | undefined): string[] {
   if (!raw) return []

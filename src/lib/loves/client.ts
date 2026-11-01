@@ -3,8 +3,10 @@
 // localStorage `vyra:loves` (read and written in try/catch: storage blocked
 // means the heart lasts for this page only). The server is told through
 // POST /api/public/loves, one request per piece at a time (./sync), with the
-// analytics device id (`vyra:analytics:device`, owner decision): no device id
-// (GPC / DNT, storage blocked) means the heart stays on this phone only.
+// analytics device id (`vyra:analytics:device`, owner decision). When
+// analytics is off (GPC / DNT, automated browser, preview page) or there is
+// no device id (storage blocked), the heart still works on this phone but the
+// POST is skipped.
 // Also tracks love_on / love_off. See docs/storefront/hearts.md.
 import { useCallback, useSyncExternalStore } from "react";
 import { initAnalytics, track } from "@/lib/analytics/client";
@@ -44,24 +46,30 @@ function notify() {
   for (const fn of [...listeners]) fn();
 }
 
+/** Another tab loved or un-loved something: one listener for the whole page, while any heart is mounted. */
+function onStorage(event: StorageEvent) {
+  if (event.key !== LOVES_STORAGE_KEY) return;
+  current = readStored();
+  notify();
+}
+
 function subscribe(fn: () => void) {
   ensureLoaded();
+  if (listeners.size === 0) window.addEventListener("storage", onStorage);
   listeners.add(fn);
-  // Another tab loved or un-loved something.
-  const onStorage = (event: StorageEvent) => {
-    if (event.key !== LOVES_STORAGE_KEY) return;
-    current = readStored();
-    notify();
-  };
-  window.addEventListener("storage", onStorage);
   return () => {
     listeners.delete(fn);
-    window.removeEventListener("storage", onStorage);
+    if (listeners.size === 0) window.removeEventListener("storage", onStorage);
   };
 }
 
+/**
+ * The analytics device id, or null. Null too when analytics is off (GPC /
+ * DNT, automated browser, preview page): the heart then stays on this phone
+ * and nothing is sent.
+ */
 function deviceId(): string | null {
-  initAnalytics(); // creates the device id if analytics is on
+  if (!initAnalytics().enabled) return null; // also creates the device id when on
   try {
     const id = local()?.getItem(DEVICE_STORAGE_KEY) ?? null;
     return isUuidV4(id) ? id : null;

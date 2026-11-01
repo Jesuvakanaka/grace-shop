@@ -215,6 +215,19 @@ describe('analytics client', () => {
     assert.ok(r.ok, r.ok ? '' : r.error)
   })
 
+  test('track: `page` given by the caller (captured when a dwell started) is used and normalised', () => {
+    const f = fakeEnv()
+    const client = createAnalyticsClient(f.env)
+    // The feed slide's dwell ends after the visitor navigated to a product page.
+    f.env.location.pathname = '/site/p/linen-dress'
+    client.track('look_dwell', { slug: 'linen-dress', collection: 'new', seconds: 3, page: '/site' })
+    client.track('look_view', { slug: 'linen-dress', position: 0 })
+    const [dwell, view] = client.pending().filter((e) => e.type !== 'visit_start')
+    assert.strictEqual(dwell.page, '/')
+    assert.ok(!('page' in dwell.props))
+    assert.strictEqual(view.page, '/p/linen-dress')
+  })
+
   test('page hidden: visit_end (visible time only, looks, last event) and an immediate flush', () => {
     const f = fakeEnv()
     const client = createAnalyticsClient(f.env)

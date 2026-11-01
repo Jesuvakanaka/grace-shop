@@ -12,6 +12,8 @@ import assert from 'node:assert'
 import { randomUUID } from 'node:crypto'
 import { validateEvent } from '../src/lib/analytics/events'
 import {
+  allowedOption,
+  enquiryEvent,
   createVideoWatch,
   imageFileName,
   photoProps,
@@ -26,6 +28,49 @@ function valid(type: string, slug: string | undefined, props: Record<string, unk
   const result = validateEvent(raw, new Date())
   return typeof result === 'string' ? result : null
 }
+
+describe('size / colour that do not fit the allow-list', () => {
+  const longSize = 'UK 10 / EU 38 / US 6 (fitted)' // 29 > 24
+  const longColour = 'Olive green with ivory piping and gold' // 38 > 32
+
+  test('allowedOption: kept as the chip shows it when it fits, undefined otherwise', () => {
+    assert.strictEqual(allowedOption('size', 'UK 10'), 'UK 10')
+    assert.strictEqual(allowedOption('size', 'x'.repeat(24)), 'x'.repeat(24))
+    assert.strictEqual(allowedOption('size', 'x'.repeat(25)), undefined)
+    assert.strictEqual(allowedOption('size', longSize), undefined)
+    assert.strictEqual(allowedOption('colour', 'x'.repeat(32)), 'x'.repeat(32))
+    assert.strictEqual(allowedOption('colour', longColour), undefined)
+    assert.strictEqual(allowedOption('colour', 'Bad\u0007'), undefined)
+    assert.strictEqual(allowedOption('size', null), undefined)
+    assert.strictEqual(allowedOption('size', '   '), undefined)
+    // Zero-width characters do not count towards the length (as on the server).
+    assert.strictEqual(allowedOption('size', `${'x'.repeat(24)}​`), `${'x'.repeat(24)}​`)
+  })
+
+  test('a fitting option makes a valid size_select / colour_select; an over-long one would not', () => {
+    assert.strictEqual(valid('size_select', 'linen-dress', { size: 'UK 10' }), null)
+    assert.notStrictEqual(valid('size_select', 'linen-dress', { size: longSize }), null)
+    assert.notStrictEqual(valid('colour_select', 'linen-dress', { colour: longColour }), null)
+  })
+
+  test('enquiry: the event is kept, an over-long size / colour left out', () => {
+    const e = enquiryEvent({ soldOut: false, screen: 'product', size: longSize, colour: longColour })
+    assert.deepStrictEqual(e, { type: 'whatsapp_enquire', props: { screen: 'product' } })
+    assert.strictEqual(valid(e.type, 'linen-dress', e.props), null)
+    const ok = enquiryEvent({ soldOut: false, screen: 'product', size: 'M', colour: longColour })
+    assert.deepStrictEqual(ok.props, { screen: 'product', size: 'M' })
+    assert.strictEqual(valid(ok.type, 'linen-dress', ok.props), null)
+  })
+
+  test('sold out: restock_request with the size only (no colour prop on that event)', () => {
+    const e = enquiryEvent({ soldOut: true, screen: 'product', size: 'M', colour: 'Olive' })
+    assert.deepStrictEqual(e, { type: 'restock_request', props: { screen: 'product', size: 'M' } })
+    assert.strictEqual(valid(e.type, 'linen-dress', e.props), null)
+    const long = enquiryEvent({ soldOut: true, screen: 'feed', size: longSize })
+    assert.deepStrictEqual(long.props, { screen: 'feed' })
+    assert.strictEqual(valid(long.type, 'linen-dress', long.props), null)
+  })
+})
 
 describe('image file name', () => {
   test('the last path segment of a public image URL', () => {
