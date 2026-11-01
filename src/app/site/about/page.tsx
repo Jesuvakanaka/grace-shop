@@ -7,7 +7,7 @@ import { getShellData } from "@/lib/storefront/shell";
 // tag storefront:settings, revalidated on save), so changes need no deploy.
 export const metadata: Metadata = {
   title: "About",
-  description: "The story behind VYRA. Wear different.",
+  description: "The story behind VYRA. WEAR DIFFERENT.",
 };
 
 export default async function AboutPage() {

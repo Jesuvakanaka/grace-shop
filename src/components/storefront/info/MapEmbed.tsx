@@ -15,7 +15,9 @@ export function MapEmbed({ src, label }: { src: string; label: string }) {
           src={src}
           title={label}
           loading="lazy"
-          referrerPolicy="no-referrer-when-downgrade"
+          // Google's embed needs scripts and its own origin; "Open in Maps" opens a new tab.
+          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+          referrerPolicy="strict-origin-when-cross-origin"
           className="absolute inset-0 h-full w-full border-0"
         />
       </div>

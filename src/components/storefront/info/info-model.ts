@@ -3,23 +3,36 @@
 // tests/storefront-about-visit.test.ts. Every block is null/empty when its
 // value is missing, so the pages never render an empty block or "TBC".
 //
-// NOTE: the home page (ZP-488, src/components/storefront/home/home-model.ts)
-// has its own today's-hours and map-link helpers with the same behaviour.
-// Unify them (e.g. into src/lib/storefront/visit-model.ts) once both merge.
+// Shared visit helpers (time zone, map links, placeholders, settings
+// pictures) live in src/lib/storefront/visit-model.ts, also used by the home
+// page and the shell footer.
 import { buildWhatsAppLink } from "@/lib/site-settings/whatsapp";
 import type { PublicSiteSettings } from "@/lib/site-settings/dto";
 import { DAYS, DAY_LABELS, type Day, type OpeningHours } from "@/lib/site-settings/schema";
-import { SRCSET_WIDTHS } from "@/lib/storefront/image-sizes";
 import { SITE_ROUTES, sitePath, type SiteBase } from "@/lib/storefront/paths";
-import { buildShellModel, splitAddress, VYRA_TAGLINE } from "@/lib/storefront/shell-model";
+import { buildShellModel, VYRA_TAGLINE } from "@/lib/storefront/shell-model";
+import {
+  addressLines,
+  dayInTimeZone,
+  directionsLink,
+  mapEmbedUrl,
+  mapLink,
+  meaningfulText,
+  settingsImageData,
+  SHOP_TIME_ZONE,
+} from "@/lib/storefront/visit-model";
 import { lookbookImage, type LookbookStem } from "../lookbook";
 import type { SocialLink, StorefrontImageData } from "../types";
 
-/**
- * The shop's time zone for "today". Site settings have no time zone field;
- * the shop is in Zimbabwe (CAT, UTC+2, no daylight saving).
- */
-export const SHOP_TIME_ZONE = "Africa/Harare";
+export {
+  dayInTimeZone,
+  directionsLink,
+  mapEmbedUrl,
+  mapLink,
+  meaningfulText,
+  settingsImageData,
+  SHOP_TIME_ZONE,
+} from "@/lib/storefront/visit-model";
 
 /** About headline when the owner has not set one (the brand board's campaign line). */
 export const DEFAULT_ABOUT_HEADLINE = "Be bold. Be you.";
@@ -34,15 +47,6 @@ export const VISIT_IMAGE_STEM: LookbookStem = "olive-print-jumpsuit";
 const ABOUT_SETTINGS_ALT = "VYRA campaign photo";
 
 // ------------------------------------------------------------------- text
-
-const PLACEHOLDER = /^(tbc|tba|tbd|todo|coming soon|n\/?a|-+|\.+)\.?$/i;
-
-/** Trimmed text, or null when blank or a placeholder such as "TBC". */
-export function meaningfulText(value: string | null | undefined): string | null {
-  const text = value?.trim();
-  if (!text || PLACEHOLDER.test(text)) return null;
-  return text;
-}
 
 /** Story paragraphs split on blank lines (single line breaks stay); placeholders dropped. */
 export function storyParagraphs(story: string | null | undefined): string[] {
@@ -62,42 +66,7 @@ export function telHref(phone: string | null | undefined): string | null {
   return `tel:${trimmed.startsWith("+") ? "+" : ""}${digits}`;
 }
 
-// ----------------------------------------------------------------- images
-
-const PUBLIC_PICTURE_URL = /^\/api\/images\/public\/[0-9a-f]{32}\.webp$/;
-
-/** A settings picture URL (/api/images/public/<hex>.webp) as img data with a srcset; null otherwise. */
-export function settingsImageData(url: string | null | undefined, alt: string): StorefrontImageData | null {
-  if (!url || !PUBLIC_PICTURE_URL.test(url)) return null;
-  return { src: url, srcSet: SRCSET_WIDTHS.map((w) => `${url}?w=${w} ${w}w`).join(", "), alt };
-}
-
 // ------------------------------------------------------------------ hours
-
-function validTimeZone(timeZone: string): string {
-  try {
-    new Intl.DateTimeFormat("en-GB", { timeZone });
-    return timeZone;
-  } catch {
-    return SHOP_TIME_ZONE;
-  }
-}
-
-const WEEKDAY_TO_DAY: Record<string, Day> = {
-  Mon: "mon",
-  Tue: "tue",
-  Wed: "wed",
-  Thu: "thu",
-  Fri: "fri",
-  Sat: "sat",
-  Sun: "sun",
-};
-
-/** The weekday of `now` in `timeZone` (an invalid zone falls back to the shop's). */
-export function dayInTimeZone(now: Date, timeZone: string = SHOP_TIME_ZONE): Day {
-  const weekday = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: validTimeZone(timeZone) }).format(now);
-  return WEEKDAY_TO_DAY[weekday] ?? DAYS[0];
-}
 
 export type DayRow = { day: Day; label: string; text: string; closed: boolean; isToday: boolean };
 
@@ -116,50 +85,6 @@ export function weekHours(hours: OpeningHours | null, now: Date, timeZone: strin
       isToday: day === today,
     };
   });
-}
-
-// -------------------------------------------------------------------- map
-
-type VisitLocation = {
-  address: string | null;
-  mapUrl: string | null;
-  latitude: number | null;
-  longitude: number | null;
-};
-
-const MAPS_SEARCH = "https://www.google.com/maps/search/?api=1&query=";
-const MAPS_DIRECTIONS = "https://www.google.com/maps/dir/?api=1&destination=";
-
-function addressQuery(address: string | null): string | null {
-  const lines = splitAddress(address);
-  return lines.length > 0 ? lines.join(", ") : null;
-}
-
-function coordinateQuery(v: VisitLocation): string | null {
-  return v.latitude !== null && v.longitude !== null ? `${v.latitude},${v.longitude}` : null;
-}
-
-/** "Open in Google Maps": the owner's map URL, else a search for the address, else the coordinates; null when none. */
-export function mapLink(v: VisitLocation): string | null {
-  if (v.mapUrl) return v.mapUrl;
-  const query = addressQuery(v.address) ?? coordinateQuery(v);
-  return query ? MAPS_SEARCH + encodeURIComponent(query) : null;
-}
-
-/** "Get directions": Google Maps directions to the coordinates or address, else the owner's map URL; null when none. */
-export function directionsLink(v: VisitLocation): string | null {
-  const query = coordinateQuery(v) ?? addressQuery(v.address);
-  if (query) return MAPS_DIRECTIONS + encodeURIComponent(query);
-  return v.mapUrl;
-}
-
-/**
- * Click-to-load embed (no API key): the coordinates, else the address.
- * Null without either; the owner's map URL is never put in an iframe.
- */
-export function mapEmbedUrl(v: VisitLocation): string | null {
-  const query = coordinateQuery(v) ?? addressQuery(v.address);
-  return query ? `https://www.google.com/maps?q=${encodeURIComponent(query)}&output=embed` : null;
 }
 
 // ------------------------------------------------------------------ about
@@ -191,7 +116,7 @@ export function buildAboutModel(input: { settings: PublicSiteSettings; base: Sit
 // ------------------------------------------------------------------ visit
 
 export type VisitModel = {
-  /** Address lines; [] hides the block. */
+  /** Address lines (placeholders dropped); [] hides the block. */
   address: string[];
   /** The week with today marked; null hides the block. */
   hours: DayRow[] | null;
@@ -200,7 +125,7 @@ export type VisitModel = {
   email: { display: string; href: string } | null;
   /** General-enquiry wa.me link; null hides the WhatsApp button. */
   whatsappHref: string | null;
-  /** Null when there is no map URL, address or coordinates. */
+  /** Null when there is no valid map URL, address or coordinates. */
   map: { openHref: string; directionsHref: string; embedSrc: string | null } | null;
   social: SocialLink[];
   image: StorefrontImageData;
@@ -212,7 +137,7 @@ export function buildVisitModel(input: { settings: PublicSiteSettings; now: Date
   const { settings, now } = input;
   const { visit, contacts } = settings;
 
-  const address = splitAddress(visit.address);
+  const address = addressLines(visit.address);
   const hours = weekHours(visit.hours, now, input.timeZone ?? SHOP_TIME_ZONE);
   const holidayNote = meaningfulText(visit.holidayNote);
   const phoneText = meaningfulText(contacts.phone);

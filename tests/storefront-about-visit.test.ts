@@ -27,6 +27,13 @@ import {
 import { toPublicSiteSettings, type PublicSiteSettings } from '../src/lib/site-settings/dto';
 import { SITE_SETTINGS_DEFAULTS, type OpeningHours, type SiteSettingsData } from '../src/lib/site-settings/schema';
 import { lookbookImage } from '../src/components/storefront/lookbook';
+import {
+  addressLines,
+  mapLink as sharedMapLink,
+  meaningfulText as sharedMeaningfulText,
+} from '../src/lib/storefront/visit-model';
+import { buildShellModel } from '../src/lib/storefront/shell-model';
+import { buildHomeModel } from '../src/components/storefront/home/home-model';
 
 const HOURS: OpeningHours = {
   mon: { closed: false, open: '09:00', close: '17:30' },
@@ -136,6 +143,29 @@ describe('map links', () => {
     );
     assert.strictEqual(mapLink(none), null);
     assert.strictEqual(mapLink({ ...none, address: '  \n ' }), null);
+  });
+
+  test('an owner map URL that is not https is ignored (address / coordinates instead)', () => {
+    for (const bad of ['http://maps.example/x', 'javascript:alert(1)', 'https://user:pw@maps.example/', 'not a url']) {
+      assert.strictEqual(
+        mapLink({ ...none, address: 'Harare', mapUrl: bad }),
+        'https://www.google.com/maps/search/?api=1&query=Harare',
+        bad,
+      );
+      assert.strictEqual(
+        directionsLink({ ...none, address: 'Harare', mapUrl: bad }),
+        'https://www.google.com/maps/dir/?api=1&destination=Harare',
+        bad,
+      );
+      assert.strictEqual(mapLink({ ...none, mapUrl: bad }), null, bad);
+      assert.strictEqual(directionsLink({ ...none, mapUrl: bad }), null, bad);
+    }
+  });
+
+  test('a placeholder address is ignored by the map links', () => {
+    assert.strictEqual(mapLink({ ...none, address: 'TBC' }), null);
+    assert.strictEqual(directionsLink({ ...none, address: 'TBC' }), null);
+    assert.strictEqual(mapEmbedUrl({ ...none, address: 'TBC' }), null);
   });
 
   test('directions: Google Maps directions to the address or coordinates, else the owner map URL', () => {
@@ -267,8 +297,62 @@ describe('buildVisitModel: blocks show only when set', () => {
     assert.strictEqual(m.hasDetails, true);
   });
 
+  test('a placeholder address counts as missing: no address, no map', () => {
+    const m = buildVisitModel({ settings: settings({ address: 'TBC' }), now: MONDAY_NOON_UTC });
+    assert.deepStrictEqual(m.address, []);
+    assert.strictEqual(m.map, null);
+    assert.strictEqual(m.hasDetails, false);
+  });
+
+  test('a placeholder address with coordinates or a map URL: map from those', () => {
+    const coords = buildVisitModel({
+      settings: settings({ address: 'TBC', latitude: -17.76, longitude: 31.08 }),
+      now: MONDAY_NOON_UTC,
+    });
+    assert.deepStrictEqual(coords.address, []);
+    assert.deepStrictEqual(coords.map, {
+      openHref: 'https://www.google.com/maps/search/?api=1&query=-17.76%2C31.08',
+      directionsHref: 'https://www.google.com/maps/dir/?api=1&destination=-17.76%2C31.08',
+      embedSrc: 'https://www.google.com/maps?q=-17.76%2C31.08&output=embed',
+    });
+    const url = buildVisitModel({ settings: settings({ address: 'TBC', mapUrl: 'https://maps.app.goo.gl/abc' }), now: MONDAY_NOON_UTC });
+    assert.deepStrictEqual(url.address, []);
+    assert.deepStrictEqual(url.map, {
+      openHref: 'https://maps.app.goo.gl/abc',
+      directionsHref: 'https://maps.app.goo.gl/abc',
+      embedSrc: null,
+    });
+  });
+
   test('a placeholder holiday note is hidden', () => {
     const m = buildVisitModel({ settings: settings({ holidayNote: 'TBC' }), now: MONDAY_NOON_UTC });
     assert.strictEqual(m.holidayNote, null);
+  });
+});
+
+describe('shared visit-model: placeholders hidden everywhere', () => {
+  test('addressLines drops placeholder lines; the info model re-exports the shared helpers', () => {
+    assert.deepStrictEqual(addressLines('TBC'), []);
+    assert.deepStrictEqual(addressLines(' 12 Fife Avenue \n tbc \n Harare '), ['12 Fife Avenue', 'Harare']);
+    assert.strictEqual(sharedMapLink, mapLink);
+    assert.strictEqual(sharedMeaningfulText, meaningfulText);
+  });
+
+  test('shell footer: a TBC address or holiday note is hidden', () => {
+    const m = buildShellModel({ settings: settings({ address: 'TBC', holidayNote: 'TBC' }), categories: [], base: '' });
+    assert.deepStrictEqual(m.address, []);
+    assert.strictEqual(m.holidayNote, null);
+  });
+
+  test('home: a TBC address hides the visit teaser, holiday note and map link', () => {
+    const base = { newArrivals: [], featured: [], categories: [], categoryCovers: {}, base: '' as const, now: MONDAY_NOON_UTC };
+    assert.strictEqual(buildHomeModel({ ...base, settings: settings({ address: 'TBC' }) }).visit, null);
+    const m = buildHomeModel({
+      ...base,
+      settings: settings({ address: 'TBC', holidayNote: 'TBC', openingHours: HOURS }),
+    });
+    assert.deepStrictEqual(m.visit?.address, []);
+    assert.strictEqual(m.visit?.holidayNote, null);
+    assert.strictEqual(m.visit?.mapHref, null);
   });
 });

@@ -12,10 +12,18 @@ Code in `src/components/storefront/info/`:
 
 | File | What |
 |---|---|
-| `info-model.ts` | Pure: `buildAboutModel`, `buildVisitModel`, `weekHours`, `dayInTimeZone`, `mapLink`, `directionsLink`, `mapEmbedUrl`, `telHref`, `meaningfulText`, `storyParagraphs`, `settingsImageData`. |
+| `info-model.ts` | Pure: `buildAboutModel`, `buildVisitModel`, `weekHours`, `telHref`, `storyParagraphs` (re-exports the shared helpers below). |
 | `AboutView.tsx` | Split tile (headline + story on cream, photo beside it) and the "What WEAR DIFFERENT. means" block with the olive "Shop the collection" button. |
 | `VisitView.tsx` | Heading, action buttons, address, week hours, contact, socials, side photo. |
 | `MapEmbed.tsx` | Client: click-to-load Google map. |
+
+Shared with the home page (`home-model.ts`) and the shell footer (`shell-model.ts`):
+`src/lib/storefront/visit-model.ts` (pure, client-safe): `SHOP_TIME_ZONE`, `dayInTimeZone`,
+`meaningfulText`, `splitAddress`, `addressLines`, `settingsImageData`, `mapLink`,
+`directionsLink`, `mapEmbedUrl`. A placeholder address line or holiday note (`TBC`) is
+therefore hidden in the footer, the home teaser and Visit us alike, and the owner `mapUrl`
+is re-checked with `isHttpsUrl` (`src/lib/site-settings/validate.ts`) wherever it is
+rendered; a URL that fails falls back to the address or coordinates link.
 
 Tests: `tests/storefront-about-visit.test.ts` (pure, no database).
 
@@ -31,7 +39,7 @@ Tests: `tests/storefront-about-visit.test.ts` (pure, no database).
 
 | Block | Source | Hidden when |
 |---|---|---|
-| Address | `address`, one line per row | not set |
+| Address | `address`, one line per row, placeholder lines dropped | not set, or only placeholders |
 | Opening hours | `openingHours`, Monday to Sunday, today marked (`aria-current="date"`, tinted row and a visible "Today" label) | not set |
 | Holiday note | `holidayNote` | not set |
 | Contact | `phone` (`tel:` digits only), `email` (`mailto:`) | each when not set |
@@ -41,6 +49,11 @@ Tests: `tests/storefront-about-visit.test.ts` (pure, no database).
 | Open in Google Maps | owner `mapUrl`, else a Google Maps search for the address, else the coordinates | none of these |
 | Show map | iframe `https://www.google.com/maps?q=…&output=embed`, only after a click. Coordinates or address only; the owner `mapUrl` is never framed | no address or coordinates |
 | Follow VYRA | `SocialIcons` (same list as the header and footer) | no profiles |
+
+The map iframe is sandboxed (`allow-scripts allow-same-origin allow-popups
+allow-popups-to-escape-sandbox`) with `referrerPolicy="strict-origin-when-cross-origin"`.
+The site sends no Content-Security-Policy today; any future CSP must allow
+`frame-src https://www.google.com` or the click-to-load map breaks.
 
 "Today" uses the shop time zone `Africa/Harare` (`SHOP_TIME_ZONE`; settings have no time
 zone field). The page renders per request, so "today" is current.
@@ -53,8 +66,3 @@ Both pages read `getShellData()`, which uses the cached `getPublicSiteSettings()
 (tags `storefront`, `storefront:settings`, 60 s backstop). `PUT /api/website/settings`
 revalidates the tag, so a change shows on the next request. Verified locally by changing
 `aboutHeadline` through the API and reloading `/site/about`.
-
-## Follow-up
-
-The home page (ZP-488) has its own today's-hours and map-link helpers with the same
-behaviour. Unify them (for example in `src/lib/storefront/visit-model.ts`) once both are merged.
