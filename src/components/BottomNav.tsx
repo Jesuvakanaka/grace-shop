@@ -37,7 +37,7 @@ function MoreIcon({ active }: { active: boolean }) {
 
 const MONEY_PATHS = ['/cash', '/debtors', '/creditors', '/expenses'];
 const STOCK_PATHS = ['/products', '/stock-ledger'];
-const MORE_PATHS = ['/closing', '/reports', '/import', '/import/history', '/sales', '/settings/exchange-rate', '/settings/password', '/daily-log'];
+const MORE_PATHS = ['/closing', '/reports', '/import', '/import/history', '/sales', '/settings/exchange-rate', '/settings/password', '/daily-log', '/insights'];
 
 interface BottomNavProps {
   onActionClick: () => void;

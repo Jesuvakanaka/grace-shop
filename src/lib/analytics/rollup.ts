@@ -8,7 +8,7 @@
 // the day of the event. Columns are documented in prisma/schema.prisma and
 // docs/storefront/analytics.md.
 import type { PrismaClient } from '@prisma/client'
-import { addDays, analyticsDay, isDay } from './events'
+import { addDays, ANALYTICS_TIME_ZONE, analyticsDay, isDay } from './events'
 
 /** Raw events older than this many days are deleted. */
 export const RAW_RETENTION_DAYS = 90
@@ -21,6 +21,8 @@ type Db = Pick<PrismaClient, '$transaction' | '$executeRawUnsafe'>
 type Tx = Pick<PrismaClient, '$executeRawUnsafe' | '$queryRawUnsafe'>
 
 const BOUNCE_SECONDS = 5
+/** ZP-505: depth rows are capped here: looks = MAX_DEPTH means "this many or more". */
+export const MAX_DEPTH = 100
 
 /**
  * One row per visit that started on $1, with its latest/longest visit_end
@@ -60,104 +62,244 @@ const count = (type: string) => `COUNT(*) FILTER (WHERE type = '${type}')::int`
 const sumProp = (type: string, prop: string) =>
   `COALESCE(SUM((props->>'${prop}')::float8) FILTER (WHERE type = '${type}'), 0)`
 
+/**
+ * The SELECT that produces one analytics day's rows of each rollup table
+ * ($1 = the day), with columns named exactly like the table's. Shared by the
+ * nightly INSERTs below and by the read-only live view of the Insights page
+ * (ZP-505, src/lib/insights/live.ts), so live and stored numbers are the
+ * same by construction.
+ *
+ * journey / depth / hour read `analytics_rollup_visit`: one row per visit
+ * from VISIT_ROWS_SELECT. The nightly job puts those rows in a temp table;
+ * the live view uses a CTE of the same name.
+ */
+export const VISIT_ROWS_SELECT = `
+  WITH pv AS (
+    SELECT "visitId",
+           (ARRAY_AGG(props ORDER BY "occurredAt") FILTER (WHERE type = 'visit_start' AND day = $1::date))[1] AS start_props,
+           MIN("occurredAt") FILTER (WHERE type = 'visit_start' AND day = $1::date) AS started_at,
+           MAX((props->>'looks')::int) FILTER (WHERE type = 'visit_end') AS end_looks,
+           COUNT(DISTINCT "productId") FILTER (WHERE type = 'look_view') AS seen,
+           BOOL_OR(type = 'details_show') AS details,
+           BOOL_OR(type = 'product_open') AS opened,
+           BOOL_OR(type = 'size_select') AS sized,
+           COUNT(*) FILTER (WHERE type = 'whatsapp_enquire') AS taps,
+           BOOL_OR(type = 'feed_end_reached') AS feed_end
+    FROM "AnalyticsEvent"
+    WHERE day BETWEEN $1::date AND $1::date + 1
+      AND type IN ('visit_start', 'visit_end', 'look_view', 'details_show', 'product_open', 'size_select',
+                   'whatsapp_enquire', 'feed_end_reached')
+    GROUP BY "visitId"
+  ),
+  v AS (
+    SELECT COALESCE(start_props->>'ref', 'other') AS source,
+           COALESCE(start_props->>'device', 'desktop') AS device_class,
+           COALESCE(start_props->>'campaign', '') AS campaign,
+           EXTRACT(HOUR FROM (started_at AT TIME ZONE 'UTC') AT TIME ZONE '${ANALYTICS_TIME_ZONE}')::int AS hour,
+           LEAST(GREATEST(COALESCE(end_looks, 0), seen), ${MAX_DEPTH})::int AS looks,
+           details, opened, sized, taps, feed_end
+    FROM pv
+    WHERE start_props IS NOT NULL
+  )
+  -- step = the furthest funnel step: 0 landed, 1 saw a 2nd look, 2 Show details,
+  -- 3 opened a piece, 4 chose a size, 5 WhatsApp.
+  SELECT source, device_class, campaign, hour, looks,
+         (CASE WHEN taps > 0 THEN 5 WHEN sized THEN 4 WHEN opened THEN 3 WHEN details THEN 2 WHEN looks >= 2 THEN 1 ELSE 0 END)::int AS step,
+         feed_end, taps::int AS taps
+  FROM v`
+
+type RollupSelect = { table: string; columns: string[]; select: string }
+
+const cols = (list: string) => list.split(',').map((c) => c.trim())
+
+export const ROLLUP_SELECTS = {
+  visits: {
+    table: 'AnalyticsDailyVisits',
+    columns: cols('visits, devices, "returningVisits", "endedVisits", bounces, "totalSeconds", "looksSeen", "enquiringVisits"'),
+    select: `WITH ${VISITS_CTE}
+      SELECT COUNT(*)::int AS visits,
+             COUNT(DISTINCT "deviceId")::int AS devices,
+             COUNT(*) FILTER (WHERE is_returning)::int AS "returningVisits",
+             COUNT(duration)::int AS "endedVisits",
+             COUNT(*) FILTER (WHERE bounce)::int AS bounces,
+             COALESCE(SUM(duration), 0)::float8 AS "totalSeconds",
+             COALESCE(SUM(looks), 0)::int AS "looksSeen",
+             COUNT(*) FILTER (WHERE enquired)::int AS "enquiringVisits"
+      FROM v`,
+  },
+  source: {
+    table: 'AnalyticsDailySource',
+    columns: cols('source, "deviceClass", campaign, visits, bounces, "enquiringVisits", "totalSeconds"'),
+    select: `WITH ${VISITS_CTE}
+      SELECT source, device_class AS "deviceClass", campaign,
+             COUNT(*)::int AS visits,
+             COUNT(*) FILTER (WHERE bounce)::int AS bounces,
+             COUNT(*) FILTER (WHERE enquired)::int AS "enquiringVisits",
+             COALESCE(SUM(duration), 0)::float8 AS "totalSeconds"
+      FROM v
+      GROUP BY source, device_class, campaign`,
+  },
+  piece: {
+    table: 'AnalyticsDailyPiece',
+    columns: cols(
+      '"productId", slug, views, viewers, "dwellSeconds", "dwellCount", "photoViews", "videoStarts", "detailsShows", "productOpens", ' +
+        '"sizeSelects", "colourSelects", "galleryZooms", enquiries, "restockRequests", shares, "loveOn", "loveOff", exits, "photoSwipers"',
+    ),
+    select: `WITH last_end AS (
+        SELECT DISTINCT ON ("visitId") "visitId", "productId"
+        FROM "AnalyticsEvent"
+        WHERE day = $1::date AND type = 'visit_end'
+        ORDER BY "visitId", "occurredAt" DESC
+      ),
+      exits AS (
+        SELECT "productId", COUNT(*)::int AS n FROM last_end WHERE "productId" IS NOT NULL GROUP BY "productId"
+      ),
+      agg AS (
+        SELECT "productId",
+               (ARRAY_AGG(slug ORDER BY "occurredAt" DESC))[1] AS slug,
+               ${count('look_view')} AS views,
+               (COUNT(DISTINCT "visitId") FILTER (WHERE type = 'look_view'))::int AS viewers,
+               ${sumProp('look_dwell', 'seconds')} AS dwell_seconds,
+               ${count('look_dwell')} AS dwell_count,
+               ${count('photo_view')} AS photo_views,
+               ${count('video_start')} AS video_starts,
+               ${count('details_show')} AS details_shows,
+               ${count('product_open')} AS product_opens,
+               ${count('size_select')} AS size_selects,
+               ${count('colour_select')} AS colour_selects,
+               ${count('gallery_zoom')} AS gallery_zooms,
+               ${count('whatsapp_enquire')} AS enquiries,
+               ${count('restock_request')} AS restock_requests,
+               ${count('share')} AS shares,
+               ${count('love_on')} AS love_on,
+               ${count('love_off')} AS love_off,
+               (COUNT(DISTINCT "visitId") FILTER (
+                 WHERE (CASE WHEN type = 'photo_view' THEN (props->>'index')::int END) >= 2))::int AS photo_swipers
+        FROM "AnalyticsEvent"
+        WHERE day = $1::date AND "productId" IS NOT NULL AND slug IS NOT NULL
+        GROUP BY "productId"
+      )
+      SELECT a."productId", a.slug, a.views, a.viewers, a.dwell_seconds AS "dwellSeconds", a.dwell_count AS "dwellCount",
+             a.photo_views AS "photoViews", a.video_starts AS "videoStarts", a.details_shows AS "detailsShows",
+             a.product_opens AS "productOpens", a.size_selects AS "sizeSelects", a.colour_selects AS "colourSelects",
+             a.gallery_zooms AS "galleryZooms", a.enquiries, a.restock_requests AS "restockRequests", a.shares,
+             a.love_on AS "loveOn", a.love_off AS "loveOff", COALESCE(x.n, 0)::int AS exits, a.photo_swipers AS "photoSwipers"
+      FROM agg a LEFT JOIN exits x ON x."productId" = a."productId"`,
+  },
+  photo: {
+    table: 'AnalyticsDailyPhoto',
+    columns: cols('"productId", "photoIndex", image, slug, views, viewers, "dwellSeconds", "dwellCount"'),
+    select: `SELECT "productId", (props->>'index')::int AS "photoIndex", COALESCE(props->>'image', '') AS image,
+             (ARRAY_AGG(slug ORDER BY "occurredAt" DESC))[1] AS slug,
+             ${count('photo_view')} AS views,
+             (COUNT(DISTINCT "visitId") FILTER (WHERE type = 'photo_view'))::int AS viewers,
+             ${sumProp('photo_dwell', 'seconds')} AS "dwellSeconds",
+             ${count('photo_dwell')} AS "dwellCount"
+      FROM "AnalyticsEvent"
+      WHERE day = $1::date AND type IN ('photo_view', 'photo_dwell') AND "productId" IS NOT NULL AND slug IS NOT NULL
+      GROUP BY "productId", (props->>'index')::int, COALESCE(props->>'image', '')`,
+  },
+  video: {
+    table: 'AnalyticsDailyVideo',
+    columns: cols('"productId", slug, starts, viewers, replays, reached25, reached50, reached75, reached100, "watchSeconds"'),
+    select: `SELECT "productId", (ARRAY_AGG(slug ORDER BY "occurredAt" DESC))[1] AS slug,
+             ${count('video_start')} AS starts,
+             (COUNT(DISTINCT "visitId") FILTER (WHERE type = 'video_start'))::int AS viewers,
+             ${count('video_replay')} AS replays,
+             (COUNT(*) FILTER (WHERE type = 'video_progress' AND props->>'pct' = '25'))::int AS reached25,
+             (COUNT(*) FILTER (WHERE type = 'video_progress' AND props->>'pct' = '50'))::int AS reached50,
+             (COUNT(*) FILTER (WHERE type = 'video_progress' AND props->>'pct' = '75'))::int AS reached75,
+             (COUNT(*) FILTER (WHERE type = 'video_progress' AND props->>'pct' = '100'))::int AS reached100,
+             ${sumProp('video_seconds', 'seconds')} AS "watchSeconds"
+      FROM "AnalyticsEvent"
+      WHERE day = $1::date AND type IN ('video_start', 'video_progress', 'video_replay', 'video_seconds')
+        AND "productId" IS NOT NULL AND slug IS NOT NULL
+      GROUP BY "productId"`,
+  },
+  // ── ZP-505 (Insights)
+  journey: {
+    table: 'AnalyticsDailyJourney',
+    columns: cols(
+      'source, "deviceClass", campaign, visits, "reachedSecondLook", "reachedDetails", "reachedOpen", "reachedSize", "reachedWhatsapp", "feedEndVisits", "whatsappTaps"',
+    ),
+    select: `SELECT source, device_class AS "deviceClass", campaign,
+             COUNT(*)::int AS visits,
+             COUNT(*) FILTER (WHERE step >= 1)::int AS "reachedSecondLook",
+             COUNT(*) FILTER (WHERE step >= 2)::int AS "reachedDetails",
+             COUNT(*) FILTER (WHERE step >= 3)::int AS "reachedOpen",
+             COUNT(*) FILTER (WHERE step >= 4)::int AS "reachedSize",
+             COUNT(*) FILTER (WHERE step >= 5)::int AS "reachedWhatsapp",
+             COUNT(*) FILTER (WHERE feed_end)::int AS "feedEndVisits",
+             COALESCE(SUM(taps), 0)::int AS "whatsappTaps"
+      FROM analytics_rollup_visit
+      GROUP BY source, device_class, campaign`,
+  },
+  depth: {
+    table: 'AnalyticsDailyDepth',
+    columns: cols('looks, visits'),
+    select: `SELECT looks, COUNT(*)::int AS visits FROM analytics_rollup_visit GROUP BY looks`,
+  },
+  hour: {
+    table: 'AnalyticsDailyHour',
+    columns: cols('hour, visits, "enquiringVisits", "whatsappTaps"'),
+    select: `SELECT hour, COUNT(*)::int AS visits, COUNT(*) FILTER (WHERE taps > 0)::int AS "enquiringVisits",
+             COALESCE(SUM(taps), 0)::int AS "whatsappTaps"
+      FROM analytics_rollup_visit
+      GROUP BY hour`,
+  },
+  health: {
+    table: 'AnalyticsDailyHealth',
+    columns: cols('kind, detail, events, visits'),
+    select: `SELECT type AS kind, COALESCE(props->>'what', props->>'action', '') AS detail,
+             COUNT(*)::int AS events, COUNT(DISTINCT "visitId")::int AS visits
+      FROM "AnalyticsEvent"
+      WHERE day = $1::date AND type IN ('slow_load', 'load_error', 'action_failed')
+      GROUP BY type, COALESCE(props->>'what', props->>'action', '')`,
+  },
+  option: {
+    table: 'AnalyticsDailyOption',
+    columns: cols('"productId", kind, value, selects, enquiries, "restockRequests"'),
+    select: `SELECT e."productId", o.kind, o.value,
+             COUNT(*) FILTER (WHERE e.type IN ('size_select', 'colour_select'))::int AS selects,
+             COUNT(*) FILTER (WHERE e.type = 'whatsapp_enquire')::int AS enquiries,
+             COUNT(*) FILTER (WHERE e.type = 'restock_request')::int AS "restockRequests"
+      FROM "AnalyticsEvent" e
+      CROSS JOIN LATERAL (VALUES ('size', e.props->>'size'), ('colour', e.props->>'colour')) AS o(kind, value)
+      WHERE e.day = $1::date AND e.type IN ('size_select', 'colour_select', 'whatsapp_enquire', 'restock_request')
+        AND e."productId" IS NOT NULL AND o.value IS NOT NULL
+      GROUP BY e."productId", o.kind, o.value`,
+  },
+} satisfies Record<string, RollupSelect>
+
+const insert = ({ table, columns, select }: RollupSelect, extra: { column: string; value: string } | null = null) => {
+  const list = columns.join(', ')
+  return `INSERT INTO "${table}" (day, ${list}${extra ? `, ${extra.column}` : ''})
+   SELECT $1::date, ${list}${extra ? `, ${extra.value}` : ''} FROM (${select}) AS s`
+}
+
+const S = ROLLUP_SELECTS
+
 const STATEMENTS: string[] = [
-  `DELETE FROM "AnalyticsDailyVisits" WHERE day = $1::date`,
-  `DELETE FROM "AnalyticsDailySource" WHERE day = $1::date`,
-  `DELETE FROM "AnalyticsDailyPiece" WHERE day = $1::date`,
-  `DELETE FROM "AnalyticsDailyPhoto" WHERE day = $1::date`,
-  `DELETE FROM "AnalyticsDailyVideo" WHERE day = $1::date`,
+  ...Object.values(S).map((s) => `DELETE FROM "${s.table}" WHERE day = $1::date`),
 
-  `WITH ${VISITS_CTE}
-   INSERT INTO "AnalyticsDailyVisits"
-     (day, visits, devices, "returningVisits", "endedVisits", bounces, "totalSeconds", "looksSeen", "enquiringVisits", "updatedAt")
-   SELECT $1::date,
-          COUNT(*)::int,
-          COUNT(DISTINCT "deviceId")::int,
-          COUNT(*) FILTER (WHERE is_returning)::int,
-          COUNT(duration)::int,
-          COUNT(*) FILTER (WHERE bounce)::int,
-          COALESCE(SUM(duration), 0),
-          COALESCE(SUM(looks), 0)::int,
-          COUNT(*) FILTER (WHERE enquired)::int,
-          now()
-   FROM v`,
+  insert(S.visits, { column: '"updatedAt"', value: 'now()' }),
+  insert(S.source),
+  insert(S.piece),
+  insert(S.photo),
+  insert(S.video),
 
-  `WITH ${VISITS_CTE}
-   INSERT INTO "AnalyticsDailySource" (day, source, "deviceClass", campaign, visits, bounces, "enquiringVisits", "totalSeconds")
-   SELECT $1::date, source, device_class, campaign,
-          COUNT(*)::int,
-          COUNT(*) FILTER (WHERE bounce)::int,
-          COUNT(*) FILTER (WHERE enquired)::int,
-          COALESCE(SUM(duration), 0)
-   FROM v
-   GROUP BY source, device_class, campaign`,
-
-  `WITH last_end AS (
-     SELECT DISTINCT ON ("visitId") "visitId", "productId"
-     FROM "AnalyticsEvent"
-     WHERE day = $1::date AND type = 'visit_end'
-     ORDER BY "visitId", "occurredAt" DESC
-   ),
-   exits AS (
-     SELECT "productId", COUNT(*)::int AS n FROM last_end WHERE "productId" IS NOT NULL GROUP BY "productId"
-   ),
-   agg AS (
-     SELECT "productId",
-            (ARRAY_AGG(slug ORDER BY "occurredAt" DESC))[1] AS slug,
-            ${count('look_view')} AS views,
-            (COUNT(DISTINCT "visitId") FILTER (WHERE type = 'look_view'))::int AS viewers,
-            ${sumProp('look_dwell', 'seconds')} AS dwell_seconds,
-            ${count('look_dwell')} AS dwell_count,
-            ${count('photo_view')} AS photo_views,
-            ${count('video_start')} AS video_starts,
-            ${count('details_show')} AS details_shows,
-            ${count('product_open')} AS product_opens,
-            ${count('size_select')} AS size_selects,
-            ${count('colour_select')} AS colour_selects,
-            ${count('gallery_zoom')} AS gallery_zooms,
-            ${count('whatsapp_enquire')} AS enquiries,
-            ${count('restock_request')} AS restock_requests,
-            ${count('share')} AS shares,
-            ${count('love_on')} AS love_on,
-            ${count('love_off')} AS love_off
-     FROM "AnalyticsEvent"
-     WHERE day = $1::date AND "productId" IS NOT NULL AND slug IS NOT NULL
-     GROUP BY "productId"
-   )
-   INSERT INTO "AnalyticsDailyPiece"
-     (day, "productId", slug, views, viewers, "dwellSeconds", "dwellCount", "photoViews", "videoStarts", "detailsShows",
-      "productOpens", "sizeSelects", "colourSelects", "galleryZooms", enquiries, "restockRequests", shares, "loveOn", "loveOff", exits)
-   SELECT $1::date, a."productId", a.slug, a.views, a.viewers, a.dwell_seconds, a.dwell_count, a.photo_views, a.video_starts,
-          a.details_shows, a.product_opens, a.size_selects, a.colour_selects, a.gallery_zooms, a.enquiries, a.restock_requests,
-          a.shares, a.love_on, a.love_off, COALESCE(x.n, 0)
-   FROM agg a LEFT JOIN exits x ON x."productId" = a."productId"`,
-
-  `INSERT INTO "AnalyticsDailyPhoto" (day, "productId", "photoIndex", image, slug, views, viewers, "dwellSeconds", "dwellCount")
-   SELECT $1::date, "productId", (props->>'index')::int, COALESCE(props->>'image', ''),
-          (ARRAY_AGG(slug ORDER BY "occurredAt" DESC))[1],
-          ${count('photo_view')},
-          (COUNT(DISTINCT "visitId") FILTER (WHERE type = 'photo_view'))::int,
-          ${sumProp('photo_dwell', 'seconds')},
-          ${count('photo_dwell')}
-   FROM "AnalyticsEvent"
-   WHERE day = $1::date AND type IN ('photo_view', 'photo_dwell') AND "productId" IS NOT NULL AND slug IS NOT NULL
-   GROUP BY "productId", (props->>'index')::int, COALESCE(props->>'image', '')`,
-
-  `INSERT INTO "AnalyticsDailyVideo"
-     (day, "productId", slug, starts, viewers, replays, reached25, reached50, reached75, reached100, "watchSeconds")
-   SELECT $1::date, "productId", (ARRAY_AGG(slug ORDER BY "occurredAt" DESC))[1],
-          ${count('video_start')},
-          (COUNT(DISTINCT "visitId") FILTER (WHERE type = 'video_start'))::int,
-          ${count('video_replay')},
-          (COUNT(*) FILTER (WHERE type = 'video_progress' AND props->>'pct' = '25'))::int,
-          (COUNT(*) FILTER (WHERE type = 'video_progress' AND props->>'pct' = '50'))::int,
-          (COUNT(*) FILTER (WHERE type = 'video_progress' AND props->>'pct' = '75'))::int,
-          (COUNT(*) FILTER (WHERE type = 'video_progress' AND props->>'pct' = '100'))::int,
-          ${sumProp('video_seconds', 'seconds')}
-   FROM "AnalyticsEvent"
-   WHERE day = $1::date AND type IN ('video_start', 'video_progress', 'video_replay', 'video_seconds')
-     AND "productId" IS NOT NULL AND slug IS NOT NULL
-   GROUP BY "productId"`,
+  // ZP-505: one grouped pass over the visit's two days into a temp table
+  // (dropped at the end of the transaction), then journey, depth and hour from it.
+  `DROP TABLE IF EXISTS pg_temp.analytics_rollup_visit`,
+  `CREATE TEMP TABLE analytics_rollup_visit (
+     source text, device_class text, campaign text, hour int, looks int, step int, feed_end boolean, taps int
+   ) ON COMMIT DROP`,
+  `INSERT INTO analytics_rollup_visit (source, device_class, campaign, hour, looks, step, feed_end, taps) ${VISIT_ROWS_SELECT}`,
+  insert(S.journey),
+  insert(S.depth),
+  insert(S.hour),
+  insert(S.health),
+  insert(S.option),
 ]
 
 /**
@@ -201,17 +343,36 @@ export async function rollupDay(db: Db, day: string, options: { now?: Date } = {
     if (!raw && rolled) {
       return { day, status: 'skipped' as const, reason: 'no raw events but rollups exist; rollups kept' }
     }
-    for (const sql of STATEMENTS) await tx.$executeRawUnsafe(sql, day)
+    await rollupDayInTransaction(tx, day)
     return { day, status: 'done' as const }
   }, ROLLUP_TRANSACTION)
 }
 
-const ROLLUP_TABLES = [
+/**
+ * The rollup statements for one day, inside a transaction the caller owns
+ * (no checks, no statement timeout). Used by rollupDay (and tests). The
+ * Insights page never writes: it runs ROLLUP_SELECTS read-only instead.
+ */
+export async function rollupDayInTransaction(tx: Pick<PrismaClient, '$executeRawUnsafe'>, day: string): Promise<void> {
+  if (!isDay(day)) throw new Error(`Not a date: ${day}`)
+  for (const sql of STATEMENTS) {
+    if (sql.includes('$1')) await tx.$executeRawUnsafe(sql, day)
+    else await tx.$executeRawUnsafe(sql)
+  }
+}
+
+export const ROLLUP_TABLES = [
   'AnalyticsDailyVisits',
   'AnalyticsDailySource',
   'AnalyticsDailyPiece',
   'AnalyticsDailyPhoto',
   'AnalyticsDailyVideo',
+  // ZP-505
+  'AnalyticsDailyJourney',
+  'AnalyticsDailyDepth',
+  'AnalyticsDailyHour',
+  'AnalyticsDailyHealth',
+  'AnalyticsDailyOption',
 ]
 
 /** Subtract whole months from "YYYY-MM-DD" (clamped to the month's last day). */

@@ -323,6 +323,15 @@ both index scans.
   `""` when not sent): `views`, `viewers`, `dwellSeconds`, `dwellCount`.
 - **`AnalyticsDailyVideo`** (`day, productId` PK): `starts`, `viewers`,
   `replays`, `reached25/50/75/100`, `watchSeconds`.
+- **ZP-505 (Insights)**, migration `20261105090000_analytics_insights_rollups`:
+  `AnalyticsDailyPiece.photoSwipers`, and `AnalyticsDailyJourney` (funnel by
+  furthest step, feed end, WhatsApp taps per source / device / campaign),
+  `AnalyticsDailyDepth` (visits by looks seen), `AnalyticsDailyHour` (visits
+  by Harare hour of start), `AnalyticsDailyHealth` (slow loads, load errors,
+  failed actions), `AnalyticsDailyOption` (size / colour demand per piece).
+  Columns and definitions: `docs/admin/insights.md`. Journey, depth and hour
+  rows are by the day the visit started; health and option rows by the day
+  of the event.
 
 Visit and source rows are by the day the visit **started** (a `visit_end`
 or enquiry after midnight still counts for it); piece, photo and video rows
@@ -337,7 +346,8 @@ highest dwell per view). All in one indexed range scan.
 
 `npm run analytics:rollup` (`scripts/analytics-rollup.ts`, logic in
 `src/lib/analytics/rollup.ts`, tested in `tests/analytics-rollup-db.test.ts`
-and, at 500,000 events/day, `tests/analytics-rollup-volume-db.test.ts`).
+and, at volume, `tests/analytics-rollup-volume-db.test.ts`: 20,000 events by default, the
+500,000-event run is opt-in with `ANALYTICS_VOLUME_EVENTS=500000`).
 
 ```
 npm run analytics:rollup                                        # the day before yesterday AND yesterday (Harare), then prune
@@ -353,7 +363,7 @@ npm run analytics:rollup -- --no-prune
 - Each day is replaced in one transaction (timeout 10 min, max wait 30 s,
   `statement_timeout` 9 min), so running it again is safe and a runaway query
   fails the job instead of hanging. 500,000 events roll up in about 1.5 s
-  locally.
+  locally (about 2.5 s with the ZP-505 Insights rollups).
 - **Never rebuilds what it cannot.** A day older than 90 days (its raw
   events are pruned) is refused by the arguments and skipped by
   `rollupDay`; a day with no raw events while rollups exist is skipped too.
@@ -401,4 +411,4 @@ serves traffic, as usual.
 | `tests/analytics-client.test.ts` | validation before queueing, event ids, batching, hidden-page coalescing, transport fallback, visit/device ids, idle, opt-out, storage failures, no-op on the server |
 | `tests/analytics-endpoint-db.test.ts` | the endpoint end to end against the DB (accept, per-event drop, option check, dedupe, staff, 400/403/413/415/429) |
 | `tests/analytics-rollup-db.test.ts` | rollups, idempotency, backfill, two-day default, never rebuilding pruned / empty days, retention, job arguments |
-| `tests/analytics-rollup-volume-db.test.ts` | 500,000 events in one day roll up within the transaction limits |
+| `tests/analytics-rollup-volume-db.test.ts` | a busy day rolls up within the transaction limits (20,000 events; `ANALYTICS_VOLUME_EVENTS=500000` for the full run) |

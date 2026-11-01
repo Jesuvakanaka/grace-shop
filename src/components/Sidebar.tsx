@@ -20,6 +20,8 @@ const navItems = [
   { label: 'Reports', href: '/reports', icon: '📊', testId: 'sidebar-reports' },
   // ZP-483: the VYRA website tools (Categories, with a link to Site settings from ZP-486).
   { label: 'Website', href: '/website', icon: '🌐', testId: 'sidebar-website', ownerOnly: true },
+  // ZP-505: website analytics.
+  { label: 'Insights', href: '/insights', icon: '📈', testId: 'sidebar-insights', ownerOnly: true },
   { label: 'Exchange Rate', href: '/settings/exchange-rate', icon: '⚙️', testId: 'sidebar-exchange-rate', ownerOnly: true },
   { label: 'Change Password', href: '/settings/password', icon: '🔑', testId: 'sidebar-change-password' },
 ];
