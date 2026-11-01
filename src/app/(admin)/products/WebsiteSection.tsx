@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ProductPicture } from '@/components/ProductPicture';
 import { useToast } from '@/components/Toast';
 import { slugify, type PublishMissing } from '@/lib/storefront-model';
+import { publicProductRef } from '@/lib/storefront/product-ref';
 import {
   ALT_TEXT_MAX,
   DESCRIPTION_HINT,
@@ -291,6 +292,11 @@ export function WebsiteSection({
           <p className="text-sm text-amber-700 mt-2" data-testid="website-missing">{missingText}</p>
         )}
         <p className="text-xs text-slate-500 mt-2" data-testid="website-new-arrival">{newArrivalText(product)}</p>
+        {/* ZP-504: customers' WhatsApp enquiries for this piece end with "(ref V-0099)". */}
+        <p className="text-xs text-slate-500 mt-1" data-testid="website-enquiry-ref">
+          Enquiry reference: <span className="font-mono text-slate-700">{publicProductRef(productId)}</span>
+          {' '}(shown at the end of WhatsApp enquiries)
+        </p>
       </div>
 
       {/* Field errors (slug, category) are shown under their field instead. */}

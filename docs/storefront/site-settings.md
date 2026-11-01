@@ -53,7 +53,7 @@ the "few left" threshold and whether item numbers are public.
 | Group | Column | Default | Rule |
 | --- | --- | --- | --- |
 | Contacts | `whatsappNumber` | null | E.164 (`+` and 8 to 15 digits). Spaces, `-`, `.` and `( )` are removed, so `+263 77 123 4567` is saved as `+263771234567`. |
-| | `enquiryTemplate` | `Hi VYRA, I'm interested in {product} ({url})` | Required, up to 500 characters. Only `{product}`, `{url}`, `{colour}` and `{size}` are allowed. |
+| | `enquiryTemplate` | `Hi VYRA, I'm interested in {product} ({url})` | Required, up to 500 characters. Only `{product}`, `{url}`, `{colour}`, `{size}` and `{ref}` (ZP-504) are allowed. |
 | | `generalEnquiryMessage` | `Hi VYRA, I'd like to ask about your collection.` | Required, up to 500 characters. |
 | | `phone` | null | Digits, spaces, `( )`, `-`, optional leading `+`. |
 | | `email` | null | Simple address check, up to 254 characters. |
@@ -146,7 +146,7 @@ fewLeftThreshold, showItemNumber
 
 It never includes `updatedBy`, timestamps or raw storage keys.
 
-### `buildWhatsAppLink(settings, { product?, url?, colour?, size? })`
+### `buildWhatsAppLink(settings, { product?, url?, colour?, size?, ref? })`
 
 - Returns `https://wa.me/<digits>?text=<encodeURIComponent(message)>`, or
   `null` when no usable number is set (fewer than 8 or more than 15 digits).
@@ -158,7 +158,15 @@ It never includes `updatedBy`, timestamps or raw storage keys.
   becomes empty. Colour and size that
   the template does not mention are added on their own lines
   (`Colour: Black`, `Size: M`).
-- Without `product`, it uses `generalEnquiryMessage`.
+- ZP-504: with `ref` (the product DTO's public `ref`, `"V-" + id` padded to 4
+  digits, e.g. `V-0099`; never the item number) the message ends with
+  ` (ref V-0099)`, or `(ref V-0099)` on its own line after added colour/size
+  lines. A template that places `{ref}` itself gets no extra suffix; without a
+  ref, a `({ref})` or `(ref {ref})` wrapper and a bare `{ref}` disappear. The
+  feed Enquire, the feed restock message and the product page all pass it
+  (`productEnquiryHref`, `toFeedItem`). The owner sees the ref in the product
+  editor's Website panel ("Enquiry reference: V-0099").
+- Without `product`, it uses `generalEnquiryMessage` (never a ref).
 - It is tested with spaces, `&`, emoji and a missing number.
 
 ## Revalidation

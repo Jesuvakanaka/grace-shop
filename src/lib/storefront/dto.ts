@@ -3,9 +3,12 @@
 // Security boundary: every public object is built here from an explicit
 // allow-list of fields. Raw Prisma rows never leave src/lib/storefront.
 // Cost, wholesale, quantity, source, notes, item number (unless opted in),
-// createdBy/updatedBy and database ids are never copied.
+// createdBy/updatedBy and database ids are never copied. (ZP-504: the public
+// enquiry `ref` "V-0099" is derived from the id by owner decision; the raw id
+// key is still never copied.)
 // See docs/storefront/public-data-layer.md.
 import { isValidImageKey } from '@/lib/storage/keys'
+import { publicProductRef } from './product-ref'
 import { isValidPosterKey, isValidVideoKey, publicVideoUrl } from '@/lib/storage/video-keys'
 import { publicImageSrc, publicImageSrcSet } from './image-sizes'
 import {
@@ -68,6 +71,12 @@ export type PublicProduct = {
   priceUsd: number | null
   /** Only present when the caller passed includeItemNumber: true. */
   itemNumber?: string
+  /**
+   * ZP-504: public WhatsApp enquiry reference, "V-" + id padded to 4 ("V-0099");
+   * never the item number. Always set by toPublicProduct; optional in the type
+   * so hand-written DTOs (fixtures, design previews) need not list it.
+   */
+  ref?: string
 }
 
 export type PublicCategory = {
@@ -162,6 +171,7 @@ export function toPublicProduct(row: PublicProductRow, options: ProductDtoOption
     isNew: isNewArrival(row, options.now),
     featured: row.featured,
     priceUsd: publicPriceUsd(row),
+    ref: publicProductRef(row.id),
   }
   if (options.includeItemNumber) dto.itemNumber = row.itemNumber
   return dto
