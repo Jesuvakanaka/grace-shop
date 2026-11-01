@@ -95,6 +95,8 @@ export function FeedGuide({ frameRef, findEye, onDone, fallbackFocus }: FeedGuid
   const nextButton = useRef<HTMLButtonElement>(null);
   const returnTo = useRef<Element | null>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
+  /** The last pointer gesture completed a step: ignore the click that follows it. */
+  const swiped = useRef(false);
   const [step, setStep] = useState(0);
   const [layout, setLayout] = useState<GuideLayout>("touch");
   const [frame, setFrame] = useState<Box | null>(null);
@@ -149,6 +151,9 @@ export function FeedGuide({ frameRef, findEye, onDone, fallbackFocus }: FeedGuid
   };
 
   const onClose = () => {
+    // A close queued by an effect cleanup (dev Strict Mode re-runs the mount
+    // effect) arrives after it reopened: not the visitor closing it.
+    if (dialog.current?.open) return;
     const back = returnTo.current;
     if (back instanceof HTMLElement && back.isConnected && back !== document.body) back.focus({ preventScroll: true });
     else fallbackFocus();
@@ -158,11 +163,17 @@ export function FeedGuide({ frameRef, findEye, onDone, fallbackFocus }: FeedGuid
   // A tap on the layer (anything but the buttons) advances.
   const onLayerClick = (event: React.MouseEvent<HTMLDialogElement>) => {
     if ((event.target as Element).closest("button")) return;
+    // A mouse drag recognised as the step's gesture also ends in a click: one step only.
+    if (swiped.current) {
+      swiped.current = false;
+      return;
+    }
     next();
   };
   // Doing the real gesture completes that step.
   const onPointerDown = (event: PointerEvent<HTMLDialogElement>) => {
     swipe.current = { x: event.clientX, y: event.clientY };
+    swiped.current = false;
   };
   const onPointerUp = (event: PointerEvent<HTMLDialogElement>) => {
     const start = swipe.current;
@@ -170,8 +181,13 @@ export function FeedGuide({ frameRef, findEye, onDone, fallbackFocus }: FeedGuid
     if (!start) return;
     const dx = event.clientX - start.x;
     const dy = event.clientY - start.y;
-    if (tip.motion === "up" && -dy > SWIPE_PX && Math.abs(dy) > Math.abs(dx)) next();
-    else if (tip.motion === "side" && Math.abs(dx) > SWIPE_PX && Math.abs(dx) > Math.abs(dy)) next();
+    const done =
+      (tip.motion === "up" && -dy > SWIPE_PX && Math.abs(dy) > Math.abs(dx)) ||
+      (tip.motion === "side" && Math.abs(dx) > SWIPE_PX && Math.abs(dx) > Math.abs(dy));
+    if (done) {
+      swiped.current = true;
+      next();
+    }
   };
   const onWheel = (event: WheelEvent<HTMLDialogElement>) => {
     if (tip.motion === "up" && event.deltaY > 20) next();
@@ -197,7 +213,7 @@ export function FeedGuide({ frameRef, findEye, onDone, fallbackFocus }: FeedGuid
       onPointerUp={onPointerUp}
       onWheel={onWheel}
       // Full screen, transparent: the dark layer is the backdrop (70% ink keeps cream and lime text above 4.5:1 on white photos).
-      className="fixed inset-0 m-0 h-full max-h-none w-full max-w-none cursor-pointer overflow-hidden border-0 bg-transparent p-0 text-brand-cream-50 backdrop:bg-[rgba(20,20,18,0.7)]"
+      className="fixed inset-0 m-0 h-full max-h-none w-full max-w-none cursor-pointer touch-none overflow-hidden overscroll-contain border-0 bg-transparent p-0 text-brand-cream-50 backdrop:bg-[rgba(20,20,18,0.7)]"
     >
       <style href="vyra-feed-guide" precedence="default">
         {GUIDE_CSS}

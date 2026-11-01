@@ -268,15 +268,33 @@ Pure rules in `src/lib/storefront/feed-media.ts` (tested in
   slide's sideways strip and of the product page gallery, then the photos.
   Feed progress bars, gallery dots and thumbnails count it. A video without
   both URLs and a positive size is left out.
-- **Element**: `<video muted loop playsInline preload poster>` (also
-  `disablePictureInPicture`), accessible name "<name> – video".
+- **Element**: `<video muted loop playsInline preload>` (also
+  `disablePictureInPicture`), accessible name "<name> – video". In the feed
+  the `<video>` has **no `poster` attribute** (a poster attribute is never
+  lazy, so every video slide would fetch it at load and compete with the
+  LCP image); the `<img>` underneath is the visible poster. The product
+  gallery's video keeps `poster` (one video, above the fold).
+- **Source only near the current slide** (`videoSourceAttached`, feed): the
+  current slide and its neighbours (±1) hold `src`; further away `src` is
+  removed and `load()` called, freeing the decoder and buffers (iOS limits
+  active media elements); it comes back when the slide is within one again.
+  Until the current slide is first read from the scroll position (e.g. a
+  `#look-` reload), no video has a source or preloads anything.
 - **Which one plays** (`useVideoPlayback`, `videoShouldPlay`): an
   IntersectionObserver on each `<video>` (threshold 0.6, viewport root). It
   measures the element clipped by its scrolling ancestors, so it covers both
   the vertical feed and a sideways strip / gallery: only the visible slide's
   visible strip item plays (at least 60% on screen); every other video is
   paused. The visitor's own play / pause (the button, or native controls)
-  wins over autoplay until changed.
+  wins over autoplay until changed. The button decides from what was
+  requested (`toggledIntent`) and reads "Pause" as soon as play is
+  requested, even before the first frame on a slow network. A `pause` the
+  hook did not ask for counts as the visitor's only with native controls
+  (gallery) and never while the page is hidden (`pauseIsVisitors`: background
+  tab, iOS app switch, media interruption); when the page is visible again,
+  a video that should still play resumes.
+- The feed's play / pause button is rendered only after mount (no flash
+  over the LCP poster before the browser's autoplay answer is known).
 - **Preload** (`videoPreload`, feed): `auto` for the current slide's video
   (it is playing), `metadata` for the next slide only, `none` otherwise and
   always in the server HTML (autoplay is decided after hydration), so the
@@ -288,7 +306,7 @@ Pure rules in `src/lib/storefront/feed-media.ts` (tested in
 - **No autoplay** with `prefers-reduced-motion: reduce` or
   `navigator.connection.saveData` (`autoplayAllowed`, `useAutoplayAllowed`):
   the feed shows the poster with a large play button; the product page shows
-  the poster with native controls. If the browser refuses muted autoplay
+  the poster with native controls and `preload="none"` (`metadata` otherwise). If the browser refuses muted autoplay
   (`NotAllowedError`, e.g. iOS Low Power Mode) the play button shows too.
 - **Failures**: a load error, or no playable data 8 s
   (`VIDEO_STALL_MS`) after asking to play / while buffering, marks the video

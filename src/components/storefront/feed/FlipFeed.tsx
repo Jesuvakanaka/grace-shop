@@ -121,6 +121,11 @@ export function FlipFeed({
    * "done". The swipe hint shows only once it is "done".
    */
   const [guide, setGuide] = useState<"pending" | "open" | "done">("pending");
+  /**
+   * The current slide has been read from the scroll position at least once.
+   * Until then videos load nothing (on a #look- reload the start is not slide 0).
+   */
+  const [synced, setSynced] = useState(false);
 
   // A soft navigation back to this page (new server props) starts afresh.
   const [source, setSource] = useState(initialItems);
@@ -180,6 +185,7 @@ export function FlipFeed({
     const el = scroller.current;
     if (!el) return;
     setActive(slideIndexAt(el.scrollTop, el.clientHeight, el.childElementCount));
+    setSynced(true);
     if (el.scrollTop > 40) setHinted(true);
     ready.current = true;
   }, []);
@@ -380,6 +386,7 @@ export function FlipFeed({
     if (!hinted && el.scrollTop > 40) setHinted(true);
     const index = slideIndexAt(el.scrollTop, el.clientHeight, slideCount);
     if (index !== active) setActive(index);
+    if (!synced) setSynced(true);
     if (!loadFailed && index >= items.length - LOAD_AHEAD) void loadMore();
   };
 
@@ -539,7 +546,8 @@ export function FlipFeed({
               total={total}
               lifted={showHint}
               priority={i === 0 ? "high" : i === 1 ? "eager" : "lazy"}
-              slideOffset={i - active}
+              // Null until the current slide is read from the scroll position (a #look- reload starts elsewhere).
+              slideOffset={synced ? i - active : null}
               details={details}
               onToggleDetails={toggleDetails}
               visitHref={links.visit}

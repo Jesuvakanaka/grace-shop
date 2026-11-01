@@ -60,11 +60,37 @@ export function videoShouldPlay(input: { visible: boolean; autoplay: boolean; in
  * fetches metadata only, every other slide nothing; without autoplay nothing
  * is fetched until the visitor presses play.
  */
-export function videoPreload(input: { slideOffset: number; autoplay: boolean }): 'auto' | 'metadata' | 'none' {
-  if (!input.autoplay) return 'none'
+export function videoPreload(input: { slideOffset: number | null; autoplay: boolean }): 'auto' | 'metadata' | 'none' {
+  // null: the current slide is not known yet (before the first sync).
+  if (!input.autoplay || input.slideOffset === null) return 'none'
   if (input.slideOffset === 0) return 'auto'
   if (input.slideOffset === 1) return 'metadata'
   return 'none'
+}
+
+/**
+ * Does a feed video keep its `src`? Only on the current slide and its
+ * neighbours; further away the source is removed (and the element reset) to
+ * free the decoder and buffers (iOS limits active media elements). Null:
+ * the current slide is not known yet, so none has one (the poster <img> shows).
+ */
+export function videoSourceAttached(slideOffset: number | null): boolean {
+  return slideOffset !== null && Math.abs(slideOffset) <= 1
+}
+
+/**
+ * Was a `pause` event the visitor's own choice? Only with native controls
+ * (product gallery), only when we did not ask for it, and never while the
+ * page is hidden (background tab, iOS app switch, media interruption: the
+ * browser paused it, and it resumes when the page is back).
+ */
+export function pauseIsVisitors(input: { nativeControls: boolean; hidden: boolean; expected: 'playing' | 'paused' }): boolean {
+  return input.nativeControls && !input.hidden && input.expected === 'playing'
+}
+
+/** The play / pause button, from what was requested (not the element's state, which lags on slow networks). */
+export function toggledIntent(requested: boolean): 'play' | 'pause' {
+  return requested ? 'pause' : 'play'
 }
 
 /** The video's accessible name: "<name> – video". */

@@ -122,12 +122,13 @@ describe('steps and controls', () => {
     );
   });
 
-  test('computers: scroll / keys and arrows copy for steps 1 and 2, same third step', () => {
+  test('computers: scroll / keys, arrows and click copy', () => {
     const steps = guideSteps('desktop');
     assert.strictEqual(steps.length, 3);
     assert.strictEqual(steps[0].body, 'Scroll or press ↓ for the next look');
     assert.strictEqual(steps[1].body, 'Click the arrows or swipe for more photos');
-    assert.deepStrictEqual(steps[2], guideSteps('touch')[2]);
+    assert.strictEqual(steps[2].title, 'Click for details');
+    assert.strictEqual(steps[2].body, 'Click the eye for the price and buttons. Click the photo to open the piece.');
     assert.deepStrictEqual(steps.map((s) => s.motion), ['up', 'side', 'tap']);
   });
 

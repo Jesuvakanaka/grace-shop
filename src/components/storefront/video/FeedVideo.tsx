@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { videoLabel, videoPreload, type MediaVideo } from "@/lib/storefront/feed-media";
+import { useEffect, useRef } from "react";
+import { videoLabel, videoPreload, videoSourceAttached, type MediaVideo } from "@/lib/storefront/feed-media";
 import { cn } from "../cn";
 import { ImageFallback, StorefrontImg } from "../StorefrontImage";
-import { useAutoplayAllowed, useVideoPlayback } from "./useVideoPlayback";
+import { useAutoplayAllowed, useMounted, useVideoPlayback } from "./useVideoPlayback";
 import { PauseIcon, PlayIcon } from "./video-icons";
 
 type FeedVideoProps = {
@@ -18,8 +19,11 @@ type FeedVideoProps = {
   linkLabel: string;
   /** Poster loading, as for a first photo: "high" on slide 1 (the LCP). */
   priority: "high" | "eager" | "lazy";
-  /** This slide's index minus the current slide's (preload: next slide only). */
-  slideOffset: number;
+  /**
+   * This slide's index minus the current slide's (preload: next slide only;
+   * src: within one slide). Null until the current slide is known.
+   */
+  slideOffset: number | null;
   sizes: string;
 };
 
@@ -28,17 +32,29 @@ type FeedVideoProps = {
  * has a video. The poster is a real <img> underneath (eager and high priority
  * on the first slide, so it is the LCP element and shows without JavaScript
  * or when the video fails); the muted, looping, inline <video> fades in over
- * it once it actually plays. Only a video at least 60% on screen plays.
+ * it once it actually plays (so the <video> has no poster attribute). Only
+ * a video at least 60% on screen plays; only the current slide and its
+ * neighbours hold a `src` (further away it is removed and the element reset).
  * Tapping it opens the piece (a real link, like the photos); the round
  * button plays / pauses (with reduced motion or Save-Data: a large play
  * button on the poster, nothing starts on its own).
  */
 export function FeedVideo({ video, name, href, onLeave, linkTabIndex, linkLabel, priority, slideOffset, sizes }: FeedVideoProps) {
   const autoplay = useAutoplayAllowed();
-  const { ref, playing, failed, intent, toggle, events } = useVideoPlayback(autoplay);
-  const preload = intent === "play" ? "auto" : videoPreload({ slideOffset, autoplay });
-  // Waiting for the visitor: no autoplay here (or it was blocked), not playing.
-  const invite = !playing && (!autoplay || intent === "pause");
+  const mounted = useMounted();
+  const { ref, playing, requested, failed, intent, toggle, events } = useVideoPlayback(autoplay, { nativeControls: false });
+  // Only near the current slide does the element hold a source (frees decoders far away).
+  const attached = videoSourceAttached(slideOffset);
+  const preload = !attached ? "none" : intent === "play" ? "auto" : videoPreload({ slideOffset, autoplay });
+  // Waiting for the visitor: no autoplay here (or it was blocked), nothing requested.
+  const invite = !requested && (!autoplay || intent === "pause");
+
+  // Source removed (far away again): reset the element so the browser drops its buffers.
+  const wasAttached = useRef(attached);
+  useEffect(() => {
+    if (wasAttached.current && !attached) ref.current?.load();
+    wasAttached.current = attached;
+  }, [attached, ref]);
 
   return (
     <div className="relative h-full w-full flex-none snap-start">
@@ -53,8 +69,9 @@ export function FeedVideo({ video, name, href, onLeave, linkTabIndex, linkLabel,
       />
       <video
         ref={ref}
-        src={video.src}
-        poster={video.poster}
+        // No `poster` attribute: it is never lazy, so every video slide would fetch it at load and
+        // compete with the LCP image. The <img> above is the visible poster (the video is hidden until it plays).
+        src={attached ? video.src : undefined}
         width={video.width}
         height={video.height}
         muted
@@ -76,11 +93,12 @@ export function FeedVideo({ video, name, href, onLeave, linkTabIndex, linkLabel,
         aria-label={linkLabel}
         className="sf-focus absolute inset-0 focus-visible:outline-offset-[-4px]"
       />
-      {!failed ? (
+      {/* After mount only: whether to invite a tap is a browser question (no flash over the LCP poster). */}
+      {mounted && !failed ? (
         <button
           type="button"
           onClick={toggle}
-          aria-label={playing ? `Pause the ${name} video` : `Play the ${name} video`}
+          aria-label={requested ? `Pause the ${name} video` : `Play the ${name} video`}
           className={cn(
             "sf-focus absolute flex items-center justify-center rounded-full text-brand-cream-50",
             invite
@@ -88,7 +106,7 @@ export function FeedVideo({ video, name, href, onLeave, linkTabIndex, linkLabel,
               : "left-3 top-[84px] h-11 w-11 bg-[rgba(20,20,18,0.5)]",
           )}
         >
-          {playing ? <PauseIcon className="h-5 w-5" /> : <PlayIcon className={invite ? "ml-1 h-7 w-7" : "h-5 w-5"} />}
+          {requested ? <PauseIcon className="h-5 w-5" /> : <PlayIcon className={invite ? "ml-1 h-7 w-7" : "h-5 w-5"} />}
         </button>
       ) : null}
     </div>

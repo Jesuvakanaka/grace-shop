@@ -82,7 +82,11 @@ export function guideSteps(layout: GuideLayout): GuideStep[] {
     return [
       { title: 'Next look', body: 'Scroll or press ↓ for the next look', motion: 'up' },
       { title: 'More photos', body: 'Click the arrows or swipe for more photos', motion: 'side' },
-      TAP_STEP,
+      {
+        title: 'Click for details',
+        body: 'Click the eye for the price and buttons. Click the photo to open the piece.',
+        motion: 'tap',
+      },
     ]
   }
   return [

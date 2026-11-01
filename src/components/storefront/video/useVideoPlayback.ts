@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type SyntheticEvent } from "react";
 import {
   autoplayAllowed,
+  pauseIsVisitors,
+  toggledIntent,
   VIDEO_STALL_MS,
   VIDEO_VISIBLE_RATIO,
   videoShouldPlay,
@@ -54,7 +56,7 @@ export function useAutoplayAllowed(): boolean {
  * controls) wins over autoplay. A load error, or no picture within
  * VIDEO_STALL_MS of asking to play, marks it failed: the poster stays.
  */
-export function useVideoPlayback(autoplay: boolean) {
+export function useVideoPlayback(autoplay: boolean, { nativeControls }: { nativeControls: boolean }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [visible, setVisible] = useState(false);
   const [intent, setIntent] = useState<PlayIntent>("auto");
@@ -62,7 +64,7 @@ export function useVideoPlayback(autoplay: boolean) {
   const [playing, setPlaying] = useState(false);
   /**
    * What this hook last asked the element for. Play/pause events arrive
-   * later; one that disagrees is the visitor's own (native controls).
+   * later; with native controls one that disagrees is the visitor's own.
    */
   const expected = useRef<"playing" | "paused">("paused");
   const stall = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -136,19 +138,39 @@ export function useVideoPlayback(autoplay: boolean) {
 
   useEffect(() => clearStall, [clearStall]);
 
-  /** The play / pause button. Plays inside the click, so a blocked autoplay can start. */
+  // The browser pauses media in a hidden page (background tab, iOS app
+  // switch); coming back, a video that should still play resumes.
+  const shouldPlayRef = useRef(shouldPlay);
+  useEffect(() => {
+    shouldPlayRef.current = shouldPlay;
+  }, [shouldPlay]);
+  useEffect(() => {
+    const onVisibility = () => {
+      const el = ref.current;
+      if (document.visibilityState === "visible" && el && shouldPlayRef.current && el.paused) playSelf(el);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [playSelf]);
+
+  /**
+   * The play / pause button: decided from what was requested (`shouldPlay`),
+   * not from the element, which lags on a slow network. Plays inside the
+   * click, so a blocked autoplay can start.
+   */
   const toggle = useCallback(() => {
     const el = ref.current;
     if (!el) return;
-    if (!el.paused) {
-      setIntent("pause");
+    const next = toggledIntent(shouldPlayRef.current);
+    setIntent(next);
+    if (next === "pause") {
+      clearStall();
       pauseSelf(el);
       return;
     }
     setFailed(false);
-    setIntent("play");
     playSelf(el);
-  }, [pauseSelf, playSelf]);
+  }, [clearStall, pauseSelf, playSelf]);
 
   const events = {
     onPlaying: () => {
@@ -157,26 +179,46 @@ export function useVideoPlayback(autoplay: boolean) {
     },
     onPause: () => {
       setPlaying(false);
-      if (expected.current === "playing") {
+      // Only native controls can pause without us (feed: our button sets the intent itself);
+      // a pause in a hidden page is the browser's.
+      if (pauseIsVisitors({ nativeControls, hidden: document.visibilityState === "hidden", expected: expected.current })) {
         expected.current = "paused";
         setIntent("pause");
       }
     },
     onPlay: () => {
-      if (expected.current === "paused") {
+      // Native controls: the visitor pressed play.
+      if (nativeControls && expected.current === "paused") {
         expected.current = "playing";
         setIntent("play");
       }
     },
+    // Source removed and the element reset (far from the current slide): load()
+    // drops a queued `pause` event, so the playing state is cleared here.
+    onEmptied: () => {
+      clearStall();
+      expected.current = "paused";
+      setPlaying(false);
+    },
     onWaiting: () => {
       if (expected.current === "playing") armStall();
     },
-    onError: () => {
+    onError: (event: SyntheticEvent<HTMLVideoElement>) => {
+      // A source removed on purpose (far from the current slide) is not a failure.
+      if (!event.currentTarget.getAttribute("src")) return;
       clearStall();
       setFailed(true);
       setPlaying(false);
     },
   };
 
-  return { ref, visible, playing, failed, intent, toggle, events };
+  /** `requested`: playback was asked for (label "Pause" from then on, even before the first frame). */
+  return { ref, visible, playing, requested: shouldPlay, failed, intent, toggle, events };
+}
+
+const noSubscribe = () => () => {};
+
+/** False on the server and during hydration, true once mounted (no flash of client-only UI). */
+export function useMounted(): boolean {
+  return useSyncExternalStore(noSubscribe, () => true, () => false);
 }

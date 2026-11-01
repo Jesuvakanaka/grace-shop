@@ -120,7 +120,7 @@ once with a React `<style href precedence>`):
 | --- | --- | --- | --- |
 | 1 | **Swipe up** – "Flick up for the next look, down to go back." | **Next look** – "Scroll or press ↓ for the next look" | moves up |
 | 2 | **Swipe sideways** – "Swipe left and right for more photos of the same piece." | **More photos** – "Click the arrows or swipe for more photos" | moves sideways |
-| 3 | **Tap for details** – "Tap the eye for the price and buttons. Tap the photo to open the piece." | same | taps the eye |
+| 3 | **Tap for details** – "Tap the eye for the price and buttons. Tap the photo to open the piece." | **Click for details** – "Click the eye for the price and buttons. Click the photo to open the piece." | taps the eye |
 
 - Step 3: the fingertip and a pulsing ring are placed on the **real** eye
   button of the look on screen (its `[data-feed-eye]` rect, measured, again
@@ -128,7 +128,10 @@ once with a React `<style href precedence>`):
 - Controls: "1 of 3" (lime-200), dots, **Skip**, **Next** / **Got it**
   (olive). Tapping the layer advances; doing the step's gesture on it (a
   swipe up on step 1, sideways on step 2, the mouse wheel down on step 1)
-  completes that step.
+  completes that step (the click that ends a recognised mouse drag is
+  ignored, so a drag advances one step; the dialog has `touch-action: none`
+  and `overscroll-behavior: contain`). A `close` event that arrives while the
+  dialog is open again (dev Strict Mode re-running the mount effect) is ignored.
 - Dialog semantics: labelled by the step title, described by "n of 3" and
   the body (an `aria-live` region, so step changes are announced); focus
   moves to Next and stays in the dialog; the feed behind is inert;

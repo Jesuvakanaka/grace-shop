@@ -36,8 +36,11 @@ type FeedSlideProps = {
    * high), "eager" (second slide, ready for the first flick), else "lazy".
    */
   priority: "high" | "eager" | "lazy";
-  /** This slide's index minus the current slide's (a video preloads metadata on the next slide only). */
-  slideOffset: number;
+  /**
+   * This slide's index minus the current slide's (a video preloads metadata
+   * on the next slide only). Null until the current slide is known.
+   */
+  slideOffset: number | null;
   /** Caption and rail shown ("Show details"); otherwise the clean view (photos only). */
   details: boolean;
   onToggleDetails: () => void;

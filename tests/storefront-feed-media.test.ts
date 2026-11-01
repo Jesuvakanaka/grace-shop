@@ -12,9 +12,12 @@ import {
   VIDEO_VISIBLE_RATIO,
   autoplayAllowed,
   mediaItems,
+  pauseIsVisitors,
+  toggledIntent,
   videoLabel,
   videoPreload,
   videoShouldPlay,
+  videoSourceAttached,
 } from '../src/lib/storefront/feed-media';
 import { toFeedItem } from '../src/lib/storefront/feed';
 import type { PublicImage, PublicProduct, PublicVideo } from '../src/lib/storefront/dto';
@@ -115,6 +118,43 @@ describe('videoPreload', () => {
 
   test('without autoplay nothing is preloaded (the poster shows until play)', () => {
     for (const offset of [0, 1, 2]) assert.strictEqual(videoPreload({ slideOffset: offset, autoplay: false }), 'none');
+  });
+
+  test('current slide not known yet (before the first sync, e.g. a #look- reload): none', () => {
+    assert.strictEqual(videoPreload({ slideOffset: null, autoplay: true }), 'none');
+  });
+});
+
+describe('videoSourceAttached (free decoders far away)', () => {
+  test('only the current slide and its neighbours keep their src', () => {
+    for (const offset of [-1, 0, 1]) assert.strictEqual(videoSourceAttached(offset), true, String(offset));
+    for (const offset of [-3, -2, 2, 7]) assert.strictEqual(videoSourceAttached(offset), false, String(offset));
+  });
+
+  test('current slide not known yet: no src (the poster image shows)', () => {
+    assert.strictEqual(videoSourceAttached(null), false);
+  });
+});
+
+describe('pauseIsVisitors', () => {
+  test('feed (own button only): an unexpected pause is never taken as the visitor pausing', () => {
+    assert.strictEqual(pauseIsVisitors({ nativeControls: false, hidden: false, expected: 'playing' }), false);
+  });
+
+  test('gallery (native controls): an unexpected pause while visible is the visitor', () => {
+    assert.strictEqual(pauseIsVisitors({ nativeControls: true, hidden: false, expected: 'playing' }), true);
+  });
+
+  test('a pause we asked for, or while the page is hidden (background, interruption): not the visitor', () => {
+    assert.strictEqual(pauseIsVisitors({ nativeControls: true, hidden: false, expected: 'paused' }), false);
+    assert.strictEqual(pauseIsVisitors({ nativeControls: true, hidden: true, expected: 'playing' }), false);
+  });
+});
+
+describe('toggledIntent (play / pause button)', () => {
+  test('decided from what was requested, not from the element (slow networks)', () => {
+    assert.strictEqual(toggledIntent(true), 'pause');
+    assert.strictEqual(toggledIntent(false), 'play');
   });
 });
 

@@ -21,7 +21,7 @@ type GalleryVideoProps = {
  */
 export function GalleryVideo({ video, name, eager }: GalleryVideoProps) {
   const autoplay = useAutoplayAllowed();
-  const { ref, failed, events } = useVideoPlayback(autoplay);
+  const { ref, failed, intent, events } = useVideoPlayback(autoplay, { nativeControls: true });
 
   return (
     <>
@@ -38,7 +38,8 @@ export function GalleryVideo({ video, name, eager }: GalleryVideoProps) {
           playsInline
           controls
           disablePictureInPicture
-          preload="metadata"
+          // Reduced motion / Save-Data: nothing fetched until the visitor presses play.
+          preload={autoplay || intent === "play" ? "metadata" : "none"}
           aria-label={videoLabel(name)}
           {...events}
           className="sf-focus absolute inset-0 h-full w-full bg-transparent object-cover"
