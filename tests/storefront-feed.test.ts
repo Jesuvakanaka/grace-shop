@@ -8,11 +8,13 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import {
+  FEED_DETAILS_STORAGE_KEY,
   FEED_MAX_PAGE_SIZE,
   FEED_MAX_THROUGH,
   FEED_NEW_TAB,
   FEED_PAGE_SIZE,
   RESTOCK_TEMPLATE,
+  detailsPreferenceValue,
   feedBadge,
   feedLocation,
   feedPage,
@@ -20,7 +22,9 @@ import {
   feedTabs,
   filterFeed,
   lookAnchorId,
+  looksLabel,
   orderFeed,
+  parseDetailsPreference,
   parseLookHash,
   resolveFeedTab,
   slideIndexAt,
@@ -113,16 +117,16 @@ describe('feedTabs and filterFeed', () => {
   ];
   const categories = [category('occasion', 'Occasion Wear'), category('dresses', 'Dresses'), category('sets', 'Co-ord Sets')];
 
-  test('New in first, then one tab per published category that has pieces, in category order', () => {
+  test('New in first, then one tab per published category that has pieces, in category order, with counts', () => {
     assert.deepStrictEqual(feedTabs(categories, ordered), [
-      { id: FEED_NEW_TAB, label: 'New in' },
-      { id: 'dresses', label: 'Dresses' },
-      { id: 'sets', label: 'Co-ord Sets' },
+      { id: FEED_NEW_TAB, label: 'New in', count: 3 },
+      { id: 'dresses', label: 'Dresses', count: 2 },
+      { id: 'sets', label: 'Co-ord Sets', count: 1 },
     ]);
   });
 
   test('only New in when nothing is published', () => {
-    assert.deepStrictEqual(feedTabs(categories, []), [{ id: FEED_NEW_TAB, label: 'New in' }]);
+    assert.deepStrictEqual(feedTabs(categories, []), [{ id: FEED_NEW_TAB, label: 'New in', count: 0 }]);
   });
 
   test('New in is every piece in feed order; a category tab keeps only its pieces', () => {
@@ -141,6 +145,27 @@ describe('feedTabs and filterFeed', () => {
     assert.strictEqual(resolveFeedTab(undefined, tabs), FEED_NEW_TAB);
     assert.strictEqual(resolveFeedTab('', tabs), FEED_NEW_TAB);
     assert.strictEqual(resolveFeedTab(42, tabs), FEED_NEW_TAB);
+  });
+});
+
+describe('collection sheet and details preference', () => {
+  test('looksLabel: "1 look", "N looks"', () => {
+    assert.strictEqual(looksLabel(1), '1 look');
+    assert.strictEqual(looksLabel(0), '0 looks');
+    assert.strictEqual(looksLabel(12), '12 looks');
+  });
+
+  test('the stored "show details" choice: only an exact "shown" means shown; clean view otherwise', () => {
+    assert.strictEqual(FEED_DETAILS_STORAGE_KEY, 'vyra:feed:details');
+    assert.strictEqual(parseDetailsPreference('shown'), true);
+    assert.strictEqual(parseDetailsPreference('hidden'), false);
+    assert.strictEqual(parseDetailsPreference(null), false);
+    assert.strictEqual(parseDetailsPreference(''), false);
+    assert.strictEqual(parseDetailsPreference('true'), false);
+    assert.strictEqual(parseDetailsPreference(' shown '), false);
+    assert.strictEqual(detailsPreferenceValue(true), 'shown');
+    assert.strictEqual(detailsPreferenceValue(false), 'hidden');
+    assert.strictEqual(parseDetailsPreference(detailsPreferenceValue(true)), true);
   });
 });
 

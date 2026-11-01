@@ -58,18 +58,45 @@ export function feedProducts<T extends Pick<PublicProduct, 'featured' | 'availab
 
 // ------------------------------------------------------------------- tabs
 
-export type FeedTab = { id: string; label: string }
+/** A collection of the feed: New in or a category, with its number of looks (for the collections sheet). */
+export type FeedTab = { id: string; label: string; count: number }
 
 /** "New in", then one tab per published category (display order) that has at least one piece. */
 export function feedTabs(
   categories: readonly Pick<PublicCategory, 'slug' | 'name'>[],
   products: readonly Pick<PublicProduct, 'category'>[],
 ): FeedTab[] {
-  const used = new Set(products.map((p) => p.category.slug))
+  const counts = new Map<string, number>()
+  for (const p of products) counts.set(p.category.slug, (counts.get(p.category.slug) ?? 0) + 1)
   return [
-    { id: FEED_NEW_TAB, label: FEED_NEW_TAB_LABEL },
-    ...categories.filter((c) => used.has(c.slug)).map((c) => ({ id: c.slug, label: c.name })),
+    { id: FEED_NEW_TAB, label: FEED_NEW_TAB_LABEL, count: products.length },
+    ...categories
+      .filter((c) => counts.has(c.slug))
+      .map((c) => ({ id: c.slug, label: c.name, count: counts.get(c.slug) as number })),
   ]
+}
+
+/** "1 look", "12 looks". */
+export function looksLabel(count: number): string {
+  return `${count} ${count === 1 ? 'look' : 'looks'}`
+}
+
+// ------------------------------------------------- details (clean view)
+
+/**
+ * sessionStorage key for the visitor's "Show details" choice. The feed opens
+ * in clean view (photos only); the choice then holds for every slide while
+ * browsing, so coming back from a product page keeps it.
+ */
+export const FEED_DETAILS_STORAGE_KEY = 'vyra:feed:details'
+
+/** The stored value: only exactly "shown" means details are shown. */
+export function parseDetailsPreference(raw: string | null | undefined): boolean {
+  return raw === 'shown'
+}
+
+export function detailsPreferenceValue(shown: boolean): 'shown' | 'hidden' {
+  return shown ? 'shown' : 'hidden'
 }
 
 /** The tab for a `?c=` value: a known tab id, else New in. */

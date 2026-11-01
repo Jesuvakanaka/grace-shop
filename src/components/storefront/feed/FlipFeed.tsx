@@ -5,8 +5,11 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { loadFeedAction, type FeedActionResult } from "@/lib/storefront/feed-actions";
 import {
+  detailsPreferenceValue,
+  FEED_DETAILS_STORAGE_KEY,
   FEED_TAB_PARAM,
   feedLocation,
+  parseDetailsPreference,
   parseLookHash,
   resolveFeedTab,
   slideIndexAt,
@@ -17,7 +20,8 @@ import { Wordmark } from "../Brand";
 import { cn } from "../cn";
 import { ShellMenuDialog } from "../ShellMenu";
 import type { NavItem, SocialLink } from "../types";
-import { ChevronIcon, MenuLinesIcon, PinIcon } from "./feed-icons";
+import { CollectionSheet } from "./CollectionSheet";
+import { ChevronIcon, MenuLinesIcon } from "./feed-icons";
 import { FeedSlide } from "./FeedSlide";
 
 /** Start loading the next page this many slides before the end. */
@@ -91,6 +95,8 @@ export function FlipFeed({
   const [active, setActive] = useState(0);
   const [hinted, setHinted] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
+  /** Caption and rail shown. Clean view (photos only) by default; the choice is kept for the session. */
+  const [details, setDetails] = useState(false);
 
   // A soft navigation back to this page (new server props) starts afresh.
   const [source, setSource] = useState(initialItems);
@@ -110,6 +116,9 @@ export function FlipFeed({
   const scroller = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
+  const sheetRef = useRef<HTMLDialogElement>(null);
+  const pillButton = useRef<HTMLButtonElement>(null);
+  const sheetId = useId();
   const dialogId = useId();
   const request = useRef(0);
   const busy = useRef(false);
@@ -243,6 +252,15 @@ export function FlipFeed({
       scroller.current?.focus({ preventScroll: true });
     }
 
+    // The visitor's "Show details" choice from earlier in this session.
+    let storedDetails = false;
+    try {
+      storedDetails = parseDetailsPreference(window.sessionStorage.getItem(FEED_DETAILS_STORAGE_KEY));
+    } catch {
+      // Storage blocked: clean view.
+    }
+    const detailsTimer = storedDetails ? setTimeout(() => setDetails(true)) : undefined;
+
     const slug = parseLookHash(window.location.hash);
     // Loads and state updates start from a timer, not the effect body.
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -261,6 +279,7 @@ export function FlipFeed({
     }
     return () => {
       clearTimeout(timer);
+      clearTimeout(detailsTimer);
       html.style.overflow = previous;
     };
     // Mount only: the initial props describe the server render.
@@ -355,6 +374,18 @@ export function FlipFeed({
   };
 
   const openMenu = () => dialogRef.current?.showModal();
+  const openSheet = () => sheetRef.current?.showModal();
+  const onSheetClose = () => pillButton.current?.focus();
+
+  const toggleDetails = () => {
+    const next = !details;
+    setDetails(next);
+    try {
+      window.sessionStorage.setItem(FEED_DETAILS_STORAGE_KEY, detailsPreferenceValue(next));
+    } catch {
+      // Storage blocked (private mode, settings): the choice lasts for this page only.
+    }
+  };
   const onMenuClose = () => menuButton.current?.focus();
 
   // ------------------------------------------------------------ render
@@ -368,56 +399,43 @@ export function FlipFeed({
       <span aria-hidden="true" className="hidden w-12 md:block" />
 
       <div className="relative h-full w-full overflow-hidden bg-brand-ink text-brand-cream-50 md:h-[calc(100%-32px)] md:w-auto md:aspect-[9/16] md:max-w-[calc(100vw-160px)] md:rounded-[4px] md:shadow-[0_18px_50px_rgba(30,30,30,0.22)]">
-        {/* Overlay first in reading and tab order (menu, wordmark, Visit us, tabs); drawn on top. Ink over the cream end slide. */}
+        {/* Slim top bar, first in reading and tab order, drawn on top: menu, wordmark, collection pill. Ink over the cream end slide. */}
         <div
           className={cn(
-            "pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-col gap-1.5 px-3 pt-3.5",
+            "pointer-events-none absolute inset-x-0 top-0 z-10 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center px-3 pt-3.5",
             atEnd && "text-brand-ink",
           )}
         >
-          <div className="flex items-center justify-between">
-            <button
-              ref={menuButton}
-              type="button"
-              onClick={openMenu}
-              aria-label="Open menu"
-              aria-haspopup="dialog"
-              aria-controls={dialogId}
-              className="sf-focus pointer-events-auto flex h-11 w-11 items-center justify-center rounded-[2px]"
-            >
-              <MenuLinesIcon className="h-6 w-6" />
-            </button>
-            <h1 className="m-0 flex items-center">
-              <Wordmark className="h-[18px] w-auto" title="VYRA – Wear Different." />
-            </h1>
-            <Link
-              href={links.visit}
-              aria-label="Visit us"
-              className="sf-focus pointer-events-auto flex h-11 w-11 items-center justify-center rounded-[2px]"
-            >
-              <PinIcon className="h-[22px] w-[22px]" />
-            </Link>
-          </div>
+          <button
+            ref={menuButton}
+            type="button"
+            onClick={openMenu}
+            aria-label="Open menu"
+            aria-haspopup="dialog"
+            aria-controls={dialogId}
+            className="sf-focus pointer-events-auto flex h-11 w-11 items-center justify-center rounded-[2px]"
+          >
+            <MenuLinesIcon className="h-6 w-6" />
+          </button>
+          <h1 className="m-0 flex items-center">
+            <Wordmark className="h-[18px] w-auto" title="VYRA – Wear Different." />
+          </h1>
           {tabs.length > 1 ? (
-            <nav aria-label="Collections" className="sf-scroll-x pointer-events-auto -mx-3 flex justify-start gap-1 px-3 [&>*:first-child]:ml-auto [&>*:last-child]:mr-auto">
-              {tabs.map((t) => {
-                const pressed = t.id === tab;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    aria-pressed={pressed}
-                    onClick={() => selectTab(t.id)}
-                    className={cn(
-                      "sf-focus min-h-10 shrink-0 whitespace-nowrap rounded-[2px] px-2.5 text-xs font-medium uppercase tracking-[0.14em] [text-shadow:0_1px_2px_rgba(0,0,0,0.5)]",
-                      pressed ? "shadow-[inset_0_-2px_0_currentColor]" : "opacity-85",
-                    )}
-                  >
-                    {t.label}
-                  </button>
-                );
-              })}
-            </nav>
+            <button
+              ref={pillButton}
+              type="button"
+              onClick={openSheet}
+              aria-haspopup="dialog"
+              aria-controls={sheetId}
+              aria-label={`Collection: ${tabLabel}. Change collection`}
+              className={cn(
+                "sf-focus pointer-events-auto flex min-h-9 max-w-[128px] items-center gap-1 justify-self-end rounded-full border pl-3 pr-2.5 text-[11px] font-medium uppercase tracking-[0.12em]",
+                atEnd ? "border-brand-ink/45! bg-brand-cream-50/60" : "border-brand-cream-50/45! bg-[rgba(20,20,18,0.4)] [text-shadow:0_1px_2px_rgba(0,0,0,0.4)]",
+              )}
+            >
+              <span className="truncate">{tabLabel}</span>
+              <ChevronIcon direction="down" className="h-3.5 w-3.5 shrink-0" />
+            </button>
           ) : null}
         </div>
 
@@ -432,11 +450,15 @@ export function FlipFeed({
         >
           {items.map((item, i) => (
             <FeedSlide
-              key={item.slug}
+              // Per collection: switching collection starts every look on its first photo.
+              key={`${tab}:${item.slug}`}
               item={item}
               index={i}
               total={total}
+              isActive={i === active}
               priority={i === 0 ? "high" : i === 1 ? "eager" : "lazy"}
+              details={details}
+              onToggleDetails={toggleDetails}
               visitHref={links.visit}
               onLeave={onLeave}
             />
@@ -502,6 +524,15 @@ export function FlipFeed({
           <ChevronIcon direction="down" className="h-5 w-5" />
         </button>
       </div>
+
+      <CollectionSheet
+        dialogRef={sheetRef}
+        id={sheetId}
+        tabs={tabs}
+        current={tab}
+        onPick={selectTab}
+        onClose={onSheetClose}
+      />
 
       <ShellMenuDialog
         dialogRef={dialogRef}
