@@ -61,7 +61,7 @@ export function orderFeed<T extends Pick<PublicProduct, 'featured' | 'availabili
  * Featured no longer has precedence, it follows the ranking. Without one
  * (counts only, e.g. the menu) the legacy orderFeed is used.
  */
-export function feedProducts<T extends Pick<PublicProduct, 'slug' | 'featured' | 'availability' | 'images'>>(
+export function feedProducts<T extends Pick<PublicProduct, 'ref' | 'featured' | 'availability' | 'images'>>(
   newestFirst: readonly T[],
   ranking?: FeedRanking,
 ): T[] {

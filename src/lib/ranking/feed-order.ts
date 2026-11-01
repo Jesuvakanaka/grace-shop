@@ -9,7 +9,11 @@
 export type FeedRankingMode = 'AUTO' | 'NEWEST'
 export const FEED_RANKING_MODES: readonly FeedRankingMode[] = ['AUTO', 'NEWEST']
 
-/** What the feed needs: the mode and today's rank (1 = first) per public slug. */
+/**
+ * What the feed needs: the mode and today's rank (1 = first) per piece, keyed
+ * by the public ref ("V-0099", derived from the product id), not the slug, so
+ * a piece renamed since the cached answer keeps its place.
+ */
 export type FeedRanking = { mode: FeedRankingMode; ranks: Record<string, number> }
 
 /**
@@ -21,16 +25,16 @@ export type FeedRanking = { mode: FeedRankingMode; ranks: Record<string, number>
  *   pieces by rank. Availability is today's, so a piece that sold out since
  *   the run moves to the end at once.
  */
-export function orderFeedByRanking<T extends { slug: string; availability: string }>(
+export function orderFeedByRanking<T extends { ref?: string; availability: string }>(
   newestFirst: readonly T[],
   ranking: FeedRanking,
 ): T[] {
   const available = newestFirst.filter((p) => p.availability !== 'SOLD_OUT')
   const soldOut = newestFirst.filter((p) => p.availability === 'SOLD_OUT')
   const ranks = ranking.ranks
-  const has = (p: T) => Object.prototype.hasOwnProperty.call(ranks, p.slug)
+  const has = (p: T) => typeof p.ref === 'string' && Object.prototype.hasOwnProperty.call(ranks, p.ref)
   if (ranking.mode === 'NEWEST' || Object.keys(ranks).length === 0) return [...available, ...soldOut]
-  const byRank = (list: T[]) => list.filter(has).sort((a, b) => ranks[a.slug] - ranks[b.slug])
+  const byRank = (list: T[]) => list.filter(has).sort((a, b) => ranks[a.ref as string] - ranks[b.ref as string])
   const unranked = (list: T[]) => list.filter((p) => !has(p))
   return [...unranked(available), ...byRank(available), ...byRank(soldOut), ...unranked(soldOut)]
 }

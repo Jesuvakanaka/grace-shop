@@ -21,6 +21,7 @@ import { loadFeedRanking, loadPopularity } from '../src/lib/ranking/read'
 import { orderFeedByRanking } from '../src/lib/ranking/feed-order'
 import { AUTO_FEATURED_COUNT } from '../src/lib/ranking/score'
 import { createStorefront, type CacheFn } from '../src/lib/storefront/cached'
+import { publicProductRef } from '../src/lib/storefront/product-ref'
 import { parseBulkBody } from '../src/lib/website/validation'
 import * as websiteProduct from '../src/app/api/website/products/[id]/route'
 import * as settingsRoute from '../src/app/api/website/settings/route'
@@ -65,6 +66,12 @@ async function seedViews(productId: number, views: number, dwell: number) {
     photoSwipers: Math.round(views * 0.3),
     detailsShows: Math.round(views * 0.2),
     productOpens: Math.round(views * 0.1),
+    // The distinct-visit columns the ranking reads (one view per visit here).
+    dwellVisits: views,
+    dwellVisitSeconds: views * dwell,
+    swipeVisits: Math.round(views * 0.3),
+    detailsVisits: Math.round(views * 0.2),
+    openVisits: Math.round(views * 0.1),
   }))
   await prisma.analyticsDailyPiece.createMany({ data })
 }
@@ -122,11 +129,13 @@ describe('ranking nightly step and admin rules (ZP-506)', () => {
     const first = await runRanking(prisma, { now: NOW })
     assert.strictEqual(first.day, '2035-06-15')
     assert.strictEqual(first.ranked, true)
-    assert.ok(first.totalViews >= 3200, String(first.totalViews)) // 8 public pieces x 400 views (the hidden one is not counted)
+    // 7 public pieces with a photo x 400 visits (the hidden and the photo-less one are not counted)
+    assert.ok(first.totalViews >= 2800, String(first.totalViews))
 
     const pop = await loadPopularity(prisma, Object.values(ids))
     assert.ok(!pop.has(ids.hidden), 'unpublished pieces are not scored')
-    for (const name of ['best', 'good', 'fine', 'avg', 'meh', 'poor', 'soldout', 'nophoto', 'new']) assert.ok(pop.has(ids[name]), name)
+    for (const name of ['best', 'good', 'fine', 'avg', 'meh', 'poor', 'soldout', 'new']) assert.ok(pop.has(ids[name]), name)
+    assert.ok(!pop.has(ids.nophoto), 'only pieces the feed shows (with a photo) are ranked')
     const best = pop.get(ids.best)!
     assert.ok(best.score > pop.get(ids.good)!.score && pop.get(ids.good)!.score > pop.get(ids.poor)!.score)
     assert.ok(best.parts && best.parts.attention > 1 && best.parts.signals.dwell.raw === 12)
@@ -160,12 +169,15 @@ describe('ranking nightly step and admin rules (ZP-506)', () => {
     await runRanking(prisma, { now: NOW })
     const ranking = await loadFeedRanking(prisma)
     assert.strictEqual(ranking.mode, 'AUTO')
-    assert.ok(!('zp506-hidden' in ranking.ranks))
-    const mine = Object.keys(ranking.ranks).filter((s) => s.startsWith('zp506-'))
-    assert.strictEqual(mine.length, 9)
+    // Keyed by the public ref (from the id), not the slug.
+    assert.ok(!(publicProductRef(ids.hidden) in ranking.ranks))
+    assert.ok(!(publicProductRef(ids.nophoto) in ranking.ranks))
+    const mine = Object.values(ids).filter((id) => publicProductRef(id) in ranking.ranks)
+    assert.strictEqual(mine.length, 8)
 
     const newest = ['new', 'nophoto', 'soldout', 'poor', 'meh', 'avg', 'fine', 'good', 'best'].map((n) => ({
       slug: `zp506-${n}`,
+      ref: publicProductRef(ids[n]),
       availability: n === 'soldout' ? 'SOLD_OUT' : 'IN_STOCK',
     }))
     const order = orderFeedByRanking(newest, ranking).map((p) => p.slug)
@@ -266,6 +278,50 @@ describe('ranking nightly step and admin rules (ZP-506)', () => {
     assert.strictEqual(toAuto.status, 200)
     const latest = await prisma.productPopularity.findFirst({ orderBy: { computedAt: 'desc' } })
     assert.ok(latest && latest.computedAt.getTime() > Date.now() - 60_000, 'ranked right after the switch')
+    await runRanking(prisma, { now: NOW })
+  })
+
+  test('hearts: the deduplicated ProductLove rows count, love_on events in the rollup do not', async () => {
+    const two = new Date(NOW.getTime() - 2 * DAY_MS)
+    await prisma.analyticsDailyPiece.updateMany({ where: { productId: ids.poor }, data: { loveOn: 5000 } })
+    await prisma.productLove.createMany({
+      data: Array.from({ length: 120 }, (_, k) => ({ productId: ids.meh, hash: `${String(k).padStart(4, '0')}${'5'.repeat(60)}`, createdAt: two })),
+    })
+    try {
+      await runRanking(prisma, { now: NOW })
+      const pop = await loadPopularity(prisma, [ids.meh, ids.poor])
+      assert.strictEqual(pop.get(ids.poor)!.parts!.signals.loves.raw, 0)
+      assert.ok(pop.get(ids.meh)!.parts!.signals.loves.raw! > 0.25)
+      assert.ok(pop.get(ids.meh)!.parts!.signals.loves.index > 1)
+    } finally {
+      await prisma.productLove.deleteMany({ where: { productId: ids.meh } })
+      await prisma.analyticsDailyPiece.updateMany({ where: { productId: ids.poor }, data: { loveOn: 0 } })
+      await runRanking(prisma, { now: NOW })
+    }
+  })
+
+  test('concurrent runs are serialised (advisory lock) and give the same rows', async () => {
+    await runRanking(prisma, { now: NOW })
+    const single = await prisma.productPopularity.findMany({ orderBy: { productId: 'asc' } })
+    const results = await Promise.all([1, 2, 3].map(() => runRanking(prisma, { now: NOW })))
+    assert.ok(results.every((r) => r.ranked))
+    assert.deepStrictEqual(await prisma.productPopularity.findMany({ orderBy: { productId: 'asc' } }), single)
+  })
+
+  test('a settings save waits for a running ranking (both lock the SiteSettings row)', async () => {
+    let released = 0
+    const holder = prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "SiteSettings" WHERE id = 1 FOR UPDATE`
+      await new Promise((r) => setTimeout(r, 600))
+      released = Date.now()
+    })
+    await new Promise((r) => setTimeout(r, 100))
+    const save = call(settingsRoute.PUT, 'PUT', {}, { feedRanking: 'NEWEST' })
+    const [, res] = await Promise.all([holder, save])
+    const done = Date.now()
+    assert.strictEqual(res.status, 200)
+    assert.ok(released > 0 && done >= released, 'the save finished only after the lock was released')
+    await setMode('AUTO')
     await runRanking(prisma, { now: NOW })
   })
 

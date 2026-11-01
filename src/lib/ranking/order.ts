@@ -26,10 +26,23 @@ export type RankCandidate = {
   newestIndex: number
 }
 
-/** Score points a new piece gets: COLD_START_BOOST on its first day, fading to 0 after COLD_START_DAYS, and 0 from RANKING_MIN_VIEWS views. */
-export function coldStartBoost(c: Pick<RankCandidate, 'publishedAt' | 'views'>, now: Date): number {
+/**
+ * Start of an analytics day ("YYYY-MM-DD") as an instant: midnight in
+ * Africa/Harare, which is UTC+2 all year (no daylight saving).
+ */
+export function analyticsDayStart(day: string): Date {
+  return new Date(`${day}T00:00:00+02:00`)
+}
+
+/**
+ * Score points a new piece gets: COLD_START_BOOST on its first day, fading to
+ * 0 after COLD_START_DAYS, and 0 from RANKING_MIN_VIEWS views. The age is
+ * measured at `at`: rankForDay passes the start of the analytics day, so the
+ * night run, a rerun and the owner's switch give the same order all day.
+ */
+export function coldStartBoost(c: Pick<RankCandidate, 'publishedAt' | 'views'>, at: Date): number {
   if (!c.publishedAt || c.views >= RANKING_MIN_VIEWS) return 0
-  const age = Math.max(0, (now.getTime() - c.publishedAt.getTime()) / DAY_MS)
+  const age = Math.max(0, (at.getTime() - c.publishedAt.getTime()) / DAY_MS)
   if (age >= COLD_START_DAYS) return 0
   return COLD_START_BOOST * (1 - age / COLD_START_DAYS)
 }
@@ -69,12 +82,13 @@ export type DayRanking = {
   effective: Map<number, number>
 }
 
-export function rankForDay(candidates: readonly RankCandidate[], options: { day: string; now: Date; enough: boolean }): DayRanking {
+export function rankForDay(candidates: readonly RankCandidate[], options: { day: string; enough: boolean }): DayRanking {
   const byNewest = (a: RankCandidate, b: RankCandidate) => a.newestIndex - b.newestIndex || a.productId - b.productId
   const effective = new Map<number, number>()
   const coldStart = new Set<number>()
+  const dayStart = analyticsDayStart(options.day)
   for (const c of candidates) {
-    const boost = coldStartBoost(c, options.now)
+    const boost = coldStartBoost(c, dayStart)
     if (boost > 0) coldStart.add(c.productId)
     effective.set(c.productId, c.score + boost)
   }

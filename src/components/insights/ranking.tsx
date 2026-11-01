@@ -31,18 +31,18 @@ export function ScoreBreakdown({ row }: { row: LookRow }) {
   if (!p) return <p className="text-sm text-slate-500">Not scored yet (it was not on the website at the last nightly run).</p>;
   const s = p.signals;
   const items: { label: string; weight: number; index: number; detail: string }[] = [
-    { label: 'Attention', weight: SCORE_WEIGHTS.attention, index: p.attention, detail: `mean dwell ${fmt.secs(s.dwell.raw)}` },
+    { label: 'Attention', weight: SCORE_WEIGHTS.attention, index: p.attention, detail: `mean dwell ${fmt.secs(s.dwell.raw)} per visit` },
     {
       label: 'Curiosity',
       weight: SCORE_WEIGHTS.curiosity,
       index: p.curiosity,
-      detail: `swiped ${fmt.pct(s.photoSwipe.raw)}, details ${fmt.pct(s.details.raw)}, opened ${fmt.pct(s.open.raw)} per view`,
+      detail: `of the visits that saw it: ${fmt.pct(s.photoSwipe.raw)} swiped, ${fmt.pct(s.details.raw)} showed details, ${fmt.pct(s.open.raw)} opened it`,
     },
     {
       label: 'Intent',
       weight: SCORE_WEIGHTS.intent,
       index: p.intent,
-      detail: `WhatsApp ${fmt.pct(s.enquiries.raw)}, restock ${fmt.pct(s.restocks.raw)}, shares ${fmt.pct(s.shares.raw)}, hearts ${fmt.pct(s.loves.raw)} per view${s.stars.raw !== null ? `, ${fmt.dec(s.stars.raw)}★ reviews` : ''}`,
+      detail: `${fmt.pct(s.enquiries.raw)} tapped WhatsApp, ${fmt.pct(s.restocks.raw)} asked for restock, ${fmt.pct(s.shares.raw)} shared; hearts ${fmt.pct(s.loves.raw)} per visit${s.stars.raw !== null ? `; ${fmt.dec(s.stars.raw)}★ reviews` : ''}`,
     },
   ];
   return (
@@ -56,8 +56,8 @@ export function ScoreBreakdown({ row }: { row: LookRow }) {
         ))}
       </ul>
       <p className="text-xs text-slate-500">
-        ×1.00 = the catalogue average. {Math.round(p.evidence * 100)}% from its own numbers, the rest from the average (fewer than 50 recent views
-        counts less).
+        ×1.00 = the catalogue average. Each visit counts once. {Math.round(p.evidence * 100)}% from its own numbers, the rest from the average
+        (fewer than 50 recent visits counts less).
         {row.rank ? ` #${row.rank} in today's feed.` : ''}
         {row.coldStart ? ' New piece: boosted for its first week.' : ''}
         {row.autoFeatured ? ' Featured automatically.' : ''}

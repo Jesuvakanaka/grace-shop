@@ -42,8 +42,13 @@ export async function PUT(request: Request) {
   }
 
   try {
-    const before = await readSiteSettings(prisma)
-    const settings = await updateSiteSettings(prisma, result.value, auth.session.username)
+    // ZP-506: the same row lock the ranking run holds (src/lib/ranking/job.ts),
+    // so a save waits for a running ranking and is never overwritten by it.
+    const { before, settings } = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "SiteSettings" WHERE id = 1 FOR UPDATE`
+      const before = await readSiteSettings(tx)
+      return { before, settings: await updateSiteSettings(tx, result.value, auth.session.username) }
+    })
     // ZP-506: back to "Rank automatically": rank now (scores, today's order,
     // the automatic Featured set) instead of waiting for the nightly job.
     if (before.feedRanking !== 'AUTO' && settings.feedRanking === 'AUTO') {

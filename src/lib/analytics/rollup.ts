@@ -58,6 +58,15 @@ const VISITS_CTE = `
     WHERE start_props IS NOT NULL
   )`
 
+/**
+ * Event types that count as opening a piece. ZP-510 adds the details sheet
+ * (`details_sheet_open`), which replaces navigating to the product page.
+ */
+const OPEN_TYPES = ['product_open', 'details_sheet_open']
+export { OPEN_TYPES }
+/** ZP-506 ranking: one visit's look_dwell on a piece counts for at most this many seconds a day. */
+export const RANK_DWELL_CAP_SECONDS = 60
+
 const count = (type: string) => `COUNT(*) FILTER (WHERE type = '${type}')::int`
 const sumProp = (type: string, prop: string) =>
   `COALESCE(SUM((props->>'${prop}')::float8) FILTER (WHERE type = '${type}'), 0)`
@@ -143,7 +152,9 @@ export const ROLLUP_SELECTS = {
     table: 'AnalyticsDailyPiece',
     columns: cols(
       '"productId", slug, views, viewers, "dwellSeconds", "dwellCount", "photoViews", "videoStarts", "detailsShows", "productOpens", ' +
-        '"sizeSelects", "colourSelects", "galleryZooms", enquiries, "restockRequests", shares, "loveOn", "loveOff", exits, "photoSwipers"',
+        '"sizeSelects", "colourSelects", "galleryZooms", enquiries, "restockRequests", shares, "loveOn", "loveOff", exits, "photoSwipers", ' +
+        // ZP-506 ranking: distinct visits that also saw the look that day.
+        '"dwellVisits", "dwellVisitSeconds", "swipeVisits", "detailsVisits", "openVisits", "enquiryVisits", "restockVisits", "shareVisits"',
     ),
     select: `WITH last_end AS (
         SELECT DISTINCT ON ("visitId") "visitId", "productId"
@@ -178,13 +189,49 @@ export const ROLLUP_SELECTS = {
         FROM "AnalyticsEvent"
         WHERE day = $1::date AND "productId" IS NOT NULL AND slug IS NOT NULL
         GROUP BY "productId"
+      ),
+      -- ZP-506 ranking: one row per piece and visit, so repeated (or forged)
+      -- events of one visit count once, and dwell is capped per visit.
+      per_visit AS (
+        SELECT "productId", "visitId",
+               BOOL_OR(type = 'look_view') AS viewed,
+               -- (LEAST ignores NULLs, so only for visits with a dwell)
+               CASE WHEN BOOL_OR(type = 'look_dwell')
+                    THEN LEAST(${RANK_DWELL_CAP_SECONDS}, SUM((props->>'seconds')::float8) FILTER (WHERE type = 'look_dwell')) END AS dwell,
+               BOOL_OR(type = 'photo_view' AND (CASE WHEN type = 'photo_view' THEN (props->>'index')::int END) >= 2) AS swiped,
+               BOOL_OR(type = 'details_show') AS details,
+               BOOL_OR(type IN (${OPEN_TYPES.map((t) => `'${t}'`).join(', ')})) AS opened,
+               BOOL_OR(type = 'whatsapp_enquire') AS enquired,
+               BOOL_OR(type = 'restock_request') AS restocked,
+               BOOL_OR(type = 'share') AS shared
+        FROM "AnalyticsEvent"
+        WHERE day = $1::date AND "productId" IS NOT NULL AND slug IS NOT NULL
+        GROUP BY "productId", "visitId"
+      ),
+      rank_visits AS (
+        SELECT "productId",
+               (COUNT(*) FILTER (WHERE viewed AND dwell IS NOT NULL))::int AS dwell_visits,
+               COALESCE(SUM(dwell) FILTER (WHERE viewed), 0)::float8 AS dwell_visit_seconds,
+               (COUNT(*) FILTER (WHERE viewed AND swiped))::int AS swipe_visits,
+               (COUNT(*) FILTER (WHERE viewed AND details))::int AS details_visits,
+               (COUNT(*) FILTER (WHERE viewed AND opened))::int AS open_visits,
+               (COUNT(*) FILTER (WHERE viewed AND enquired))::int AS enquiry_visits,
+               (COUNT(*) FILTER (WHERE viewed AND restocked))::int AS restock_visits,
+               (COUNT(*) FILTER (WHERE viewed AND shared))::int AS share_visits
+        FROM per_visit
+        GROUP BY "productId"
       )
       SELECT a."productId", a.slug, a.views, a.viewers, a.dwell_seconds AS "dwellSeconds", a.dwell_count AS "dwellCount",
              a.photo_views AS "photoViews", a.video_starts AS "videoStarts", a.details_shows AS "detailsShows",
              a.product_opens AS "productOpens", a.size_selects AS "sizeSelects", a.colour_selects AS "colourSelects",
              a.gallery_zooms AS "galleryZooms", a.enquiries, a.restock_requests AS "restockRequests", a.shares,
-             a.love_on AS "loveOn", a.love_off AS "loveOff", COALESCE(x.n, 0)::int AS exits, a.photo_swipers AS "photoSwipers"
-      FROM agg a LEFT JOIN exits x ON x."productId" = a."productId"`,
+             a.love_on AS "loveOn", a.love_off AS "loveOff", COALESCE(x.n, 0)::int AS exits, a.photo_swipers AS "photoSwipers",
+             COALESCE(r.dwell_visits, 0) AS "dwellVisits", COALESCE(r.dwell_visit_seconds, 0) AS "dwellVisitSeconds",
+             COALESCE(r.swipe_visits, 0) AS "swipeVisits", COALESCE(r.details_visits, 0) AS "detailsVisits",
+             COALESCE(r.open_visits, 0) AS "openVisits", COALESCE(r.enquiry_visits, 0) AS "enquiryVisits",
+             COALESCE(r.restock_visits, 0) AS "restockVisits", COALESCE(r.share_visits, 0) AS "shareVisits"
+      FROM agg a LEFT JOIN exits x ON x."productId" = a."productId"
+                 LEFT JOIN rank_visits r ON r."productId" = a."productId"`,
   },
   photo: {
     table: 'AnalyticsDailyPhoto',

@@ -1,10 +1,11 @@
 // ZP-506: reading the stored ranking. Server only.
 // - loadFeedRanking: the storefront's one argument-free cached entry
 //   (src/lib/storefront/cached.ts `getFeedRanking`): the mode and today's rank
-//   per public slug. No scores or parts leave the server through it.
+//   per public piece (keyed by its public ref "V-0099"). No scores or parts leave the server through it.
 // - loadPopularity: scores and parts for the admin (Insights).
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { SITE_SETTINGS_ID } from '@/lib/site-settings/db'
+import { publicProductRef } from '@/lib/storefront/product-ref'
 import type { FeedRanking, FeedRankingMode } from './feed-order'
 import type { ScoreParts } from './score'
 
@@ -15,11 +16,12 @@ export async function loadFeedRanking(db: Db): Promise<FeedRanking> {
     db.siteSettings.findUnique({ where: { id: SITE_SETTINGS_ID }, select: { feedRanking: true } }),
     db.productPopularity.findMany({
       where: { rank: { not: null }, product: { published: true, slug: { not: null }, category: { is: { published: true } } } },
-      select: { rank: true, product: { select: { slug: true } } },
+      select: { productId: true, rank: true },
     }),
   ])
+  // Keyed by the public ref (from the id), like PublicProduct.ref: a rename keeps the place.
   const ranks: Record<string, number> = {}
-  for (const r of rows) if (r.product.slug && r.rank !== null) ranks[r.product.slug] = r.rank
+  for (const r of rows) if (r.rank !== null) ranks[publicProductRef(r.productId)] = r.rank
   return { mode: (settings?.feedRanking ?? 'AUTO') as FeedRankingMode, ranks }
 }
 

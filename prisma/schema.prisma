@@ -637,6 +637,19 @@ model AnalyticsDailyPiece {
   /// ZP-505: distinct visits that reached a 2nd (or later) photo (photo-swipe rate = photoSwipers / viewers).
   photoSwipers    Int      @default(0)
 
+  /// ZP-506 ranking: DISTINCT visits, counted only for visits that also had a
+  /// look_view of the piece that day (so one visit repeating an event counts once).
+  /// Visits with look_dwell; their day's dwell on the piece, capped at 60 s per visit.
+  dwellVisits       Int   @default(0)
+  dwellVisitSeconds Float @default(0)
+  /// Visits that reached a 2nd photo / Show details / opened (OPEN_TYPES) / WhatsApp / restock request / shared.
+  swipeVisits       Int   @default(0)
+  detailsVisits     Int   @default(0)
+  openVisits        Int   @default(0)
+  enquiryVisits     Int   @default(0)
+  restockVisits     Int   @default(0)
+  shareVisits       Int   @default(0)
+
   @@id([day, productId])
   @@index([productId, day])
 }

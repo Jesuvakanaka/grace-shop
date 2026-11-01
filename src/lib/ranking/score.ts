@@ -19,6 +19,12 @@
 // is the signal's (decayed) denominator. With equal uncapped data this is
 // exactly the smoothed rate (x + m·p) / (n + m) divided by the mean p. One
 // extreme signal is capped at SIGNAL_INDEX_CAP before smoothing.
+//
+// Hard to game (ZP-506 review): every signal counts DISTINCT VISITS per piece
+// per day (the rollup's *Visits columns), only for visits that saw the look,
+// and dwell is capped at 60 s per visit and day; so one visit repeating events
+// counts once. Hearts come from the deduplicated ProductLove rows (one per
+// device), not from love_on events. "Views" below means visits that saw it.
 
 /** Days of rollups used: the 28 analytics days ending yesterday (Harare). */
 export const RANKING_WINDOW_DAYS = 28
@@ -76,19 +82,22 @@ export function rankingWindow(today: string): { first: string; last: string } {
 export type PieceDayRow = {
   productId: number
   day: string
-  views: number
+  /** Distinct visits with a look_view of the piece that day (the denominator). */
   viewers: number
-  dwellSeconds: number
-  dwellCount: number
-  photoSwipers: number
-  detailsShows: number
-  productOpens: number
-  enquiries: number
-  restockRequests: number
-  shares: number
-  loveOn: number
-  loveOff: number
+  /** Of those visits: with a look_dwell, and their dwell seconds (capped at 60 s per visit). */
+  dwellVisits: number
+  dwellVisitSeconds: number
+  /** Of those visits: swiped to a 2nd photo, Show details, opened, WhatsApp, restock request, shared. */
+  swipeVisits: number
+  detailsVisits: number
+  openVisits: number
+  enquiryVisits: number
+  restockVisits: number
+  shareVisits: number
 }
+
+/** Hearts of a piece made on an analytics day and still there (ProductLove rows: one per device, un-loves deleted). */
+export type LoveDay = { productId: number; day: string; loves: number }
 
 /** Approved reviews of a piece (any date). */
 export type ReviewStat = { productId: number; count: number; starsSum: number }
@@ -115,57 +124,45 @@ export type ScoreInput = {
   /** The pieces to score (published, public). Rows of other pieces are ignored. */
   productIds: readonly number[]
   rows: readonly PieceDayRow[]
+  loves?: readonly LoveDay[]
   reviews?: readonly ReviewStat[]
   /** The analytics day of the run ("YYYY-MM-DD"); the window ends the day before. */
   today: string
 }
 
 export type ScoreResult = {
-  /** Raw look views of the candidates in the window. */
+  /** Visits that saw a candidate in the window (daily distinct visits, summed; not decayed). */
   totalViews: number
   /** totalViews >= RANKING_MIN_TOTAL_VIEWS: otherwise the feed stays newest first. */
   enough: boolean
   pieces: PieceScore[]
 }
 
-type Sums = {
-  views: number
-  viewers: number
-  dwellSeconds: number
-  dwellCount: number
-  photoSwipers: number
-  detailsShows: number
-  productOpens: number
-  enquiries: number
-  restockRequests: number
-  shares: number
-  lovesNet: number
-}
+const SUM_FIELDS = [
+  'viewers',
+  'dwellVisits',
+  'dwellVisitSeconds',
+  'swipeVisits',
+  'detailsVisits',
+  'openVisits',
+  'enquiryVisits',
+  'restockVisits',
+  'shareVisits',
+] as const
+type Sums = Record<(typeof SUM_FIELDS)[number] | 'loves', number>
 
-const emptySums = (): Sums => ({
-  views: 0,
-  viewers: 0,
-  dwellSeconds: 0,
-  dwellCount: 0,
-  photoSwipers: 0,
-  detailsShows: 0,
-  productOpens: 0,
-  enquiries: 0,
-  restockRequests: 0,
-  shares: 0,
-  lovesNet: 0,
-})
+const emptySums = (): Sums => ({ ...(Object.fromEntries(SUM_FIELDS.map((f) => [f, 0])) as Record<(typeof SUM_FIELDS)[number], number>), loves: 0 })
 
-/** Numerator / denominator of each per-view signal. */
+/** Numerator / denominator of each signal (all per visit that saw the look). */
 const RATE_SIGNALS: Record<Exclude<SignalName, 'stars'>, (s: Sums) => [number, number]> = {
-  dwell: (s) => [s.dwellSeconds, s.dwellCount],
-  photoSwipe: (s) => [s.photoSwipers, s.viewers],
-  details: (s) => [s.detailsShows, s.views],
-  open: (s) => [s.productOpens, s.views],
-  enquiries: (s) => [s.enquiries, s.views],
-  restocks: (s) => [s.restockRequests, s.views],
-  shares: (s) => [s.shares, s.views],
-  loves: (s) => [Math.max(0, s.lovesNet), s.views],
+  dwell: (s) => [s.dwellVisitSeconds, s.dwellVisits],
+  photoSwipe: (s) => [s.swipeVisits, s.viewers],
+  details: (s) => [s.detailsVisits, s.viewers],
+  open: (s) => [s.openVisits, s.viewers],
+  enquiries: (s) => [s.enquiryVisits, s.viewers],
+  restocks: (s) => [s.restockVisits, s.viewers],
+  shares: (s) => [s.shareVisits, s.viewers],
+  loves: (s) => [s.loves, s.viewers],
 }
 
 /**
@@ -185,22 +182,22 @@ export function computeScores(input: ScoreInput): ScoreResult {
   const sums = new Map<number, Sums>(input.productIds.map((id) => [id, emptySums()]))
   const rawViews = new Map<number, number>(input.productIds.map((id) => [id, 0]))
 
-  for (const r of input.rows) {
+  // Floating-point sums depend on the order of the additions: always add in
+  // (productId, day) order, so a rerun gives bit-identical scores whatever
+  // order the database returned the rows in.
+  const byPieceDay = <T extends { productId: number; day: string }>(list: readonly T[]) =>
+    [...list].sort((a, b) => a.productId - b.productId || (a.day < b.day ? -1 : a.day > b.day ? 1 : 0))
+  const sortedIds = [...input.productIds].sort((a, b) => a - b)
+  for (const r of byPieceDay(input.rows)) {
     if (!candidates.has(r.productId) || r.day < first || r.day > last) continue
     const w = decayWeight(daysBetween(r.day, last))
     const s = sums.get(r.productId) as Sums
-    s.views += w * r.views
-    s.viewers += w * r.viewers
-    s.dwellSeconds += w * r.dwellSeconds
-    s.dwellCount += w * r.dwellCount
-    s.photoSwipers += w * r.photoSwipers
-    s.detailsShows += w * r.detailsShows
-    s.productOpens += w * r.productOpens
-    s.enquiries += w * r.enquiries
-    s.restockRequests += w * r.restockRequests
-    s.shares += w * r.shares
-    s.lovesNet += w * (r.loveOn - r.loveOff)
-    rawViews.set(r.productId, (rawViews.get(r.productId) ?? 0) + r.views)
+    for (const f of SUM_FIELDS) s[f] += w * r[f]
+    rawViews.set(r.productId, (rawViews.get(r.productId) ?? 0) + r.viewers)
+  }
+  for (const l of byPieceDay(input.loves ?? [])) {
+    if (!candidates.has(l.productId) || l.day < first || l.day > last) continue
+    ;(sums.get(l.productId) as Sums).loves += decayWeight(daysBetween(l.day, last)) * Math.max(0, l.loves)
   }
 
   // Catalogue means (pooled over every candidate).
@@ -208,8 +205,8 @@ export function computeScores(input: ScoreInput): ScoreResult {
   for (const name of Object.keys(RATE_SIGNALS) as (keyof typeof RATE_SIGNALS)[]) {
     let num = 0
     let den = 0
-    for (const s of sums.values()) {
-      const [x, n] = RATE_SIGNALS[name](s)
+    for (const id of sortedIds) {
+      const [x, n] = RATE_SIGNALS[name](sums.get(id) as Sums)
       num += x
       den += n
     }
@@ -218,7 +215,7 @@ export function computeScores(input: ScoreInput): ScoreResult {
   const reviews = new Map<number, ReviewStat>()
   let starsSum = 0
   let starsCount = 0
-  for (const r of input.reviews ?? []) {
+  for (const r of [...(input.reviews ?? [])].sort((a, b) => a.productId - b.productId)) {
     if (!candidates.has(r.productId) || r.count <= 0) continue
     reviews.set(r.productId, r)
     starsSum += r.starsSum
@@ -254,7 +251,7 @@ export function computeScores(input: ScoreInput): ScoreResult {
       productId,
       score,
       views: rawViews.get(productId) ?? 0,
-      parts: { attention, curiosity, intent, evidence: s.views / (s.views + RANKING_MIN_VIEWS), signals },
+      parts: { attention, curiosity, intent, evidence: s.viewers / (s.viewers + RANKING_MIN_VIEWS), signals },
     }
   })
 
