@@ -351,6 +351,9 @@ export function FlipFeed({
     if (open) scrollToIndex(0, false);
     const timer = setTimeout(() => {
       if (open) {
+        // Never stacked over the menu or the collections sheet ("How to use VYRA" is a menu row).
+        dialogRef.current?.close();
+        sheetRef.current?.close();
         syncActive();
         setGuide("open");
       } else {
