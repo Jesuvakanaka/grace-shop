@@ -8,7 +8,8 @@
 import { ASK_FOR_PRICE, formatPriceUsd } from '@/components/storefront/product'
 import { buildWhatsAppLink, type WhatsAppContactSettings } from '@/lib/site-settings/whatsapp'
 import { isValidSlug } from '@/lib/storefront-model/slug'
-import type { PublicCategory, PublicProduct } from './dto'
+import type { PublicCategory, PublicProduct, PublicVideo } from './dto'
+import { pickVideo } from './feed-media'
 import { SITE_ROUTES, sitePath, type SiteBase } from './paths'
 import { productEnquiryHref } from './product-enquiry'
 
@@ -175,6 +176,11 @@ export type FeedItem = {
   soldOut: boolean
   /** Primary photo first. */
   images: FeedImage[]
+  /**
+   * ZP-502: the piece's video (public URLs and size only), or null. When set
+   * it is the first item of the slide's strip, before the photos.
+   */
+  video: PublicVideo | null
   /** The product page for this host (/p/<slug> or /site/p/<slug>). */
   href: string
   /** Absolute public product URL for Share, or null. */
@@ -204,6 +210,7 @@ export function toFeedItem(p: PublicProduct, ctx: FeedItemContext): FeedItem {
     badge: feedBadge(p),
     soldOut,
     images: p.images.map((i) => ({ src: i.url, srcSet: i.srcSet, alt: i.alt })),
+    video: pickVideo(p.video),
     href: sitePath(ctx.base, SITE_ROUTES.product(p.slug)),
     shareUrl: url,
     enquireHref,

@@ -1,18 +1,30 @@
 "use client";
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import type { PublicVideo } from "@/lib/storefront/dto";
+import { mediaItems } from "@/lib/storefront/feed-media";
 import { cn } from "./cn";
 import { ChevronLeftIcon, ChevronRightIcon, CloseIcon, ExpandIcon } from "./icons";
 import { ImageFallback, ImageFrame, StorefrontImg } from "./StorefrontImage";
 import type { StorefrontImageData } from "./types";
+import { GalleryVideo } from "./video/GalleryVideo";
+import { PlayIcon } from "./video/video-icons";
 
 type GalleryProps = {
   images: StorefrontImageData[];
+  /** ZP-502: the product video, shown first (before the photos); not in the full-screen view. */
+  video?: PublicVideo | null;
   /** Product name, used in control labels ("Show photo 2 of 4 of Lime wrap dress"). */
   label: string;
   /** First photo is above the fold on a product page: load it eagerly. */
   eager?: boolean;
-  /** ZP-503: a "1 / N" counter on the photo instead of the phone dots. */
+  /**
+   * ZP-503: a "1 / N" counter on the photo instead of the phone dots (below
+   * lg; desktop has the thumbnail rail). The video counts as item 1; the
+   * counter hides while it shows (it would sit over the native controls).
+   * The previous / next arrows then show from md, so 640–1023px mouse users
+   * can still change photo.
+   */
   counter?: boolean;
   className?: string;
 };
@@ -21,14 +33,25 @@ type GalleryProps = {
  * Product gallery without dependencies: a CSS scroll-snap track (swipe on
  * phones, with dots), a thumbnail rail on desktop, and a full-screen zoom in
  * a native <dialog>. The track is the source of truth; thumbnails and dots
- * scroll it, and an IntersectionObserver reports which photo is showing.
+ * scroll it, and an IntersectionObserver reports which item is showing.
+ *
+ * ZP-502: with a video, the track's first item is the video (inline, muted,
+ * native controls; GalleryVideo), then the photos; dots and thumbnails count
+ * it. The full-screen view shows the photos only.
  */
-export function Gallery({ images, label, eager = true, counter = false, className }: GalleryProps) {
+export function Gallery({ images, video, label, eager = true, counter = false, className }: GalleryProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef<HTMLDialogElement>(null);
   const zoomButtonRef = useRef<HTMLButtonElement>(null);
   const [active, setActive] = useState(0);
-  const count = images.length;
+  /** The photo shown full screen (an index into `images`). */
+  const [zoomed, setZoomed] = useState(0);
+  const items = mediaItems(images, video);
+  const count = items.length;
+  const photoCount = images.length;
+  /** Track index of the first photo (1 when the video comes first). */
+  const offset = items[0]?.kind === "video" ? 1 : 0;
+  const onVideo = offset === 1 && active === 0;
 
   useEffect(() => {
     const track = trackRef.current;
@@ -55,16 +78,26 @@ export function Gallery({ images, label, eager = true, counter = false, classNam
     setActive(i);
   };
 
-  const openZoom = () => zoomRef.current?.showModal();
+  /** Full screen: photos only (from the video, the first photo). */
+  const openZoom = () => {
+    if (photoCount === 0) return;
+    setZoomed(Math.max(0, active - offset));
+    zoomRef.current?.showModal();
+  };
   const closeZoom = () => zoomRef.current?.close();
+  const zoomStep = (dir: 1 | -1) => {
+    const i = (zoomed + dir + photoCount) % photoCount;
+    setZoomed(i);
+    goTo(i + offset);
+  };
 
   // ZP-490: in the full-screen view, arrows change photo (Esc closes natively)
   // and Tab cycles through the dialog's own buttons only.
   const onZoomKeyDown = (e: KeyboardEvent<HTMLDialogElement>) => {
     if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
-      if (count < 2) return;
+      if (photoCount < 2) return;
       e.preventDefault();
-      goTo(active + (e.key === "ArrowRight" ? 1 : -1));
+      zoomStep(e.key === "ArrowRight" ? 1 : -1);
       return;
     }
     if (e.key !== "Tab") return;
@@ -89,6 +122,8 @@ export function Gallery({ images, label, eager = true, counter = false, classNam
     );
   }
 
+  const itemLabel = (i: number) => (offset === 1 && i === 0 ? "Show the video" : `Show photo ${i - offset + 1} of ${photoCount}`);
+
   return (
     <div className={cn("flex flex-col gap-4 lg:flex-row-reverse lg:gap-5", className)}>
       <div className="relative min-w-0 flex-1">
@@ -100,6 +135,8 @@ export function Gallery({ images, label, eager = true, counter = false, classNam
           tabIndex={0}
           className="sf-focus sf-scroll-x sf-snap-x sf-smooth flex rounded-[2px] scroll-smooth"
           onKeyDown={(e) => {
+            // Arrow keys on the video's own controls seek the video.
+            if (e.target !== e.currentTarget) return;
             if (e.key === "ArrowRight") {
               e.preventDefault();
               goTo(active + 1);
@@ -109,37 +146,54 @@ export function Gallery({ images, label, eager = true, counter = false, classNam
             }
           }}
         >
-          {images.map((img, i) => (
-            <div
-              key={img.src + i}
-              data-index={i}
-              // ZP-490: click/tap the photo to zoom (the expand button is the keyboard route).
-              onClick={openZoom}
-              className="w-full shrink-0 cursor-zoom-in"
-              role="group"
-              aria-roledescription="slide"
-              aria-label={`${i + 1} of ${count}`}
-            >
-              <ImageFrame ratio="4 / 5">
-                <StorefrontImg image={img} eager={eager && i === 0} sizes="(min-width: 1024px) 560px, 100vw" />
-              </ImageFrame>
-            </div>
-          ))}
+          {items.map((item, i) =>
+            item.kind === "video" ? (
+              <div
+                key={`video-${item.video.src}`}
+                data-index={i}
+                className="w-full shrink-0"
+                role="group"
+                aria-roledescription="slide"
+                aria-label={`${i + 1} of ${count}, video`}
+              >
+                <ImageFrame ratio="4 / 5">
+                  <GalleryVideo video={item.video} name={label} eager={eager} />
+                </ImageFrame>
+              </div>
+            ) : (
+              <div
+                key={item.image.src + i}
+                data-index={i}
+                // ZP-490: click/tap the photo to zoom (the expand button is the keyboard route).
+                onClick={openZoom}
+                className="w-full shrink-0 cursor-zoom-in"
+                role="group"
+                aria-roledescription="slide"
+                aria-label={`${i + 1} of ${count}`}
+              >
+                <ImageFrame ratio="4 / 5">
+                  <StorefrontImg image={item.image} eager={eager && i === 0} sizes="(min-width: 1024px) 560px, 100vw" />
+                </ImageFrame>
+              </div>
+            ),
+          )}
         </div>
 
-        <button
-          ref={zoomButtonRef}
-          type="button"
-          onClick={openZoom}
-          className="sf-focus absolute right-3 top-3 inline-flex h-11 w-11 items-center justify-center rounded-[2px] bg-white/90 text-brand-ink transition-colors duration-200 hover:bg-white"
-          aria-label={`View photo ${active + 1} of ${count} full screen`}
-        >
-          <ExpandIcon />
-        </button>
+        {photoCount > 0 ? (
+          <button
+            ref={zoomButtonRef}
+            type="button"
+            onClick={openZoom}
+            className="sf-focus absolute right-3 top-3 inline-flex h-11 w-11 items-center justify-center rounded-[2px] bg-white/90 text-brand-ink transition-colors duration-200 hover:bg-white"
+            aria-label={onVideo ? "View the photos full screen" : `View photo ${active - offset + 1} of ${photoCount} full screen`}
+          >
+            <ExpandIcon />
+          </button>
+        ) : null}
 
         {count > 1 ? (
           <>
-            <div className="hidden lg:block">
+            <div className={counter ? "hidden md:block" : "hidden lg:block"}>
               <button
                 type="button"
                 onClick={() => goTo(active - 1)}
@@ -157,19 +211,19 @@ export function Gallery({ images, label, eager = true, counter = false, classNam
                 <ChevronRightIcon />
               </button>
             </div>
-            {counter ? (
-              <p aria-hidden="true" className="pointer-events-none absolute bottom-3 right-3 rounded-[2px] bg-brand-ink/70 px-2.5 py-1 text-xs tracking-[0.08em] text-brand-cream-50">
+            {counter && !onVideo ? (
+              <p aria-hidden="true" className="pointer-events-none absolute bottom-3 right-3 rounded-[2px] bg-brand-ink/70 px-2.5 py-1 text-xs tracking-[0.08em] text-brand-cream-50 lg:hidden">
                 {active + 1} / {count}
               </p>
             ) : null}
             {/* Dots (phones). Each dot is a 44px tap target around a small mark. */}
             <div className={counter ? "hidden" : "mt-1 flex justify-center lg:hidden"}>
-              {images.map((_, i) => (
+              {items.map((_, i) => (
                 <button
                   key={i}
                   type="button"
                   onClick={() => goTo(i)}
-                  aria-label={`Show photo ${i + 1} of ${count}`}
+                  aria-label={itemLabel(i)}
                   aria-current={i === active ? "true" : undefined}
                   className="sf-focus group inline-flex h-11 w-11 items-center justify-center rounded-[2px]"
                 >
@@ -188,12 +242,12 @@ export function Gallery({ images, label, eager = true, counter = false, classNam
 
       {count > 1 ? (
         <ul className="hidden w-20 shrink-0 flex-col gap-3 lg:flex" aria-label="Photos">
-          {images.map((img, i) => (
-            <li key={img.src + i}>
+          {items.map((item, i) => (
+            <li key={item.kind === "video" ? `video-${item.video.src}` : item.image.src + i}>
               <button
                 type="button"
                 onClick={() => goTo(i)}
-                aria-label={`Show photo ${i + 1} of ${count}`}
+                aria-label={itemLabel(i)}
                 aria-current={i === active ? "true" : undefined}
                 className={cn(
                   "sf-focus block w-full rounded-[2px] ring-1 transition-shadow duration-200",
@@ -201,7 +255,18 @@ export function Gallery({ images, label, eager = true, counter = false, classNam
                 )}
               >
                 <ImageFrame ratio="4 / 5" className="rounded-[2px]">
-                  <StorefrontImg image={img} decorative sizes="80px" />
+                  {item.kind === "video" ? (
+                    <>
+                      <StorefrontImg image={{ src: item.video.poster, alt: "" }} decorative sizes="80px" />
+                      <span className="absolute inset-0 flex items-center justify-center">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[rgba(20,20,18,0.6)] text-brand-cream-50">
+                          <PlayIcon className="ml-0.5 h-4 w-4" />
+                        </span>
+                      </span>
+                    </>
+                  ) : (
+                    <StorefrontImg image={item.image} decorative sizes="80px" />
+                  )}
                 </ImageFrame>
               </button>
             </li>
@@ -209,54 +274,56 @@ export function Gallery({ images, label, eager = true, counter = false, classNam
         </ul>
       ) : null}
 
-      <dialog
-        ref={zoomRef}
-        aria-label={`${label}, photo ${active + 1} of ${count}`}
-        onClose={() => zoomButtonRef.current?.focus()}
-        onKeyDown={onZoomKeyDown}
-        className="sf-dialog bg-brand-cream-100 text-brand-ink"
-      >
-        <div className="relative flex h-full w-full items-center justify-center">
-          <div className="relative h-full max-h-full w-auto" style={{ aspectRatio: "4 / 5" }}>
-            <ImageFallback />
-            {images[active] ? (
-              // key: a fresh <img> per photo, so a failed photo's state never carries over.
-              <StorefrontImg key={`${active}-${images[active].src}`} image={images[active]} fit="contain" eager sizes="100vw" />
+      {photoCount > 0 ? (
+        <dialog
+          ref={zoomRef}
+          aria-label={`${label}, photo ${zoomed + 1} of ${photoCount}`}
+          onClose={() => zoomButtonRef.current?.focus()}
+          onKeyDown={onZoomKeyDown}
+          className="sf-dialog bg-brand-cream-100 text-brand-ink"
+        >
+          <div className="relative flex h-full w-full items-center justify-center">
+            <div className="relative h-full max-h-full w-auto" style={{ aspectRatio: "4 / 5" }}>
+              <ImageFallback />
+              {images[zoomed] ? (
+                // key: a fresh <img> per photo, so a failed photo's state never carries over.
+                <StorefrontImg key={`${zoomed}-${images[zoomed].src}`} image={images[zoomed]} fit="contain" eager sizes="100vw" />
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={closeZoom}
+              className="sf-focus absolute right-3 top-3 inline-flex h-11 w-11 items-center justify-center rounded-[2px] bg-white text-brand-ink"
+              aria-label="Close full screen"
+            >
+              <CloseIcon />
+            </button>
+            {photoCount > 1 ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => zoomStep(-1)}
+                  className="sf-focus absolute left-3 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-[2px] bg-white text-brand-ink"
+                  aria-label="Previous photo"
+                >
+                  <ChevronLeftIcon />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => zoomStep(1)}
+                  className="sf-focus absolute right-3 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-[2px] bg-white text-brand-ink"
+                  aria-label="Next photo"
+                >
+                  <ChevronRightIcon />
+                </button>
+                <p className="sf-label absolute bottom-4 left-1/2 -translate-x-1/2 bg-white px-3 py-2 text-brand-ink" aria-live="polite">
+                  {zoomed + 1} / {photoCount}
+                </p>
+              </>
             ) : null}
           </div>
-          <button
-            type="button"
-            onClick={closeZoom}
-            className="sf-focus absolute right-3 top-3 inline-flex h-11 w-11 items-center justify-center rounded-[2px] bg-white text-brand-ink"
-            aria-label="Close full screen"
-          >
-            <CloseIcon />
-          </button>
-          {count > 1 ? (
-            <>
-              <button
-                type="button"
-                onClick={() => goTo(active - 1)}
-                className="sf-focus absolute left-3 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-[2px] bg-white text-brand-ink"
-                aria-label="Previous photo"
-              >
-                <ChevronLeftIcon />
-              </button>
-              <button
-                type="button"
-                onClick={() => goTo(active + 1)}
-                className="sf-focus absolute right-3 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-[2px] bg-white text-brand-ink"
-                aria-label="Next photo"
-              >
-                <ChevronRightIcon />
-              </button>
-              <p className="sf-label absolute bottom-4 left-1/2 -translate-x-1/2 bg-white px-3 py-2 text-brand-ink" aria-live="polite">
-                {active + 1} / {count}
-              </p>
-            </>
-          ) : null}
-        </div>
-      </dialog>
+        </dialog>
+      ) : null}
     </div>
   );
 }

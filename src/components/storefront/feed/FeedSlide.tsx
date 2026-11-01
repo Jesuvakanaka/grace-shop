@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { lookAnchorId, photoLinkLabel, type FeedBadge, type FeedItem } from "@/lib/storefront/feed";
+import { mediaItems } from "@/lib/storefront/feed-media";
 import { cn } from "../cn";
 import { useShare } from "../product/useShare";
 import { ImageFallback, StorefrontImg } from "../StorefrontImage";
+import { FeedVideo } from "../video/FeedVideo";
 import { ChevronIcon, DetailsIcon, EnquireIcon, EyeIcon, PinIcon, ShareIcon } from "./feed-icons";
 
 /** Phones: the full width; computers: the phone-shaped column (about 9/16 of the viewport height). */
@@ -34,6 +36,11 @@ type FeedSlideProps = {
    * high), "eager" (second slide, ready for the first flick), else "lazy".
    */
   priority: "high" | "eager" | "lazy";
+  /**
+   * This slide's index minus the current slide's (a video preloads metadata
+   * on the next slide only). Null until the current slide is known.
+   */
+  slideOffset: number | null;
   /** Caption and rail shown ("Show details"); otherwise the clean view (photos only). */
   details: boolean;
   onToggleDetails: () => void;
@@ -44,7 +51,7 @@ type FeedSlideProps = {
 
 /**
  * One look: its photos side by side (swipe sideways, thin progress bars just
- * under the top bar) and, at the bottom right, the "Show details" eye.
+ * under the top bar; ZP-502: the video, if any, first, see FeedVideo) and, at the bottom right, the "Show details" eye.
  *
  * Clean view (the default): the clothes alone. With details: a light bottom
  * scrim, a slim caption (one-line serif name, price, tag, "Tap for details";
@@ -60,6 +67,7 @@ export function FeedSlide({
   total,
   lifted,
   priority,
+  slideOffset,
   details,
   onToggleDetails,
   visitHref,
@@ -68,7 +76,9 @@ export function FeedSlide({
   const strip = useRef<HTMLDivElement>(null);
   const [photo, setPhoto] = useState(0);
   const { status, share } = useShare();
-  const count = item.images.length;
+  // ZP-502: the video (if any) first, then the photos; the progress bars count it.
+  const media = mediaItems(item.images, item.video);
+  const count = media.length;
 
   const article = useRef<HTMLElement>(null);
 
@@ -120,12 +130,29 @@ export function FeedSlide({
         onScroll={onStripScroll}
         className="sf-scroll-x absolute inset-0 flex snap-x snap-mandatory overscroll-x-contain"
       >
-        {item.images.map((image, i) => {
-          // Clean view: the first photo is the keyboard / screen reader way in.
+        {media.map((entryItem, i) => {
+          // Clean view: the first item (video or photo) is the keyboard / screen reader way in.
           const entry = i === 0 && !details;
+          if (entryItem.kind === "video") {
+            return (
+              <FeedVideo
+                key={`video-${entryItem.video.src}`}
+                video={entryItem.video}
+                name={item.name}
+                href={item.href}
+                onLeave={leave}
+                linkTabIndex={entry ? 0 : -1}
+                linkLabel={entry ? photoLinkLabel(item) : `${item.name}, video`}
+                priority={priority}
+                slideOffset={slideOffset}
+                sizes={SLIDE_SIZES}
+              />
+            );
+          }
+          const image = entryItem.image;
           return (
             <Link
-              key={`${image.src}-${i}`}
+              key={`${image.src}-${entryItem.imageIndex}`}
               href={item.href}
               onClick={leave}
               tabIndex={entry ? 0 : -1}
@@ -134,13 +161,14 @@ export function FeedSlide({
                   ? photoLinkLabel(item)
                   : image.alt.trim()
                     ? undefined
-                    : `${item.name}, photo ${i + 1} of ${count}`
+                    : `${item.name}, photo ${entryItem.imageIndex + 1} of ${item.images.length}`
               }
               className="sf-focus relative block h-full w-full flex-none snap-start focus-visible:outline-offset-[-4px]"
             >
               <ImageFallback />
               <StorefrontImg
                 image={{ src: image.src, srcSet: image.srcSet || undefined, alt: image.alt }}
+                // The first item of the strip only (with a video first, its poster is the eager one).
                 eager={priority !== "lazy" && i === 0}
                 highPriority={priority === "high"}
                 sizes={SLIDE_SIZES}
@@ -160,9 +188,9 @@ export function FeedSlide({
       {count > 1 ? (
         <>
           <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-[68px] flex justify-center gap-[5px]">
-            {item.images.map((image, i) => (
+            {media.map((m, i) => (
               <span
-                key={`${image.src}-bar-${i}`}
+                key={`${m.kind === "video" ? m.video.src : m.image.src}-bar-${i}`}
                 className={cn("h-[3px] w-[26px] rounded-[2px]", i === photo ? "bg-brand-cream-50" : "bg-brand-cream-50/40")}
               />
             ))}
@@ -240,7 +268,8 @@ export function FeedSlide({
           aria-label="Show details"
           className={railItem}
         >
-          <span className={cn("flex h-11 w-11 items-center justify-center rounded-full", railQuiet)}>
+          {/* data-feed-eye: the first-visit guide rings this button (FeedGuide). */}
+          <span data-feed-eye="" className={cn("flex h-11 w-11 items-center justify-center rounded-full", railQuiet)}>
             <EyeIcon className="h-5 w-5" />
           </span>
           <span className={railLabel}>{details ? "Hide" : "Show details"}</span>

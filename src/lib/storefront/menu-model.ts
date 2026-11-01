@@ -9,12 +9,13 @@ import type { PublicSiteSettings } from '@/lib/site-settings/dto'
 import type { OpeningHours } from '@/lib/site-settings/schema'
 import type { SocialLink } from '@/components/storefront/types'
 import { FEED_NEW_TAB, FEED_TAB_PARAM, looksLabel, type FeedTab } from './feed'
+import { FEED_GUIDE_PARAM } from './feed-guide'
 import { SITE_ROUTES, sitePath, type SiteBase } from './paths'
 import { buildShellModel, formatOpeningHours, VYRA_TAGLINE } from './shell-model'
 import { addressLines, dayInTimeZone, directionsLink, meaningfulText, SHOP_TIME_ZONE } from './visit-model'
 
-/** `/?guide=1` replays the first-visit guide on the landing feed (ZP-509 reads and removes it). */
-export const GUIDE_PARAM = 'guide'
+/** `/?guide=1` replays the first-visit guide on the landing feed (ZP-509 reads and removes it; one constant, from feed-guide). */
+export const GUIDE_PARAM = FEED_GUIDE_PARAM
 
 /** Longest About excerpt in the menu, in characters (an ellipsis is added when cut). */
 export const ABOUT_EXCERPT_MAX = 180
