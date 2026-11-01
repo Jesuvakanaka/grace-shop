@@ -109,6 +109,21 @@ export function Bar({ label, value, share, note, muted }: { label: React.ReactNo
   );
 }
 
+/**
+ * Review F1: days rolled up before the Insights rollups existed have no
+ * funnel / depth / hour / health / option rows (and no photo-swipe counts)
+ * until they are recalculated.
+ */
+export function StaleNote({ days, what }: { days: string[]; what: string }) {
+  if (days.length === 0) return null;
+  return (
+    <p className="mb-3 text-xs rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2" data-testid="stale-note">
+      Some days not yet recalculated: {what} for {days.length === 1 ? fmt.day(days[0]) : `${days.length} days (${fmt.day(days[0])} – ${fmt.day(days[days.length - 1])})`} will
+      appear after the next recalculation.
+    </p>
+  );
+}
+
 export function Empty({ children }: { children: React.ReactNode }) {
   return <p className="text-sm text-slate-500 py-2">{children}</p>;
 }

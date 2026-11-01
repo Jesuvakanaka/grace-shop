@@ -9,18 +9,25 @@ anonymous first-party analytics of ZP-493 (`docs/storefront/analytics.md`).
 - **Rollups only.** Every report reads the daily rollup tables, one grouped,
   day-indexed query per table and one product query (no per-piece queries).
   Raw events are never read for a past day.
-- **Today is live.** Today has no rollup yet. For today (and for yesterday
-  until the nightly job at 02:30 Harare has rolled it up, i.e. no
-  `AnalyticsDailyVisits` row but raw events exist) the page runs the **same
-  rollup statements** as the nightly job (`rollupDayInTransaction`) inside a
-  transaction that is **always rolled back**, then reads the rollup tables in
-  that transaction. So "today" shows exactly what the nightly job will store,
-  and nothing is written. It is bounded to one or two days of raw events by
-  the `(day, type)` index, a 20 s statement timeout and a 30 s transaction
-  limit. At 500,000 events a day the rollup takes about 2.5 s locally.
-  Live answers are cached in memory for 60 s per range (per instance), so
-  reloads and CSV downloads do not redo the work.
-- The page says which days were counted live ("counted live just now").
+- **Today is live, read-only** (`src/lib/insights/live.ts`). Today has no
+  rollup yet, nor has yesterday until the nightly job at 02:30 Harare has
+  stored it (no `AnalyticsDailyVisits` row but raw events exist). For those
+  days the page runs **one SELECT per day** made of the rollup's own per-table
+  SELECTs (`ROLLUP_SELECTS` / `VISIT_ROWS_SELECT` in
+  `src/lib/analytics/rollup.ts`, which the nightly INSERTs wrap), so live
+  numbers are exactly what the job will store. It never writes: no rollup
+  rows, no temp tables (the per-visit rows are a CTE), no row locks, no WAL.
+  It runs in a `READ ONLY` transaction only to set an 8 s statement timeout.
+  Bounded by the `(day, type)` index to that day's events (plus the next
+  day's for visits that cross midnight).
+- **Cached per day for 60 s** on each instance, with single-flight: concurrent
+  requests for the same day share one query. A failed live query is not
+  cached; the page leaves that day out and says so ("could not be counted
+  just now") instead of failing.
+- **Merged, never double counted.** Rollup reads exclude the live days. If the
+  nightly job commits yesterday in the middle of a request, that request
+  still counts it once (from raw events); the next one reads the rollup.
+- The page says which days were counted live ("counted live, up to a minute old").
 
 ## Date ranges
 
@@ -120,8 +127,10 @@ Journey, depth and hour come from one grouped pass over the visit's two
 days into a temp table (`ON COMMIT DROP`), not three passes.
 
 **After deploying:** days rolled up before this migration have no rows in
-the new tables (and `photoSwipers` = 0). Re-roll them once (raw events are
-kept 90 days):
+the new tables (and `photoSwipers` = 0). The page lists them ("Some days not
+yet recalculated", from `range.notRecalculated`: days with visits but no
+journey rows) on the reports that use those tables. Re-roll them once (raw
+events are kept 90 days):
 `npm run analytics:rollup -- --from <first collection day> --to <yesterday>`
 (the Cloud Run job with those args, see `docs/storefront/analytics.md`).
 
@@ -140,10 +149,12 @@ kept 90 days):
 |---|---|
 | `src/app/(admin)/insights/page.tsx` | the page (range picker, section nav) |
 | `src/components/insights/reports.tsx`, `parts.tsx` | the nine reports, bars, heatmap, tables |
-| `src/app/api/insights/route.ts` | JSON / CSV endpoint, live cache |
-| `src/lib/insights/report.ts` | the queries, live rolled-back rollup |
+| `src/app/api/insights/route.ts` | JSON / CSV endpoint |
+| `src/lib/insights/report.ts` | the rollup queries, merging live days |
+| `src/lib/insights/live.ts` | read-only live day, per-day cache with single-flight |
 | `src/lib/insights/range.ts`, `csv.ts`, `types.ts` | ranges, CSV, report types and thresholds |
-| `tests/insights-report-db.test.ts` | every number vs SQL on raw events; live today rolled back |
+| `tests/insights-report-db.test.ts` | every number vs SQL on raw events; live = stored for every report; nothing written; no double count when the job commits mid-request; not-recalculated days |
+| `tests/insights-live.test.ts` | live SQL is read-only and reuses the rollup SELECTs; READ ONLY + timeout; single-flight; per-day cache (no database) |
 | `tests/insights-api.test.ts` | 401 / 403 / 400, JSON, CSV headers |
 | `tests/insights-range-csv.test.ts` | ranges, CSV quoting and injection |
 | `tests/analytics-insights-rollup-db.test.ts` | the new rollups vs raw events, idempotency, retention |

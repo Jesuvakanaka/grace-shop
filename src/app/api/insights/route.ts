@@ -1,35 +1,17 @@
-// ZP-505: the Insights report for the admin. OWNER only.
+// ZP-505: the Insights report for the admin. OWNER only. Never writes.
 // GET ?range=today|7d|30d|custom[&from=YYYY-MM-DD&to=YYYY-MM-DD]          -> JSON (InsightsReport)
 // GET ...&csv=overview|looks|photos|videos|funnel|depth|demand|sources|heatmap|health -> CSV download
-// Reads rollups only; today (and yesterday before the nightly job) is rolled
-// up live inside a rolled-back transaction (src/lib/insights/report.ts).
-// Live answers are cached in memory for a minute so reloads and CSV
-// downloads of the same range do not redo the work.
+// Past days come from the rollups; today (and yesterday before the nightly
+// job) from read-only queries over raw events, cached per day for a minute
+// (src/lib/insights/live.ts).
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { authorize, OWNER_ONLY } from '@/lib/api-auth'
-import { analyticsDay } from '@/lib/analytics/events'
 import { parseInsightsRange } from '@/lib/insights/range'
 import { loadInsights } from '@/lib/insights/report'
 import { isInsightsReportName, reportCsv } from '@/lib/insights/csv'
-import type { InsightsReport } from '@/lib/insights/types'
 
 const NO_STORE = { 'Cache-Control': 'private, no-store' }
-const LIVE_CACHE_MS = 60_000
-const LIVE_CACHE_MAX = 20
-const liveCache = new Map<string, { at: number; report: InsightsReport }>()
-
-async function getReport(range: Parameters<typeof loadInsights>[1], now: Date): Promise<InsightsReport> {
-  const key = `${range.from}|${range.to}|${analyticsDay(now)}`
-  const hit = liveCache.get(key)
-  if (hit && now.getTime() - hit.at < LIVE_CACHE_MS) return hit.report
-  const report = await loadInsights(prisma, range, { now })
-  if (report.range.liveDays.length > 0) {
-    if (liveCache.size >= LIVE_CACHE_MAX) liveCache.delete(liveCache.keys().next().value as string)
-    liveCache.set(key, { at: now.getTime(), report })
-  }
-  return { ...report, range: { ...report.range, preset: range.preset } }
-}
 
 export async function GET(request: Request) {
   const auth = await authorize(request, OWNER_ONLY)
@@ -45,7 +27,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const report = await getReport(parsed.range, now)
+    const report = await loadInsights(prisma, parsed.range, { now })
     if (csv !== null && isInsightsReportName(csv)) {
       const file = `vyra-insights-${csv}-${report.range.from}-to-${report.range.to}.csv`
       return new NextResponse(reportCsv(report, csv), {

@@ -2,8 +2,10 @@
 // Raw events are seeded for two past days (rolled up) and "today" (not rolled
 // up). Every number on the report is checked against SQL on the raw events.
 // - Past ranges read rollups only.
-// - "Today" is rolled up inside a transaction that is rolled back: the numbers
-//   are the same as the nightly rollup would give, and nothing is stored.
+// - "Today" is read live from raw events, read-only (review M1): the numbers
+//   equal what the nightly rollup stores, and nothing is written.
+// - The nightly job committing a live day mid-request never double counts (M2).
+// - Days rolled up before the ZP-505 rollups are flagged (F1).
 // - Small numbers are flagged ("too few to rank").
 // Uses analytics days in 2036 and products "ZP505I-*".
 import { describe, test, before, after } from 'node:test'
@@ -12,7 +14,8 @@ import { randomUUID } from 'node:crypto'
 import prisma from '../src/lib/db'
 import { addDays, analyticsDay, dayToDate } from '../src/lib/analytics/events'
 import { rollupDay, ROLLUP_TABLES } from '../src/lib/analytics/rollup'
-import { loadInsights, THRESHOLDS } from '../src/lib/insights/report'
+import { loadInsights, readInsights, THRESHOLDS } from '../src/lib/insights/report'
+import { resetLiveCache } from '../src/lib/insights/live'
 import type { InsightsRange } from '../src/lib/insights/range'
 
 const D1 = '2036-08-04' // a Monday
@@ -113,6 +116,7 @@ async function cleanup() {
 }
 
 before(async () => {
+  resetLiveCache()
   await cleanup()
   P1 = (
     await prisma.product.create({
@@ -381,10 +385,13 @@ describe('past range (rollups only)', () => {
   })
 })
 
-describe('today (live, rolled back)', () => {
-  test('today is computed from raw events like the nightly rollup, and nothing is stored', async () => {
+describe('today (live, read-only)', () => {
+  before(() => resetLiveCache())
+
+  test('today is computed from raw events and nothing is written', async () => {
     const report = await loadInsights(prisma, range(TODAY, TODAY, 'today'), { now: NOW })
     assert.deepStrictEqual(report.range.liveDays, [TODAY])
+    assert.deepStrictEqual(report.range.liveUnavailable, [])
     const raw = await one(
       `SELECT COUNT(*) FILTER (WHERE type = 'visit_start')::int AS visits,
               COUNT(*) FILTER (WHERE type = 'look_view' AND "productId" = $2)::int AS views
@@ -398,7 +405,7 @@ describe('today (live, rolled back)', () => {
     assert.strictEqual(report.looks.rows.find((r) => r.productId === P1)!.enough, false, '6 views')
     for (const t of ROLLUP_TABLES) {
       const n = (await one<{ n: number }>(`SELECT COUNT(*)::int AS n FROM "${t}" WHERE day = $1::date`, TODAY)).n
-      assert.strictEqual(n, 0, `${t} rolled back`)
+      assert.strictEqual(n, 0, `${t}: nothing stored`)
     }
   })
 
@@ -406,9 +413,11 @@ describe('today (live, rolled back)', () => {
     const report = await loadInsights(prisma, range(D1, TODAY, '7d'), { now: NOW })
     assert.deepStrictEqual(report.range.liveDays, [TODAY])
     assert.strictEqual(report.overview.visits, 48)
+    assert.strictEqual(report.funnel.all.counts[0], 48)
   })
 
-  test('yesterday is rolled live too while the nightly job has not run yet', async () => {
+  test('yesterday is read live while the nightly job has not stored it, then from the rollups', async () => {
+    resetLiveCache()
     const tomorrow = new Date(`${addDays(TODAY, 1)}T10:00:00Z`)
     const report = await loadInsights(prisma, range(TODAY, TODAY), { now: tomorrow })
     assert.deepStrictEqual(report.range.liveDays, [TODAY])
@@ -417,5 +426,36 @@ describe('today (live, rolled back)', () => {
     const after = await loadInsights(prisma, range(TODAY, TODAY), { now: tomorrow })
     assert.deepStrictEqual(after.range.liveDays, [], 'rolled up: read from the rollups')
     assert.strictEqual(after.overview.visits, 6)
+  })
+
+  test('live numbers equal what the nightly job stored, for every report', async () => {
+    // TODAY is rolled up now (previous test). Read it once live from raw events and once from the rollups.
+    resetLiveCache()
+    const R = range(TODAY, TODAY)
+    const live = await readInsights(prisma, R, [TODAY], NOW)
+    const stored = await readInsights(prisma, R, [], NOW)
+    assert.deepStrictEqual(live.range.liveDays, [TODAY])
+    const body = (r: typeof live) => ({ ...r, range: null })
+    assert.deepStrictEqual(body(live), body(stored))
+    assert.ok(live.funnel.all.counts[0] > 0 && live.sources.heatmap.length > 0 && live.health.byDetail.length > 0)
+  })
+
+  test('the nightly job committing a live day mid-request does not count it twice (review M2)', async () => {
+    // liveDaysFor said "yesterday is live", then the job stored it before the reads:
+    // the rollup reads exclude live days, so the day is counted once (from raw events).
+    resetLiveCache()
+    const report = await readInsights(prisma, range(D2, TODAY), [TODAY], NOW)
+    assert.strictEqual(report.overview.visits, 12 + 6)
+  })
+})
+
+describe('days rolled up before the Insights rollups (review F1)', () => {
+  const OLD = '2036-08-03'
+  test('a day with visits but no journey rows is listed as not recalculated', async () => {
+    await prisma.analyticsDailyVisits.create({ data: { day: dayToDate(OLD), visits: 5, endedVisits: 5 } })
+    const report = await readInsights(prisma, range(OLD, D2), [], NOW)
+    assert.deepStrictEqual(report.range.notRecalculated, [OLD])
+    const fresh = await readInsights(prisma, range(D1, D2), [], NOW)
+    assert.deepStrictEqual(fresh.range.notRecalculated, [])
   })
 })

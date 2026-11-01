@@ -143,7 +143,12 @@ export default function InsightsPage() {
           <p className="text-xs text-slate-500" data-testid="range-note">
             {fmt.day(r.range.from)}
             {r.range.from !== r.range.to ? ` – ${fmt.day(r.range.to)}` : ''} (Harare days). Updated nightly
-            {r.range.liveDays.length > 0 ? `; ${r.range.liveDays.map(fmt.day).join(' and ')} counted live just now` : ''}.
+            {r.range.liveDays.length > 0 ? `; ${r.range.liveDays.map(fmt.day).join(' and ')} counted live (up to a minute old)` : ''}.
+          </p>
+        )}
+        {r && r.range.liveUnavailable.length > 0 && (
+          <p className="text-xs rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2" role="status" data-testid="live-unavailable">
+            {r.range.liveUnavailable.map(fmt.day).join(' and ')} could not be counted just now and is left out. Try again in a minute.
           </p>
         )}
       </div>

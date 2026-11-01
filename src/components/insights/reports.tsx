@@ -5,7 +5,7 @@
 import React, { useMemo, useState } from 'react';
 import { ProductPicture } from '@/components/ProductPicture';
 import type { InsightsReport, LookRow } from '@/lib/insights/types';
-import { Bar, Empty, fmt, ScrollTable, Section, Stat, td, tdNum, th, thNum, TooFew } from './parts';
+import { Bar, Empty, fmt, ScrollTable, Section, StaleNote, Stat, td, tdNum, th, thNum, TooFew } from './parts';
 
 type Csv = (name: string) => string;
 
@@ -33,6 +33,7 @@ export function OverviewReport({ r, csv }: { r: InsightsReport; csv: Csv }) {
   const maxSource = Math.max(1, ...o.topSources.map((s) => s.visits));
   return (
     <Section id="overview" title="Overview" csv={[csv('overview')]}>
+      <StaleNote days={r.range.notRecalculated} what="WhatsApp taps and sources" />
       {!o.enough && o.visits > 0 && (
         <p className="mb-3 text-sm rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2">
           Only {fmt.num(o.visits)} visits in this range – the averages are not reliable yet.
@@ -111,6 +112,7 @@ export function LooksReport({ r, csv }: { r: InsightsReport; csv: Csv }) {
       description={`Ranked from ${r.thresholds.lookViews} views. Rates are per view; dwell is a mean.`}
       csv={[csv('looks')]}
     >
+      <StaleNote days={r.range.notRecalculated} what="photo-swipe rates" />
       {rows.length === 0 ? (
         <Empty>No looks were seen in this range.</Empty>
       ) : (
@@ -334,9 +336,11 @@ export function FunnelReport({ r, csv }: { r: InsightsReport; csv: Csv }) {
     <Section
       id="funnel"
       title="Funnel and drop-off"
-      description="Each visit counts up to the furthest step it reached: someone who tapped Show details on the first look also counts for “Saw a 2nd look”, so that step can be higher than look 2 under Feed depth."
+      description="Someone who tapped Show details on the first look also counts for “Saw a 2nd look”, so that step can be higher than look 2 under Feed depth."
       csv={[csv('funnel')]}
     >
+      <p className="mb-2 text-sm text-slate-700" data-testid="funnel-note">Counts every step up to the furthest a visit reached.</p>
+      <StaleNote days={r.range.notRecalculated} what="the funnel" />
       {landed === 0 ? (
         <Empty>No visits in this range.</Empty>
       ) : (
@@ -370,6 +374,7 @@ export function DepthReport({ r, csv }: { r: InsightsReport; csv: Csv }) {
   const rows = d.reach.length > DEPTH_ROWS ? [...d.reach.slice(0, DEPTH_ROWS - 1), d.reach[d.reach.length - 1]] : d.reach;
   return (
     <Section id="depth" title="Feed depth" description="Share of visits that reached look 1, 2, 3 … of the feed." csv={[csv('depth')]}>
+      <StaleNote days={r.range.notRecalculated} what="feed depth" />
       {d.visits === 0 ? (
         <Empty>No visits in this range.</Empty>
       ) : (
@@ -401,6 +406,7 @@ export function DemandReport({ r, csv }: { r: InsightsReport; csv: Csv }) {
   const d = r.demand;
   return (
     <Section id="demand" title="Demand" description="What people want that you could stock or price." csv={[csv('demand')]}>
+      <StaleNote days={r.range.notRecalculated} what="sizes and colours" />
       <h3 className="mb-1 text-sm font-semibold text-slate-700">Restock requests</h3>
       {d.soldOut.length === 0 ? (
         <Empty>No restock requests in this range.</Empty>
@@ -497,6 +503,7 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const HEAT = ['bg-slate-50', 'bg-brand-olive-100', 'bg-brand-olive-200', 'bg-brand-olive-300', 'bg-brand-olive-500', 'bg-brand-olive-700'];
 
 function Heatmap({ cells }: { cells: InsightsReport['sources']['heatmap'] }) {
+  const [showTable, setShowTable] = useState(false);
   const max = Math.max(0, ...cells.map((c) => c.visits));
   const at = new Map(cells.map((c) => [`${c.weekday}-${c.hour}`, c]));
   const step = (v: number) => (v <= 0 || max === 0 ? 0 : Math.min(5, Math.ceil((v / max) * 5)));
@@ -545,12 +552,22 @@ function Heatmap({ cells }: { cells: InsightsReport['sources']['heatmap'] }) {
           more
         </span>
       </figcaption>
-      <details className="mt-2 text-sm">
-        <summary className="cursor-pointer text-brand-olive font-medium">Show as a table</summary>
+      {/* Review F5: the table is always in the page for screen readers; the button only shows it on screen. */}
+      <button
+        type="button"
+        className="mt-2 text-sm text-brand-olive font-medium"
+        aria-expanded={showTable}
+        aria-controls="heatmap-table"
+        onClick={() => setShowTable((v) => !v)}
+        data-testid="heatmap-toggle"
+      >
+        {showTable ? 'Hide the table' : 'Show as a table'}
+      </button>
+      <div id="heatmap-table" className={showTable ? 'mt-2 text-sm' : 'sr-only'} data-testid="heatmap-table">
         {cells.length === 0 ? (
           <Empty>No visits.</Empty>
         ) : (
-          <ScrollTable caption="Visits and WhatsApp taps by weekday and hour (Harare)">
+          <ScrollTable caption="Visits and WhatsApp taps by weekday and hour (Harare). Hours not listed had no visits.">
             <thead>
               <tr>
                 <th className={th}>Day</th>
@@ -571,7 +588,7 @@ function Heatmap({ cells }: { cells: InsightsReport['sources']['heatmap'] }) {
             </tbody>
           </ScrollTable>
         )}
-      </details>
+      </div>
     </figure>
   );
 }
@@ -586,6 +603,7 @@ export function SourcesReport({ r, csv }: { r: InsightsReport; csv: Csv }) {
       description="Where visits come from (tag your links with ?src=…), and when they start (Harare time)."
       csv={[csv('sources'), csv('heatmap')]}
     >
+      <StaleNote days={r.range.notRecalculated} what="sources, campaigns and times" />
       {s.bySource.length === 0 ? (
         <Empty>No visits in this range.</Empty>
       ) : (
@@ -641,6 +659,7 @@ export function HealthReport({ r, csv }: { r: InsightsReport; csv: Csv }) {
   const any = h.byDetail.length > 0;
   return (
     <Section id="health" title="Health" description="Slow loads (over 4 s), things that failed to load, and feed actions that failed." csv={[csv('health')]}>
+      <StaleNote days={r.range.notRecalculated} what="health" />
       {!any ? (
         <Empty>No problems recorded in this range.</Empty>
       ) : (

@@ -1,5 +1,5 @@
 // ZP-493 (review M1): the rollup of a busy day finishes. 500,000 raw events
-// (10,000 visits x 50 events, 40 pieces) are seeded with one INSERT ...
+// (10,000 visits x 50 events, 40 pieces; opt-in, see EVENTS) are seeded with one INSERT ...
 // SELECT generate_series and rolled up. With Prisma's default interactive
 // transaction timeout (5 s) this failed at ~400k events/day.
 // Uses analytics day 2032-01-15 only, and cleans it up.
@@ -7,17 +7,29 @@ import { describe, test, before, after } from 'node:test'
 import assert from 'node:assert'
 import prisma from '../src/lib/db'
 import { dayToDate } from '../src/lib/analytics/events'
-import { rollupDay, ROLLUP_TRANSACTION } from '../src/lib/analytics/rollup'
+import { rollupDay, ROLLUP_TABLES, ROLLUP_TRANSACTION } from '../src/lib/analytics/rollup'
 
 const DAY = '2032-01-15'
-const EVENTS = 500_000
+// ZP-505 review F4: 500,000 events is the real target but writes about a
+// gigabyte of table data and WAL, so it is opt-in:
+//   ANALYTICS_VOLUME_EVENTS=500000 npm test
+// The default keeps the same shape at a size every local run can afford.
+const EVENTS = volumeEvents(process.env.ANALYTICS_VOLUME_EVENTS)
 const PER_VISIT = 50
 const PIECES = 40
 const PRODUCT_BASE = 900_000
 
+function volumeEvents(raw: string | undefined): number {
+  const n = Number(raw ?? 20_000)
+  if (!Number.isInteger(n) || n < 1_000 || n % 50 !== 0) {
+    throw new Error('ANALYTICS_VOLUME_EVENTS must be a whole multiple of 50, at least 1000')
+  }
+  return n
+}
+
 async function cleanup() {
   await prisma.$executeRawUnsafe(`DELETE FROM "AnalyticsEvent" WHERE day = $1::date`, DAY)
-  for (const t of ['AnalyticsDailyVisits', 'AnalyticsDailySource', 'AnalyticsDailyPiece', 'AnalyticsDailyPhoto', 'AnalyticsDailyVideo']) {
+  for (const t of ROLLUP_TABLES) {
     await prisma.$executeRawUnsafe(`DELETE FROM "${t}" WHERE day = $1::date`, DAY)
   }
 }

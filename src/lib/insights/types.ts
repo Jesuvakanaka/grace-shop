@@ -166,8 +166,12 @@ export type Health = {
 
 export type InsightsReport = {
   range: InsightsRange & {
-    /** Days computed from raw events for this answer (today; yesterday before the nightly rollup ran). */
+    /** Days computed from raw events for this answer (today; yesterday before the nightly rollup ran). Read-only. */
     liveDays: string[]
+    /** Live days whose query failed (e.g. timed out): left out of the numbers. */
+    liveUnavailable: string[]
+    /** Days rolled up before the ZP-505 rollups existed: no funnel / depth / hour / health / option rows yet. */
+    notRecalculated: string[]
     generatedAt: string
   }
   thresholds: typeof THRESHOLDS
@@ -188,7 +192,7 @@ function emptySegment(key: string): FunnelSegment {
 
 export function emptyInsights(range: InsightsRange): InsightsReport {
   return {
-    range: { ...range, liveDays: [], generatedAt: new Date(0).toISOString() },
+    range: { ...range, liveDays: [], liveUnavailable: [], notRecalculated: [], generatedAt: new Date(0).toISOString() },
     thresholds: THRESHOLDS,
     overview: {
       visits: 0,

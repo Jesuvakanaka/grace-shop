@@ -1,20 +1,31 @@
-// ZP-505: the Insights report. Server only.
+// ZP-505: the Insights report. Server only. Never writes.
 //
-// Reads the daily ROLLUP tables only (never raw events): one grouped,
-// day-indexed query per table plus one product query, so the cost does not
-// grow with the number of pieces (no N+1).
+// Past days: the daily ROLLUP tables only, one grouped day-indexed query per
+// table plus one product query, so the cost does not grow with the number of
+// pieces (no N+1).
 //
-// "Today" (and yesterday, until the nightly job has rolled it up) is not in
-// the rollups yet. For those days the SAME rollup statements
-// (rollupDayInTransaction) run inside a transaction that is always rolled
-// back: the page sees exactly the numbers the nightly job will store, and
-// nothing is written. The work is bounded by the (day, type) index to one or
-// two days of raw events and by a statement timeout.
-import type { Prisma, PrismaClient } from '@prisma/client'
+// Days the rollups do not have yet (today; yesterday until the nightly job
+// has stored it) come from src/lib/insights/live.ts: the rollup's own SELECTs
+// run read-only over that day's raw events. The rollup reads EXCLUDE those
+// days, so if the nightly job commits yesterday in the middle of a request
+// nothing is counted twice; the worst case is numbers a minute old.
+import type { PrismaClient } from '@prisma/client'
 import { addDays, analyticsDay, dayToDate, DEVICE_CLASSES } from '@/lib/analytics/events'
-import { MAX_DEPTH, rollupDayInTransaction } from '@/lib/analytics/rollup'
+import { MAX_DEPTH } from '@/lib/analytics/rollup'
 import { displayName } from '@/lib/storefront-model'
 import { imageUrlForKey, isValidImageKey } from '@/lib/storage/keys'
+import {
+  liveDay,
+  type DepthSums,
+  type HealthSums,
+  type JourneySums,
+  type LiveDay,
+  type OptionSums,
+  type PhotoSums,
+  type PieceSums,
+  type VideoSums,
+  type VisitsSums,
+} from './live'
 import { rangeDays, type InsightsRange } from './range'
 import {
   FUNNEL_STEPS,
@@ -36,23 +47,16 @@ import {
 
 export { THRESHOLDS } from './types'
 
-type Q = Prisma.TransactionClient
+type Db = PrismaClient
 
-/** Live days: 30 s for the whole answer, 20 s per statement. */
-export const LIVE_TRANSACTION = { timeout: 30_000, maxWait: 10_000 }
-export const LIVE_STATEMENT_TIMEOUT = '20s'
 /** Health lists every day (zeros included) up to this range length; longer ranges list only days with problems. */
 const HEALTH_ALL_DAYS = 31
-
-class Rollback {
-  constructor(readonly report: InsightsReport) {}
-}
 
 /**
  * Days of the range the rollups do not have yet: today, and yesterday when
  * the nightly job has not rolled it up (no visits row) but raw events exist.
  */
-export async function liveDaysFor(db: Q, range: Pick<InsightsRange, 'from' | 'to'>, now: Date): Promise<string[]> {
+export async function liveDaysFor(db: Db, range: Pick<InsightsRange, 'from' | 'to'>, now: Date): Promise<string[]> {
   const today = analyticsDay(now)
   const yesterday = addDays(today, -1)
   const live: string[] = []
@@ -68,31 +72,153 @@ export async function liveDaysFor(db: Q, range: Pick<InsightsRange, 'from' | 'to
   return live
 }
 
-export async function loadInsights(db: PrismaClient, range: InsightsRange, options: { now?: Date } = {}): Promise<InsightsReport> {
+export async function loadInsights(db: Db, range: InsightsRange, options: { now?: Date } = {}): Promise<InsightsReport> {
   const now = options.now ?? new Date()
-  const liveDays = await liveDaysFor(db, range, now)
-  if (liveDays.length === 0) return readReport(db, range, liveDays, now)
-  try {
-    await db.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = '${LIVE_STATEMENT_TIMEOUT}'`)
-      for (const day of liveDays) await rollupDayInTransaction(tx, day)
-      // Throwing rolls the transaction back: the live rollup rows are never stored.
-      throw new Rollback(await readReport(tx, range, liveDays, now))
-    }, LIVE_TRANSACTION)
-  } catch (error) {
-    if (error instanceof Rollback) return error.report
-    throw error
-  }
-  throw new Error('unreachable: the live transaction always rolls back')
+  return readInsights(db, range, await liveDaysFor(db, range, now), now)
 }
 
-// ------------------------------------------------------------------ helpers
+/**
+ * The report for `range`, taking `liveDays` from raw events (read-only) and
+ * every other day from the rollups. A live day whose query fails (timeout)
+ * is left out and listed in range.liveUnavailable instead of failing the page.
+ */
+export async function readInsights(db: Db, range: InsightsRange, liveDays: string[], now: Date): Promise<InsightsReport> {
+  const settled = await Promise.allSettled(liveDays.map((d) => liveDay(db, d)))
+  const live: LiveDay[] = []
+  const unavailable: string[] = []
+  settled.forEach((s, i) => {
+    if (s.status === 'fulfilled') live.push(s.value)
+    else {
+      unavailable.push(liveDays[i])
+      console.error('[insights] live day failed:', liveDays[i], s.reason instanceof Error ? s.reason.message : s.reason)
+    }
+  })
+  const rolled = await readRollups(db, range, liveDays)
+  const data = mergeLive(rolled, live)
+  return buildReport(db, range, data, { liveDays: live.map((l) => l.day), unavailable, notRecalculated: rolled.notRecalculated }, now)
+}
+
+// ------------------------------------------------------------------ rows
+
+type HeatCell = { weekday: number; hour: number; visits: number; whatsappTaps: number }
+type HealthDay = HealthSums & { day: string }
+
+type Data = {
+  visits: VisitsSums
+  journey: JourneySums[]
+  piece: PieceSums[]
+  photo: PhotoSums[]
+  video: VideoSums[]
+  depth: DepthSums[]
+  heat: HeatCell[]
+  health: HealthDay[]
+  option: OptionSums[]
+}
 
 const n = (v: number | null | undefined) => v ?? 0
 const ratio = (a: number, b: number) => (b > 0 ? a / b : null)
 const dayKey = (d: Date) => d.toISOString().slice(0, 10)
 const fileName = (key: string) => key.slice(key.lastIndexOf('/') + 1)
 const urlFor = (key: string | undefined) => (key && isValidImageKey(key) ? imageUrlForKey(key) : null)
+/** ISO weekday of "YYYY-MM-DD": 1 = Monday .. 7 = Sunday. */
+const isoWeekday = (day: string) => dayToDate(day).getUTCDay() || 7
+
+/** Prisma groupBy row -> flat row with the sums (nulls as 0). */
+function flat<T>(row: { _sum: Record<string, number | null> } & Record<string, unknown>): T {
+  const { _sum, ...keys } = row
+  const sums: Record<string, number> = {}
+  for (const [k, v] of Object.entries(_sum)) sums[k] = v ?? 0
+  return { ...keys, ...sums } as T
+}
+
+/** Sum rows with the same key (rollup days + live days). */
+function mergeBy<T extends object>(rows: T[], key: (r: T) => string, fields: readonly (keyof T)[]): T[] {
+  const out = new Map<string, T>()
+  for (const r of rows) {
+    const k = key(r)
+    const cur = out.get(k)
+    if (!cur) out.set(k, { ...r })
+    else for (const f of fields) (cur[f] as unknown as number) = n(cur[f] as unknown as number) + n(r[f] as unknown as number)
+  }
+  return [...out.values()]
+}
+
+const VISIT_FIELDS = ['visits', 'devices', 'returningVisits', 'endedVisits', 'bounces', 'totalSeconds', 'looksSeen', 'enquiringVisits'] as const
+const JOURNEY_FIELDS = ['visits', 'reachedSecondLook', 'reachedDetails', 'reachedOpen', 'reachedSize', 'reachedWhatsapp', 'feedEndVisits', 'whatsappTaps'] as const
+const PIECE_FIELDS = ['views', 'viewers', 'dwellSeconds', 'dwellCount', 'detailsShows', 'productOpens', 'enquiries', 'restockRequests', 'shares', 'loveOn', 'loveOff', 'photoSwipers'] as const
+const PHOTO_FIELDS = ['views', 'viewers', 'dwellSeconds', 'dwellCount'] as const
+const VIDEO_FIELDS = ['starts', 'viewers', 'replays', 'reached25', 'reached50', 'reached75', 'reached100', 'watchSeconds'] as const
+const OPTION_FIELDS = ['selects', 'enquiries', 'restockRequests'] as const
+
+type Rolled = Data & { notRecalculated: string[] }
+
+const NO_DAY = '1900-01-01'
+
+async function readRollups(db: Db, range: InsightsRange, liveDays: string[]): Promise<Rolled> {
+  const where = { day: { gte: dayToDate(range.from), lte: dayToDate(range.to), notIn: liveDays.map(dayToDate) } }
+  const sum = <K extends string>(fields: readonly K[]) => Object.fromEntries(fields.map((f) => [f, true])) as Record<K, true>
+
+  const visits = await db.analyticsDailyVisits.aggregate({ where, _sum: sum(VISIT_FIELDS) })
+  const journey = await db.analyticsDailyJourney.groupBy({ by: ['source', 'deviceClass', 'campaign'], where, _sum: sum(JOURNEY_FIELDS) })
+  const piece = await db.analyticsDailyPiece.groupBy({ by: ['productId'], where, _sum: sum(PIECE_FIELDS) })
+  const photo = await db.analyticsDailyPhoto.groupBy({ by: ['productId', 'photoIndex', 'image'], where, _sum: sum(PHOTO_FIELDS) })
+  const video = await db.analyticsDailyVideo.groupBy({ by: ['productId'], where, _sum: sum(VIDEO_FIELDS) })
+  const depth = await db.analyticsDailyDepth.groupBy({ by: ['looks'], where, _sum: { visits: true } })
+  // At most two live days (yesterday, today); unused slots get a date no rollup has.
+  const [skipA = NO_DAY, skipB = NO_DAY] = liveDays
+  if (liveDays.length > 2) throw new Error('at most two live days')
+  const heat = (await db.$queryRaw`
+    SELECT EXTRACT(ISODOW FROM day)::int AS weekday, hour, SUM(visits)::int AS visits, SUM("whatsappTaps")::int AS "whatsappTaps"
+    FROM "AnalyticsDailyHour"
+    WHERE day BETWEEN ${range.from}::date AND ${range.to}::date AND day NOT IN (${skipA}::date, ${skipB}::date)
+    GROUP BY 1, 2`) as HeatCell[]
+  const health = await db.analyticsDailyHealth.groupBy({ by: ['day', 'kind', 'detail'], where, _sum: { events: true, visits: true } })
+  const option = await db.analyticsDailyOption.groupBy({ by: ['productId', 'kind', 'value'], where, _sum: sum(OPTION_FIELDS) })
+
+  // Review F1: days rolled up before the ZP-505 rollups existed have visits but no journey rows.
+  const withVisits = await db.analyticsDailyVisits.findMany({ where: { ...where, visits: { gt: 0 } }, select: { day: true } })
+  const withJourney = new Set((await db.analyticsDailyJourney.groupBy({ by: ['day'], where })).map((r) => dayKey(r.day)))
+  const notRecalculated = withVisits.map((r) => dayKey(r.day)).filter((d) => !withJourney.has(d)).sort()
+
+  return {
+    visits: Object.fromEntries(VISIT_FIELDS.map((f) => [f, n(visits._sum[f])])) as VisitsSums,
+    journey: journey.map((r) => flat<JourneySums>(r)),
+    piece: piece.map((r) => flat<PieceSums>(r)),
+    photo: photo.map((r) => flat<PhotoSums>(r)),
+    video: video.map((r) => flat<VideoSums>(r)),
+    depth: depth.map((r) => flat<DepthSums>(r)),
+    heat,
+    health: health.map((r) => {
+      const row = flat<HealthSums & { day: Date }>(r)
+      return { ...row, day: dayKey(row.day) }
+    }),
+    option: option.map((r) => flat<OptionSums>(r)),
+    notRecalculated,
+  }
+}
+
+function mergeLive(rolled: Rolled, live: LiveDay[]): Data {
+  const visits = { ...rolled.visits }
+  for (const l of live) for (const f of VISIT_FIELDS) visits[f] += n(l.visits?.[f])
+  const all = <T>(pick: (l: LiveDay) => T[]) => live.flatMap(pick)
+  return {
+    visits,
+    journey: mergeBy([...rolled.journey, ...all((l) => l.journey)], (r) => `${r.source}\u0000${r.deviceClass}\u0000${r.campaign}`, JOURNEY_FIELDS),
+    piece: mergeBy([...rolled.piece, ...all((l) => l.piece)], (r) => String(r.productId), PIECE_FIELDS),
+    photo: mergeBy([...rolled.photo, ...all((l) => l.photo)], (r) => `${r.productId}\u0000${r.photoIndex}\u0000${r.image}`, PHOTO_FIELDS),
+    video: mergeBy([...rolled.video, ...all((l) => l.video)], (r) => String(r.productId), VIDEO_FIELDS),
+    depth: mergeBy([...rolled.depth, ...all((l) => l.depth)], (r) => String(r.looks), ['visits']),
+    heat: mergeBy(
+      [...rolled.heat, ...live.flatMap((l) => l.hour.map((h) => ({ weekday: isoWeekday(l.day), hour: h.hour, visits: h.visits, whatsappTaps: h.whatsappTaps })))],
+      (r) => `${r.weekday}-${r.hour}`,
+      ['visits', 'whatsappTaps'],
+    ),
+    health: mergeBy([...rolled.health, ...live.flatMap((l) => l.health.map((h) => ({ ...h, day: l.day })))], (r) => `${r.day}\u0000${r.kind}\u0000${r.detail}`, ['events', 'visits']),
+    option: mergeBy([...rolled.option, ...all((l) => l.option)], (r) => `${r.productId}\u0000${r.kind}\u0000${r.value}`, OPTION_FIELDS),
+  }
+}
+
+// ------------------------------------------------------------------ products
 
 type ProductInfo = {
   id: number
@@ -108,9 +234,9 @@ function removed(id: number): ProductInfo {
   return { id, name: `Removed piece #${id}`, slug: '', soldOut: false, askForPrice: false, coverKey: undefined, keyByFile: new Map() }
 }
 
-async function productInfo(q: Q, ids: number[]): Promise<Map<number, ProductInfo>> {
+async function productInfo(db: Db, ids: number[]): Promise<Map<number, ProductInfo>> {
   if (ids.length === 0) return new Map()
-  const products = await q.product.findMany({
+  const products = await db.product.findMany({
     where: { id: { in: ids } },
     select: {
       id: true,
@@ -143,101 +269,47 @@ async function productInfo(q: Q, ids: number[]): Promise<Map<number, ProductInfo
 
 // ------------------------------------------------------------------ the report
 
-async function readReport(q: Q, range: InsightsRange, liveDays: string[], now: Date): Promise<InsightsReport> {
-  const where = { day: { gte: dayToDate(range.from), lte: dayToDate(range.to) } }
-  const visits = await q.analyticsDailyVisits.aggregate({
-    where,
-    _sum: { visits: true, returningVisits: true, endedVisits: true, bounces: true, totalSeconds: true, looksSeen: true, enquiringVisits: true },
-  })
-  const journey = await q.analyticsDailyJourney.groupBy({
-    by: ['source', 'deviceClass', 'campaign'],
-    where,
-    _sum: {
-      visits: true,
-      reachedSecondLook: true,
-      reachedDetails: true,
-      reachedOpen: true,
-      reachedSize: true,
-      reachedWhatsapp: true,
-      feedEndVisits: true,
-      whatsappTaps: true,
-    },
-  })
-  const pieces = await q.analyticsDailyPiece.groupBy({
-    by: ['productId'],
-    where,
-    _sum: {
-      views: true,
-      viewers: true,
-      dwellSeconds: true,
-      dwellCount: true,
-      detailsShows: true,
-      productOpens: true,
-      enquiries: true,
-      restockRequests: true,
-      shares: true,
-      loveOn: true,
-      loveOff: true,
-      photoSwipers: true,
-    },
-  })
-  const photos = await q.analyticsDailyPhoto.groupBy({
-    by: ['productId', 'photoIndex', 'image'],
-    where,
-    _sum: { views: true, viewers: true, dwellSeconds: true, dwellCount: true },
-  })
-  const videos = await q.analyticsDailyVideo.groupBy({
-    by: ['productId'],
-    where,
-    _sum: { starts: true, viewers: true, replays: true, reached25: true, reached50: true, reached75: true, reached100: true, watchSeconds: true },
-  })
-  const depth = await q.analyticsDailyDepth.groupBy({ by: ['looks'], where, _sum: { visits: true } })
-  const heat = (await q.$queryRaw`
-    SELECT EXTRACT(ISODOW FROM day)::int AS weekday, hour, SUM(visits)::int AS visits, SUM("whatsappTaps")::int AS taps
-    FROM "AnalyticsDailyHour"
-    WHERE day BETWEEN ${range.from}::date AND ${range.to}::date
-    GROUP BY 1, 2
-    ORDER BY 1, 2`) as Array<{ weekday: number; hour: number; visits: number; taps: number }>
-  const health = await q.analyticsDailyHealth.groupBy({ by: ['day', 'kind', 'detail'], where, _sum: { events: true, visits: true } })
-  const options = await q.analyticsDailyOption.groupBy({
-    by: ['productId', 'kind', 'value'],
-    where,
-    _sum: { selects: true, enquiries: true, restockRequests: true },
-  })
+async function buildReport(
+  db: Db,
+  range: InsightsRange,
+  data: Data,
+  meta: { liveDays: string[]; unavailable: string[]; notRecalculated: string[] },
+  now: Date,
+): Promise<InsightsReport> {
+  const { visits, journey, piece: pieces, photo: photos, video: videos, depth, heat, health, option: options } = data
 
   const ids = new Set<number>()
   for (const r of pieces) ids.add(r.productId)
   for (const r of photos) ids.add(r.productId)
   for (const r of videos) ids.add(r.productId)
   for (const r of options) ids.add(r.productId)
-  const info = await productInfo(q, [...ids])
+  const info = await productInfo(db, [...ids])
   const product = (id: number) => info.get(id) ?? removed(id)
 
   // ---- overview
-  const totalVisits = n(visits._sum.visits)
-  const returning = n(visits._sum.returningVisits)
-  const ended = n(visits._sum.endedVisits)
+  const totalVisits = visits.visits
+  const returning = visits.returningVisits
+  const ended = visits.endedVisits
   const bySource = new Map<string, { visits: number; enquiring: number; taps: number }>()
   const byCampaign = new Map<string, { source: string; campaign: string; visits: number; enquiring: number; taps: number }>()
   let journeyVisits = 0
   let whatsappTaps = 0
   let feedEnd = 0
   for (const r of journey) {
-    const s = r._sum
-    journeyVisits += n(s.visits)
-    whatsappTaps += n(s.whatsappTaps)
-    feedEnd += n(s.feedEndVisits)
+    journeyVisits += r.visits
+    whatsappTaps += r.whatsappTaps
+    feedEnd += r.feedEndVisits
     const src = bySource.get(r.source) ?? { visits: 0, enquiring: 0, taps: 0 }
-    src.visits += n(s.visits)
-    src.enquiring += n(s.reachedWhatsapp)
-    src.taps += n(s.whatsappTaps)
+    src.visits += r.visits
+    src.enquiring += r.reachedWhatsapp
+    src.taps += r.whatsappTaps
     bySource.set(r.source, src)
     if (r.campaign) {
       const key = `${r.source}\u0000${r.campaign}`
       const c = byCampaign.get(key) ?? { source: r.source, campaign: r.campaign, visits: 0, enquiring: 0, taps: 0 }
-      c.visits += n(s.visits)
-      c.enquiring += n(s.reachedWhatsapp)
-      c.taps += n(s.whatsappTaps)
+      c.visits += r.visits
+      c.enquiring += r.reachedWhatsapp
+      c.taps += r.whatsappTaps
       byCampaign.set(key, c)
     }
   }
@@ -257,44 +329,41 @@ async function readReport(q: Q, range: InsightsRange, liveDays: string[], now: D
     newVisits: totalVisits - returning,
     returningVisits: returning,
     endedVisits: ended,
-    looksPerVisit: ratio(n(visits._sum.looksSeen), ended),
-    avgSeconds: ratio(n(visits._sum.totalSeconds), ended),
-    bounceRate: ratio(n(visits._sum.bounces), ended),
+    looksPerVisit: ratio(visits.looksSeen, ended),
+    avgSeconds: ratio(visits.totalSeconds, ended),
+    bounceRate: ratio(visits.bounces, ended),
     whatsappTaps,
-    enquiringVisits: n(visits._sum.enquiringVisits),
-    restockRequests: pieces.reduce((t, r) => t + n(r._sum.restockRequests), 0),
+    enquiringVisits: visits.enquiringVisits,
+    restockRequests: pieces.reduce((t, r) => t + r.restockRequests, 0),
     topSources: sourceRows.map((s) => ({ source: s.source, visits: s.visits, share: s.share })),
     enough: totalVisits >= THRESHOLDS.visits,
   }
 
   // ---- top looks
   const pieceViewers = new Map<number, number>()
-  const lookRows: LookRow[] = pieces.map((r) => {
-    const s = r._sum
-    const p = product(r.productId)
-    const views = n(s.views)
-    const viewers = n(s.viewers)
-    pieceViewers.set(r.productId, viewers)
+  const lookRows: LookRow[] = pieces.map((s) => {
+    const p = product(s.productId)
+    pieceViewers.set(s.productId, s.viewers)
     return {
-      productId: r.productId,
+      productId: s.productId,
       name: p.name,
       slug: p.slug,
       thumbnail: urlFor(p.coverKey),
-      views,
-      viewers,
-      meanDwell: ratio(n(s.dwellSeconds), n(s.dwellCount)),
-      photoSwipeRate: ratio(n(s.photoSwipers), viewers),
-      detailsRate: ratio(n(s.detailsShows), views),
-      openRate: ratio(n(s.productOpens), views),
-      whatsapp: n(s.enquiries),
-      shares: n(s.shares),
-      restockRequests: n(s.restockRequests),
-      hearts: n(s.loveOn) - n(s.loveOff),
+      views: s.views,
+      viewers: s.viewers,
+      meanDwell: ratio(s.dwellSeconds, s.dwellCount),
+      photoSwipeRate: ratio(s.photoSwipers, s.viewers),
+      detailsRate: ratio(s.detailsShows, s.views),
+      openRate: ratio(s.productOpens, s.views),
+      whatsapp: s.enquiries,
+      shares: s.shares,
+      restockRequests: s.restockRequests,
+      hearts: s.loveOn - s.loveOff,
       popularity: null,
-      enough: views >= THRESHOLDS.lookViews,
+      enough: s.views >= THRESHOLDS.lookViews,
     }
   })
-  const hasHearts = pieces.some((r) => n(r._sum.loveOn) > 0 || n(r._sum.loveOff) > 0)
+  const hasHearts = pieces.some((r) => r.loveOn > 0 || r.loveOff > 0)
   lookRows.sort((a, b) => Number(b.enough) - Number(a.enough) || b.views - a.views || a.name.localeCompare(b.name))
   const lookRowsWithData = lookRows.filter((r) => r.views > 0 || r.whatsapp > 0 || r.restockRequests > 0 || r.shares > 0)
 
@@ -304,16 +373,15 @@ async function readReport(q: Q, range: InsightsRange, liveDays: string[], now: D
     const key = r.image || `#${r.photoIndex}`
     const perPiece = photosByPiece.get(r.productId) ?? new Map()
     const cur = perPiece.get(key) ?? { index: r.photoIndex, indexViews: -1, image: r.image, views: 0, viewers: 0, secs: 0, dwells: 0 }
-    const views = n(r._sum.views)
     // The same image seen at another position (photos reordered): keep the position it was seen at most.
-    if (views > cur.indexViews) {
+    if (r.views > cur.indexViews) {
       cur.index = r.photoIndex
-      cur.indexViews = views
+      cur.indexViews = r.views
     }
-    cur.views += views
-    cur.viewers += n(r._sum.viewers)
-    cur.secs += n(r._sum.dwellSeconds)
-    cur.dwells += n(r._sum.dwellCount)
+    cur.views += r.views
+    cur.viewers += r.viewers
+    cur.secs += r.dwellSeconds
+    cur.dwells += r.dwellCount
     perPiece.set(key, cur)
     photosByPiece.set(r.productId, perPiece)
   }
@@ -357,43 +425,40 @@ async function readReport(q: Q, range: InsightsRange, liveDays: string[], now: D
 
   // ---- videos
   const videoRows: VideoRow[] = videos
-    .map((r) => {
-      const s = r._sum
-      const p = product(r.productId)
-      const starts = n(s.starts)
+    .map((s) => {
+      const p = product(s.productId)
       return {
-        productId: r.productId,
+        productId: s.productId,
         name: p.name,
         slug: p.slug,
         thumbnail: urlFor(p.coverKey),
-        starts,
-        viewers: n(s.viewers),
-        completion: [ratio(n(s.reached25), starts), ratio(n(s.reached50), starts), ratio(n(s.reached75), starts), ratio(n(s.reached100), starts)] as VideoRow['completion'],
-        avgSeconds: ratio(n(s.watchSeconds), starts),
-        replays: n(s.replays),
-        enough: starts >= THRESHOLDS.videoStarts,
+        starts: s.starts,
+        viewers: s.viewers,
+        completion: [ratio(s.reached25, s.starts), ratio(s.reached50, s.starts), ratio(s.reached75, s.starts), ratio(s.reached100, s.starts)] as VideoRow['completion'],
+        avgSeconds: ratio(s.watchSeconds, s.starts),
+        replays: s.replays,
+        enough: s.starts >= THRESHOLDS.videoStarts,
       }
     })
     .filter((v) => v.starts > 0)
     .sort((a, b) => Number(b.enough) - Number(a.enough) || b.starts - a.starts || a.name.localeCompare(b.name))
 
   // ---- funnel
-  const segment = (key: string, rows: typeof journey): FunnelSegment => {
+  const segment = (key: string, rows: JourneySums[]): FunnelSegment => {
     const counts = [0, 0, 0, 0, 0, 0]
     for (const r of rows) {
-      const s = r._sum
-      counts[0] += n(s.visits)
-      counts[1] += n(s.reachedSecondLook)
-      counts[2] += n(s.reachedDetails)
-      counts[3] += n(s.reachedOpen)
-      counts[4] += n(s.reachedSize)
-      counts[5] += n(s.reachedWhatsapp)
+      counts[0] += r.visits
+      counts[1] += r.reachedSecondLook
+      counts[2] += r.reachedDetails
+      counts[3] += r.reachedOpen
+      counts[4] += r.reachedSize
+      counts[5] += r.reachedWhatsapp
     }
     const lost = counts.map((c, i) => (i === 0 || counts[i - 1] === 0 ? null : 1 - c / counts[i - 1]))
     return { key, counts, lost, enough: counts[0] >= THRESHOLDS.visits }
   }
-  const groupBy = (key: (r: (typeof journey)[number]) => string) => {
-    const m = new Map<string, typeof journey>()
+  const segments = (key: (r: JourneySums) => string) => {
+    const m = new Map<string, JourneySums[]>()
     for (const r of journey) m.set(key(r), [...(m.get(key(r)) ?? []), r])
     return [...m.entries()].map(([k, rows]) => segment(k, rows))
   }
@@ -404,16 +469,16 @@ async function readReport(q: Q, range: InsightsRange, liveDays: string[], now: D
   const funnel: Funnel = {
     steps: FUNNEL_STEPS,
     all: segment('all', journey),
-    byDevice: groupBy((r) => r.deviceClass).sort((a, b) => deviceOrder(a.key) - deviceOrder(b.key)),
-    bySource: groupBy((r) => r.source).sort((a, b) => b.counts[0] - a.counts[0] || a.key.localeCompare(b.key)),
+    byDevice: segments((r) => r.deviceClass).sort((a, b) => deviceOrder(a.key) - deviceOrder(b.key)),
+    bySource: segments((r) => r.source).sort((a, b) => b.counts[0] - a.counts[0] || a.key.localeCompare(b.key)),
   }
 
   // ---- feed depth
-  const depthVisits = depth.reduce((t, r) => t + n(r._sum.visits), 0)
-  const deepest = depth.reduce((m, r) => (n(r._sum.visits) > 0 ? Math.max(m, r.looks) : m), 0)
+  const depthVisits = depth.reduce((t, r) => t + r.visits, 0)
+  const deepest = depth.reduce((m, r) => (r.visits > 0 ? Math.max(m, r.looks) : m), 0)
   const reach: Depth['reach'] = []
   for (let look = 1; look <= deepest; look += 1) {
-    const v = depth.reduce((t, r) => (r.looks >= look ? t + n(r._sum.visits) : t), 0)
+    const v = depth.reduce((t, r) => (r.looks >= look ? t + r.visits : t), 0)
     reach.push({ look, visits: v, share: ratio(v, depthVisits) })
   }
   const depthReport: Depth = {
@@ -428,7 +493,7 @@ async function readReport(q: Q, range: InsightsRange, liveDays: string[], now: D
   const optionsByPiece = new Map<number, { sizes: OptionCount[]; colours: OptionCount[] }>()
   for (const r of options) {
     const entry = optionsByPiece.get(r.productId) ?? { sizes: [], colours: [] }
-    const row = { value: r.value, selects: n(r._sum.selects), enquiries: n(r._sum.enquiries), restockRequests: n(r._sum.restockRequests) }
+    const row = { value: r.value, selects: r.selects, enquiries: r.enquiries, restockRequests: r.restockRequests }
     ;(r.kind === 'colour' ? entry.colours : entry.sizes).push(row)
     optionsByPiece.set(r.productId, entry)
   }
@@ -436,14 +501,14 @@ async function readReport(q: Q, range: InsightsRange, liveDays: string[], now: D
   const byWeight = (a: OptionCount, b: OptionCount) => weight(b) - weight(a) || a.value.localeCompare(b.value)
   const demand: Demand = {
     soldOut: pieces
-      .filter((r) => n(r._sum.restockRequests) > 0)
+      .filter((r) => r.restockRequests > 0)
       .map((r) => {
         const p = product(r.productId)
         const sizes = (optionsByPiece.get(r.productId)?.sizes ?? [])
           .filter((s) => s.restockRequests > 0)
           .map((s) => ({ value: s.value, count: s.restockRequests }))
           .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
-        return { productId: r.productId, name: p.name, slug: p.slug, thumbnail: urlFor(p.coverKey), soldOutNow: p.soldOut, restockRequests: n(r._sum.restockRequests), sizes }
+        return { productId: r.productId, name: p.name, slug: p.slug, thumbnail: urlFor(p.coverKey), soldOutNow: p.soldOut, restockRequests: r.restockRequests, sizes }
       })
       .sort((a, b) => b.restockRequests - a.restockRequests || a.name.localeCompare(b.name)),
     options: [...optionsByPiece.entries()]
@@ -457,10 +522,10 @@ async function readReport(q: Q, range: InsightsRange, liveDays: string[], now: D
         return total(b) - total(a) || a.name.localeCompare(b.name)
       }),
     askForPrice: pieces
-      .filter((r) => product(r.productId).askForPrice && (n(r._sum.views) > 0 || n(r._sum.enquiries) > 0))
+      .filter((r) => product(r.productId).askForPrice && (r.views > 0 || r.enquiries > 0))
       .map((r) => {
         const p = product(r.productId)
-        return { productId: r.productId, name: p.name, slug: p.slug, views: n(r._sum.views), enquiries: n(r._sum.enquiries), rate: ratio(n(r._sum.enquiries), n(r._sum.views)) }
+        return { productId: r.productId, name: p.name, slug: p.slug, views: r.views, enquiries: r.enquiries, rate: ratio(r.enquiries, r.views) }
       })
       .sort((a, b) => b.enquiries - a.enquiries || b.views - a.views || a.name.localeCompare(b.name)),
   }
@@ -470,35 +535,42 @@ async function readReport(q: Q, range: InsightsRange, liveDays: string[], now: D
     bySource: sourceRows,
     byCampaign: [...byCampaign.values()]
       .map((c) => ({ source: c.source, campaign: c.campaign, visits: c.visits, enquiringVisits: c.enquiring, whatsappTaps: c.taps, enough: c.visits >= THRESHOLDS.visits }))
-      .sort((a, b) => b.visits - a.visits || a.campaign.localeCompare(b.campaign)),
-    heatmap: heat.filter((c) => c.visits > 0).map((c) => ({ weekday: c.weekday, hour: c.hour, visits: c.visits, whatsappTaps: c.taps })),
+      .sort((a, b) => b.visits - a.visits || a.campaign.localeCompare(b.campaign) || a.source.localeCompare(b.source)),
+    heatmap: heat
+      .filter((c) => c.visits > 0)
+      .map((c) => ({ weekday: c.weekday, hour: c.hour, visits: c.visits, whatsappTaps: c.whatsappTaps }))
+      .sort((a, b) => a.weekday - b.weekday || a.hour - b.hour),
   }
 
   // ---- health
   const perDay = new Map<string, { slowLoads: number; loadErrors: number; failedActions: number }>()
   const perDetail = new Map<string, { kind: string; detail: string; events: number; visits: number }>()
   for (const r of health) {
-    const day = dayKey(r.day)
-    const d = perDay.get(day) ?? { slowLoads: 0, loadErrors: 0, failedActions: 0 }
-    const events = n(r._sum.events)
-    if (r.kind === 'slow_load') d.slowLoads += events
-    else if (r.kind === 'load_error') d.loadErrors += events
-    else if (r.kind === 'action_failed') d.failedActions += events
-    perDay.set(day, d)
+    const d = perDay.get(r.day) ?? { slowLoads: 0, loadErrors: 0, failedActions: 0 }
+    if (r.kind === 'slow_load') d.slowLoads += r.events
+    else if (r.kind === 'load_error') d.loadErrors += r.events
+    else if (r.kind === 'action_failed') d.failedActions += r.events
+    perDay.set(r.day, d)
     const key = `${r.kind}\u0000${r.detail}`
     const x = perDetail.get(key) ?? { kind: r.kind, detail: r.detail, events: 0, visits: 0 }
-    x.events += events
-    x.visits += n(r._sum.visits)
+    x.events += r.events
+    x.visits += r.visits
     perDetail.set(key, x)
   }
   const healthDays = range.days <= HEALTH_ALL_DAYS ? rangeDays(range) : [...perDay.keys()].sort()
   const healthReport: Health = {
     days: healthDays.map((day) => ({ day, ...(perDay.get(day) ?? { slowLoads: 0, loadErrors: 0, failedActions: 0 }) })),
-    byDetail: [...perDetail.values()].sort((a, b) => b.events - a.events || a.kind.localeCompare(b.kind)),
+    byDetail: [...perDetail.values()].sort((a, b) => b.events - a.events || a.kind.localeCompare(b.kind) || a.detail.localeCompare(b.detail)),
   }
 
   return {
-    range: { ...range, liveDays, generatedAt: now.toISOString() },
+    range: {
+      ...range,
+      liveDays: meta.liveDays,
+      liveUnavailable: meta.unavailable,
+      notRecalculated: meta.notRecalculated,
+      generatedAt: now.toISOString(),
+    },
     thresholds: THRESHOLDS,
     overview,
     looks: { rows: lookRowsWithData, hasHearts },
