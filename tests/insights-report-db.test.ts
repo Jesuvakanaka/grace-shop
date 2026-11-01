@@ -112,6 +112,8 @@ async function cleanup() {
     const key = (t[0].toLowerCase() + t.slice(1)) as 'analyticsDailyVisits'
     await (prisma[key] as unknown as { deleteMany(a: unknown): Promise<unknown> }).deleteMany({ where })
   }
+  // Review rows cascade from their invites.
+  await prisma.reviewInvite.deleteMany({ where: { createdBy: 'zp505-test' } })
   await prisma.product.deleteMany({ where: { itemNumber: { startsWith: 'ZP505I-' } } })
 }
 
@@ -457,5 +459,52 @@ describe('days rolled up before the Insights rollups (review F1)', () => {
     assert.deepStrictEqual(report.range.notRecalculated, [OLD])
     const fresh = await readInsights(prisma, range(D1, D2), [], NOW)
     assert.deepStrictEqual(fresh.range.notRecalculated, [])
+  })
+})
+
+describe('reviews (ZP-508): per week, average stars, pending now', () => {
+  // D1 2036-08-04 is a Monday. 23:30 UTC on Sunday 10 Aug is 01:30 Monday 11 Aug in Harare (next week).
+  const reviews = [
+    { at: `${D1}T08:00:00Z`, stars: 5, status: 'APPROVED' },
+    { at: `${D2}T08:00:00Z`, stars: 3, status: 'APPROVED' },
+    { at: `${D2}T09:00:00Z`, stars: 1, status: 'HIDDEN' },
+    { at: '2036-08-10T23:30:00Z', stars: 4, status: 'PENDING' },
+    { at: '2036-07-01T08:00:00Z', stars: 2, status: 'PENDING' }, // outside the range, still pending now
+  ] as const
+  before(async () => {
+    let i = 0
+    for (const r of reviews) {
+      i += 1
+      const invite = await prisma.reviewInvite.create({
+        data: { tokenHash: `zp505-test-${i}-${randomUUID()}`, expiresAt: new Date('2037-01-01'), createdBy: 'zp505-test', productId: P1 },
+      })
+      await prisma.review.create({
+        data: {
+          inviteId: invite.id,
+          productId: P1,
+          stars: r.stars,
+          comment: 'private words',
+          displayName: 'Private Name',
+          status: r.status,
+          createdAt: new Date(r.at),
+        },
+      })
+    }
+  })
+
+  test('counts by Harare week, averages approved stars, counts every pending review; no review text', async () => {
+    const report = await readInsights(prisma, range(D1, '2036-08-11'), [], NOW)
+    assert.deepStrictEqual(report.reviews.perWeek, [
+      { week: D1, received: 3, approved: 2 },
+      { week: '2036-08-11', received: 1, approved: 0 },
+    ])
+    assert.strictEqual(report.reviews.received, 4)
+    assert.strictEqual(report.reviews.approved, 2)
+    close(report.reviews.averageStars, 4, 'average of approved stars')
+    const pending = await prisma.review.count({ where: { status: 'PENDING' } })
+    assert.strictEqual(report.reviews.pendingNow, pending)
+    assert.ok(pending >= 2)
+    const json = JSON.stringify(report)
+    assert.ok(!json.includes('private words') && !json.includes('Private Name'), 'no review text or names')
   })
 })

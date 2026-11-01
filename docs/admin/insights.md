@@ -55,6 +55,7 @@ storefront host (`/api/...` and `insights` are blocked there by
 | 7 | Demand | Piece, Option, Product | restock requests per piece with the sizes asked (and whether it is sold out **now**), most-picked sizes / colours per piece, WhatsApp enquiries on pieces currently set to "Ask for price" |
 | 8 | Sources & timing | Journey, Hour | visits / WhatsApp taps by source and by campaign (`?src=` tag), hour × weekday heatmap of visit starts (Harare) |
 | 9 | Health | Health | slow loads (LCP > 4 s), load errors (image / video / feed / page), failed actions, per day (every day for ranges up to 31 days) |
+| 10 | Reviews (ZP-508) | `Review` table | reviews submitted per week (Monday, Harare), how many approved, mean stars of the approved ones, pending now (any date). Counts only: no text, names or photos |
 
 Definitions worth knowing:
 
@@ -90,7 +91,7 @@ sorted below the ranked rows.
 
 ## CSV
 
-Every section has a CSV button (`&csv=overview|looks|photos|videos|funnel|depth|demand|sources|heatmap|health`).
+Every section has a CSV button (`&csv=overview|looks|photos|videos|funnel|depth|demand|sources|heatmap|health|reviews`).
 UTF-8 with BOM (opens in Excel), CRLF, quoted per RFC 4180; text starting
 with `= + - @`, tab or CR gets a leading `'` (no formula injection). Rates
 are fractions 0..1, seconds are means. File name
@@ -140,8 +141,8 @@ events are kept 90 days):
   loveOff`) only when the range has any heart events (`looks.hasHearts`).
 - **Popularity (ZP-506):** fill `LookRow.popularity` in
   `src/lib/insights/report.ts`; the Score column already renders it.
-- **Reviews (ZP-508):** add a section where the page marks it
-  (`src/app/(admin)/insights/page.tsx`) once review data is in the answer.
+- **Reviews (ZP-508):** done: the Reviews section reads the small `Review`
+  table directly (one grouped query + one count), not the analytics rollups.
 
 ## Files
 

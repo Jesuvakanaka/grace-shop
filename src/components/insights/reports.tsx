@@ -697,3 +697,28 @@ export function HealthReport({ r, csv }: { r: InsightsReport; csv: Csv }) {
     </Section>
   );
 }
+
+// ------------------------------------------------------------------ 10. reviews (ZP-508)
+
+export function ReviewsReport({ r, csv }: { r: InsightsReport; csv: Csv }) {
+  const v = r.reviews;
+  const max = Math.max(1, ...v.perWeek.map((w) => w.received));
+  return (
+    <Section id="reviews" title="Reviews" description="Reviews from verified buyers, by week (Monday, Harare time). Counts only." csv={[csv('reviews')]}>
+      <div className="grid grid-cols-3 gap-2 md:gap-3 mb-3">
+        <Stat label="Received" value={fmt.num(v.received)} sub={`${fmt.num(v.approved)} approved`} testId="stat-reviews" />
+        <Stat label="Average stars" value={v.averageStars === null ? '–' : `${fmt.dec(v.averageStars)} ★`} sub="approved reviews" />
+        <Stat label="Waiting for you" value={fmt.num(v.pendingNow)} sub="pending now" />
+      </div>
+      {v.perWeek.length === 0 ? (
+        <Empty>No reviews were submitted in this range.</Empty>
+      ) : (
+        <ul className="space-y-2" aria-label="Reviews received per week">
+          {v.perWeek.map((w) => (
+            <Bar key={w.week} label={`Week of ${fmt.day(w.week)}`} value={`${fmt.num(w.received)} · ${fmt.num(w.approved)} approved`} share={w.received / max} />
+          ))}
+        </ul>
+      )}
+    </Section>
+  );
+}

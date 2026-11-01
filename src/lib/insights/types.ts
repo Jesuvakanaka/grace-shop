@@ -164,6 +164,18 @@ export type Health = {
   byDetail: { kind: string; detail: string; events: number; visits: number }[]
 }
 
+/** ZP-508 reviews: counts only (no text, names or photos). Weeks start on Monday, Harare time. */
+export type ReviewsSummary = {
+  /** Reviews submitted in the range (any status). */
+  received: number
+  approved: number
+  /** Mean stars of the approved reviews submitted in the range. */
+  averageStars: number | null
+  /** Waiting for the owner right now (any submission date). */
+  pendingNow: number
+  perWeek: { week: string; received: number; approved: number }[]
+}
+
 export type InsightsReport = {
   range: InsightsRange & {
     /** Days computed from raw events for this answer (today; yesterday before the nightly rollup ran). Read-only. */
@@ -184,6 +196,7 @@ export type InsightsReport = {
   demand: Demand
   sources: Sources
   health: Health
+  reviews: ReviewsSummary
 }
 
 function emptySegment(key: string): FunnelSegment {
@@ -216,5 +229,6 @@ export function emptyInsights(range: InsightsRange): InsightsReport {
     demand: { soldOut: [], options: [], askForPrice: [] },
     sources: { bySource: [], byCampaign: [], heatmap: [] },
     health: { days: [], byDetail: [] },
+    reviews: { received: 0, approved: 0, averageStars: null, pendingNow: 0, perWeek: [] },
   }
 }

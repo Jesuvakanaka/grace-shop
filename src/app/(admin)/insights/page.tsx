@@ -16,6 +16,7 @@ import {
   LooksReport,
   OverviewReport,
   PhotosReport,
+  ReviewsReport,
   SourcesReport,
   VideosReport,
 } from '@/components/insights/reports';
@@ -37,6 +38,7 @@ const SECTIONS = [
   ['demand', 'Demand'],
   ['sources', 'Sources'],
   ['health', 'Health'],
+  ['reviews', 'Reviews'],
 ] as const;
 
 /** Today in Harare (the analytics day), for the date pickers. */
@@ -183,7 +185,7 @@ export default function InsightsPage() {
           <DemandReport r={r} csv={csv} />
           <SourcesReport r={r} csv={csv} />
           <HealthReport r={r} csv={csv} />
-          {/* Extension point (ZP-508 reviews): add a "Reviews" section here once review data is in the API answer. */}
+          <ReviewsReport r={r} csv={csv} />
         </div>
       )}
     </div>

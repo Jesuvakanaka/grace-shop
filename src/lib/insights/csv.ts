@@ -15,6 +15,7 @@ export const INSIGHTS_REPORTS = [
   'sources',
   'heatmap',
   'health',
+  'reviews',
 ] as const
 export type InsightsReportName = (typeof INSIGHTS_REPORTS)[number]
 
@@ -142,6 +143,16 @@ export function reportCsv(report: InsightsReport, name: InsightsReportName): str
       return toCsv(
         ['day', 'slow loads', 'load errors', 'failed actions'],
         report.health.days.map((d) => [d.day, d.slowLoads, d.loadErrors, d.failedActions]),
+      )
+    case 'reviews':
+      return toCsv(
+        ['week starting (Monday, Harare)', 'reviews received', 'approved'],
+        [
+          ...report.reviews.perWeek.map((w): Cell[] => [w.week, w.received, w.approved]),
+          ['total', report.reviews.received, report.reviews.approved],
+          ['average stars (approved)', report.reviews.averageStars, ''],
+          ['pending now', report.reviews.pendingNow, ''],
+        ],
       )
   }
 }

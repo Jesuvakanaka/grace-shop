@@ -10,7 +10,7 @@
 // days, so if the nightly job commits yesterday in the middle of a request
 // nothing is counted twice; the worst case is numbers a minute old.
 import type { PrismaClient } from '@prisma/client'
-import { addDays, analyticsDay, dayToDate, DEVICE_CLASSES } from '@/lib/analytics/events'
+import { addDays, ANALYTICS_TIME_ZONE, analyticsDay, dayToDate, DEVICE_CLASSES } from '@/lib/analytics/events'
 import { MAX_DEPTH } from '@/lib/analytics/rollup'
 import { displayName } from '@/lib/storefront-model'
 import { imageUrlForKey, isValidImageKey } from '@/lib/storage/keys'
@@ -39,6 +39,7 @@ import {
   type LookRow,
   type OptionCount,
   type Overview,
+  type ReviewsSummary,
   type PiecePhotos,
   type PhotoRow,
   type Sources,
@@ -95,7 +96,41 @@ export async function readInsights(db: Db, range: InsightsRange, liveDays: strin
   })
   const rolled = await readRollups(db, range, liveDays)
   const data = mergeLive(rolled, live)
-  return buildReport(db, range, data, { liveDays: live.map((l) => l.day), unavailable, notRecalculated: rolled.notRecalculated }, now)
+  const report = await buildReport(db, range, data, { liveDays: live.map((l) => l.day), unavailable, notRecalculated: rolled.notRecalculated }, now)
+  return { ...report, reviews: await readReviews(db, range) }
+}
+
+/**
+ * ZP-508 reviews in the range: counts per Harare week (Monday start), mean
+ * stars of the approved ones, and how many wait for the owner now. The Review
+ * table is small (one row per verified buyer's review); counts only, never
+ * text, names or photos.
+ */
+async function readReviews(db: Db, range: InsightsRange): Promise<ReviewsSummary> {
+  const weeks = (await db.$queryRaw`
+    WITH r AS (
+      SELECT (("createdAt" AT TIME ZONE 'UTC') AT TIME ZONE ${ANALYTICS_TIME_ZONE}) AS local_at, status, stars
+      FROM "Review"
+    )
+    SELECT date_trunc('week', local_at)::date::text AS week,
+           COUNT(*)::int AS received,
+           COUNT(*) FILTER (WHERE status = 'APPROVED')::int AS approved,
+           COALESCE(SUM(stars) FILTER (WHERE status = 'APPROVED'), 0)::int AS stars
+    FROM r
+    WHERE local_at >= ${range.from}::date AND local_at < ${range.to}::date + 1
+    GROUP BY 1
+    ORDER BY 1`) as Array<{ week: string; received: number; approved: number; stars: number }>
+  const pendingNow = await db.review.count({ where: { status: 'PENDING' } })
+  const received = weeks.reduce((t, w) => t + w.received, 0)
+  const approved = weeks.reduce((t, w) => t + w.approved, 0)
+  const stars = weeks.reduce((t, w) => t + w.stars, 0)
+  return {
+    received,
+    approved,
+    averageStars: ratio(stars, approved),
+    pendingNow,
+    perWeek: weeks.map((w) => ({ week: w.week, received: w.received, approved: w.approved })),
+  }
 }
 
 // ------------------------------------------------------------------ rows
@@ -275,7 +310,7 @@ async function buildReport(
   data: Data,
   meta: { liveDays: string[]; unavailable: string[]; notRecalculated: string[] },
   now: Date,
-): Promise<InsightsReport> {
+): Promise<Omit<InsightsReport, 'reviews'>> {
   const { visits, journey, piece: pieces, photo: photos, video: videos, depth, heat, health, option: options } = data
 
   const ids = new Set<number>()
