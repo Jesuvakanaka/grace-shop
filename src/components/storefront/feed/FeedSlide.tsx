@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { lookAnchorId, type FeedBadge, type FeedItem } from "@/lib/storefront/feed";
+import { lookAnchorId, photoLinkLabel, type FeedBadge, type FeedItem } from "@/lib/storefront/feed";
 import { cn } from "../cn";
 import { useShare } from "../product/useShare";
 import { ImageFallback, StorefrontImg } from "../StorefrontImage";
@@ -27,8 +27,8 @@ type FeedSlideProps = {
   item: FeedItem;
   index: number;
   total: number;
-  /** The slide on screen. A slide that leaves the screen goes back to its first photo. */
-  isActive: boolean;
+  /** The first-slide swipe hint is showing: lift the caption and rail clear of it. */
+  lifted: boolean;
   /**
    * The first photo: "high" (first slide, the LCP: eager + fetchpriority
    * high), "eager" (second slide, ready for the first flick), else "lazy".
@@ -50,14 +50,15 @@ type FeedSlideProps = {
  * scrim, a slim caption (one-line serif name, price, tag, "Tap for details";
  * the caption links to the product page) and the rail (Enquire / Restock on
  * WhatsApp or Visit us, Share, Details). Every way into the product page is
- * a real <a href>; in clean view the first photo link is in the tab order
- * and named "<name>, <price>. View details".
+ * a real <a href>. In clean view the first photo link is in the tab order,
+ * named "<name>, <price>[, <tag>]. View details" (photoLinkLabel), and an
+ * sr-only <h2> keeps the look's heading.
  */
 export function FeedSlide({
   item,
   index,
   total,
-  isActive,
+  lifted,
   priority,
   details,
   onToggleDetails,
@@ -69,16 +70,24 @@ export function FeedSlide({
   const { status, share } = useShare();
   const count = item.images.length;
 
-  // Leaving the screen: back to the first photo (bars here, the strip below).
-  const [wasActive, setWasActive] = useState(isActive);
-  if (wasActive !== isActive) {
-    setWasActive(isActive);
-    if (!isActive) setPhoto(0);
-  }
+  const article = useRef<HTMLElement>(null);
+
+  // Once the look is fully off screen (not at the halfway point of a swipe,
+  // and never for a swipe that snaps back), it goes back to its first photo,
+  // so coming back always starts on photo 1. Instant: nobody sees it.
   useEffect(() => {
-    // Instant, never smooth: the visitor does not see it.
-    if (!isActive && strip.current && strip.current.scrollLeft !== 0) strip.current.scrollLeft = 0;
-  }, [isActive]);
+    const el = article.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting || entry.intersectionRatio > 0) continue;
+        if (strip.current && strip.current.scrollLeft !== 0) strip.current.scrollLeft = 0;
+        setPhoto(0);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const onStripScroll = () => {
     const el = strip.current;
@@ -97,6 +106,7 @@ export function FeedSlide({
   return (
     // An <article> (not a region landmark) named after the look.
     <article
+      ref={article}
       id={lookAnchorId(item.slug)}
       aria-label={item.name}
       data-feed-slide={index}
@@ -121,7 +131,7 @@ export function FeedSlide({
               tabIndex={entry ? 0 : -1}
               aria-label={
                 entry
-                  ? `${item.name}, ${item.price}. View details`
+                  ? photoLinkLabel(item)
                   : image.alt.trim()
                     ? undefined
                     : `${item.name}, photo ${i + 1} of ${count}`
@@ -181,6 +191,9 @@ export function FeedSlide({
         </>
       ) : null}
 
+      {/* Clean view: the look keeps its heading for screen readers. */}
+      {!details ? <h2 className="sr-only">{item.name}</h2> : null}
+
       {details ? (
         <>
           {/* Light bottom scrim: at least 62% ink behind the caption lines, plus a text shadow. */}
@@ -191,7 +204,11 @@ export function FeedSlide({
           <Link
             href={item.href}
             onClick={leave}
-            className="sf-focus absolute bottom-[22px] left-4 right-[84px] flex flex-col gap-[3px] rounded-[2px] p-1 text-brand-cream-50 [text-shadow:0_1px_3px_rgba(0,0,0,0.55)]"
+            className={cn(
+              "sf-focus absolute left-4 right-[84px] flex flex-col gap-[3px] rounded-[2px] p-1 text-brand-cream-50 [text-shadow:0_1px_3px_rgba(0,0,0,0.55)]",
+              // Clear of the first-slide swipe hint while it shows.
+              lifted ? "bottom-12" : "bottom-[22px]",
+            )}
           >
             <h2 className="m-0 truncate font-serif text-[21px] font-semibold leading-[1.15]">{item.name}</h2>
             <span className="flex items-center gap-2 text-sm font-medium">
@@ -214,12 +231,13 @@ export function FeedSlide({
         </>
       ) : null}
 
-      <div className="absolute bottom-6 right-3 flex flex-col items-center gap-3.5">
+      <div className={cn("absolute right-3 flex flex-col items-center gap-3.5", lifted ? "bottom-12" : "bottom-6")}>
         <button
           type="button"
           onClick={onToggleDetails}
+          // One fixed name; aria-pressed says whether details are shown.
           aria-pressed={details}
-          aria-label={details ? "Hide details to see the whole look" : "Show details: name, price and buttons"}
+          aria-label="Show details"
           className={railItem}
         >
           <span className={cn("flex h-11 w-11 items-center justify-center rounded-full", railQuiet)}>

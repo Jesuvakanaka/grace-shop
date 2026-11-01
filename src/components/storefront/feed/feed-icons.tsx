@@ -57,12 +57,6 @@ export const EyeIcon = ({ className }: IconProps) => (
   </Icon>
 );
 
-export const ArrowIcon =({ className }: IconProps) => (
-  <Icon className={className}>
-    <path {...line} d="M5 12h14M13 6l6 6-6 6" />
-  </Icon>
-);
-
 export const ChevronIcon = ({ className, direction }: IconProps & { direction: "up" | "down" | "left" | "right" }) => {
   const d = { up: "M6 15l6-6 6 6", down: "M6 9l6 6 6-6", left: "M15 5l-7 7 7 7", right: "M9 5l7 7-7 7" }[direction];
   return (

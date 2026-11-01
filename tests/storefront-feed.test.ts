@@ -26,6 +26,7 @@ import {
   orderFeed,
   parseDetailsPreference,
   parseLookHash,
+  photoLinkLabel,
   resolveFeedTab,
   slideIndexAt,
   toFeedItem,
@@ -296,6 +297,15 @@ describe('toFeedItem', () => {
     const noUrl = toFeedItem(product('x', { name: 'X' }), { ...ctx, productUrl: () => null });
     assert.strictEqual(noUrl.shareUrl, null);
     assert.strictEqual(new URL(noUrl.enquireHref as string).searchParams.get('text'), "Hi VYRA, I'm interested in X");
+  });
+
+  test('photoLinkLabel names the look, price and tag for the clean-view photo link', () => {
+    const base = toFeedItem(product('x', { name: 'Lime Midi', priceUsd: 65 }), ctx);
+    assert.strictEqual(photoLinkLabel(base), 'Lime Midi, $65. View details');
+    const sold = toFeedItem(product('y', { name: 'Bronze Set', availability: 'SOLD_OUT' }), ctx);
+    assert.strictEqual(photoLinkLabel(sold), 'Bronze Set, Ask for price, Sold out. View details');
+    const fresh = toFeedItem(product('z', { name: 'Fringe Set', isNew: true, priceUsd: 60 }), ctx);
+    assert.strictEqual(photoLinkLabel(fresh), 'Fringe Set, $60, New. View details');
   });
 
   test('tag: Sold out, else Few left, else New, else none', () => {

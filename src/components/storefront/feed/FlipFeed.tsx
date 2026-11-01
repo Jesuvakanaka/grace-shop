@@ -374,7 +374,13 @@ export function FlipFeed({
   };
 
   const openMenu = () => dialogRef.current?.showModal();
-  const openSheet = () => sheetRef.current?.showModal();
+  const openSheet = () => {
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    sheet.showModal();
+    // Focus starts on the current collection.
+    sheet.querySelector<HTMLButtonElement>("[aria-current=\"true\"]")?.focus();
+  };
   const onSheetClose = () => pillButton.current?.focus();
 
   const toggleDetails = () => {
@@ -455,7 +461,7 @@ export function FlipFeed({
               item={item}
               index={i}
               total={total}
-              isActive={i === active}
+              lifted={!hinted}
               priority={i === 0 ? "high" : i === 1 ? "eager" : "lazy"}
               details={details}
               onToggleDetails={toggleDetails}

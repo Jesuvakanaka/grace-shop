@@ -50,18 +50,21 @@ Input is the catalogue's "newest" sort (newest published first). Output:
   rounded pill with the current collection's name and a chevron ("NEW IN ▾",
   `aria-haspopup="dialog"`, named "Collection: New in. Change collection").
   It opens a cream bottom sheet (`CollectionSheet`, a native modal dialog):
-  "Collections" label, one row per collection with "N looks", the current one
-  highlighted and `aria-pressed`. Picking one closes the sheet and switches
-  the feed. Backdrop tap and Escape close it; focus moves into the sheet and
-  returns to the pill. The pill is hidden when there is only New in.
+  a "Collections" heading (which labels the dialog), one row per collection
+  with "N looks", the current one highlighted and `aria-current="true"`.
+  Opening it focuses the current row; focus stays in the sheet and returns
+  to the pill when it closes. Picking a row closes the sheet and switches the
+  feed. Escape closes it, and so does a tap on the backdrop (only when both
+  pointerdown and click land on the backdrop, so a drag that starts inside
+  the sheet never closes it). The pill is hidden when there is only New in.
 - Visit us is in the menu and on the end slide (and on the rail when no
   WhatsApp number is set); the top bar no longer has the pin.
 - The tab is in the URL: `?c=<category-slug>` (none for New in). An unknown
   value falls back to New in.
 - Switching collection is client-side: a server action returns the first page of
   that collection and `history.replaceState` updates `?c=`. The pill and
-  the pressed row change only when the looks arrive, so tab and looks never disagree; if the
-  action fails, the page falls back to a full load of `/?c=<tab>`.
+  the current row change only when the looks arrive, so collection and
+  looks never disagree; if the action fails, the page falls back to a full load of `/?c=<tab>`.
 - A soft navigation to the page (new server props, or `?c=` changed by a
   link) resets the feed to that tab and its first slide.
 
@@ -86,29 +89,34 @@ Input is the catalogue's "newest" sort (newest published first). Output:
 - Photos side by side with horizontal scroll snap; thin progress bars just
   under the top bar (68px from the top) when there is more than one photo;
   on mouse devices, previous/next photo buttons.
-- A look that leaves the screen goes back to its first photo: when the
-  current slide changes, every other slide's strip is set to
-  `scrollLeft = 0` (instant) and its progress bars reset. Switching
-  collection remounts the slides (keyed per collection), so they start on
-  photo 1 too.
+- A look goes back to its first photo once it is fully off screen: each
+  slide has an IntersectionObserver, and when its intersection ratio drops
+  to 0 its own strip is set to `scrollLeft = 0` (instant) and its progress
+  bars reset. Nothing changes halfway through a swipe, and a swipe that
+  snaps back keeps the photo. Coming back to a look always starts on photo 1.
+  Switching collection remounts the slides (keyed per collection), so they
+  start on photo 1 too.
 - Top: a light scrim (130px, 50% ink at the top) behind the slim top bar
   (menu, wordmark, collection pill), which always shows.
 
 ### Clean view and "Show details"
 
 - The feed opens on the clothes alone: no caption, no rail, no bottom scrim.
-  An eye button at the bottom right reads **Show details**
-  (`aria-pressed="false"`, named "Show details: name, price and buttons").
-  Tapping it shows the caption and the rail on every slide and the button
-  reads **Hide** (`aria-pressed="true"`).
+  An eye button at the bottom right reads **Show details**. Its accessible
+  name is always "Show details" and `aria-pressed` gives the state.
+  Tapping it shows the caption and the rail on every slide; the visible text
+  then reads **Hide** (`aria-pressed="true"`).
 - The choice is kept in `sessionStorage` (`vyra:feed:details`, "shown" or
   "hidden"; read and written in try/catch, `parseDetailsPreference`), so it
   holds while browsing and when coming back from a product page. A new
   session starts in clean view.
 - In clean view each slide's first photo link is in the tab order and named
-  "<name>, <price>. View details", so keyboard and screen reader users still
-  reach the product page.
-- The first-slide swipe hint always shows (until the first scroll).
+  "<name>, <price>[, <tag>]. View details" (`photoLinkLabel`), and an
+  sr-only `<h2>` keeps the look's heading, so keyboard and screen reader
+  users still get the name, price and tag and reach the product page.
+- The first-slide swipe hint always shows (until the first scroll). While it
+  shows, the caption and the rail sit higher (48px from the bottom) so they
+  never touch it.
 
 ### With details
 
@@ -183,8 +191,8 @@ its name (not a landmark), with "Look n of N" for screen readers; the end and
 loading slides are labelled groups. Photo links fall back to "<name>, photo
 n of N" when a photo has no alt text. Over the cream end slide (also with no
 pieces at all) the overlay turns ink. The wordmark is
-the page's `<h1>`. The collection rows and the eye button use
-`aria-pressed`. All controls are real links/buttons with the storefront focus
+the page's `<h1>`. The eye button uses `aria-pressed`; the current
+collection row uses `aria-current`. All controls are real links/buttons with the storefront focus
 ring. Small text on the photo sits on at least 60% ink (the caption on the
 bottom scrim, the pill on the top scrim plus its own tint), so cream text
 stays at least 4.5:1 on light photos.

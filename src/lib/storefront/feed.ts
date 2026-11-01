@@ -210,6 +210,14 @@ export function toFeedItem(p: PublicProduct, ctx: FeedItemContext): FeedItem {
   }
 }
 
+/**
+ * The accessible name of a slide's first photo link in clean view (no
+ * caption on screen): "<name>, <price>[, <tag>]. View details".
+ */
+export function photoLinkLabel(item: Pick<FeedItem, 'name' | 'price' | 'badge'>): string {
+  return `${[item.name, item.price, item.badge?.label].filter(Boolean).join(', ')}. View details`
+}
+
 // -------------------------------------------------------------- URL state
 
 const LOOK_PREFIX = 'look-'
