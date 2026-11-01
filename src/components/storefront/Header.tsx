@@ -34,7 +34,7 @@ const iconButton =
 
 const desktopLink =
   "sf-focus sf-label relative inline-flex min-h-11 items-center gap-1.5 rounded-[2px] px-3.5 text-brand-ink transition-colors duration-200 hover:text-brand-olive-700 " +
-  "after:absolute after:inset-x-3.5 after:bottom-2 after:h-px after:origin-left after:bg-brand-lime after:transition-transform after:duration-200";
+  "after:absolute after:inset-x-3.5 after:bottom-2 after:h-0.5 after:origin-left after:bg-brand-olive-700 after:transition-transform after:duration-200";
 
 /** The page `href` is on, or a page below it ("/site/collections/x" is under Collections). Home only matches itself. */
 function isActive(href: string, current: string | undefined, homeHref: string): boolean {

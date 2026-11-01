@@ -34,9 +34,9 @@ export default async function PrivacyPage() {
             Visiting the site
           </h2>
           <p className="sf-body text-brand-ink-soft">
-            We only collect anonymous visit statistics, such as which pages are viewed and roughly how many people
-            visit, so we can see what is popular and keep the site working well. These statistics do not identify you.
-            There are no accounts, no shopping cart and no advertising trackers on this site.
+            Like most websites, our server keeps standard technical logs (such as your IP address, browser type and the
+            pages requested) to keep the site secure and working. We don&apos;t use analytics, advertising trackers or
+            cookies that follow you. There are no accounts and no shopping cart on this site.
           </p>
         </section>
 
