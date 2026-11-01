@@ -77,6 +77,12 @@ export type PublicProduct = {
    * so hand-written DTOs (fixtures, design previews) need not list it.
    */
   ref?: string
+  /**
+   * ZP-507: "Love it" hearts (Product.loveCount, >= 0), cached with the
+   * catalogue (up to 60 s old). Always set by toPublicProduct; optional in
+   * the type so hand-written DTOs need not list it.
+   */
+  loves?: number
 }
 
 export type PublicCategory = {
@@ -107,6 +113,8 @@ export type PublicProductRow = {
   priceDisplay: PriceDisplayValue
   sellingPriceUsd: number
   currentQuantity: number
+  /** ZP-507: copied as `loves`. Optional so older fixtures need not list it. */
+  loveCount?: number
   category: { slug: string; name: string; published: boolean } | null
   images: { id: number; imageKey: string; alt: string | null; sortOrder: number; isPrimary: boolean }[]
   /** ZP-501: selected to build `video`; status and keys are never copied. */
@@ -172,6 +180,7 @@ export function toPublicProduct(row: PublicProductRow, options: ProductDtoOption
     featured: row.featured,
     priceUsd: publicPriceUsd(row),
     ref: publicProductRef(row.id),
+    loves: Math.max(0, Math.floor(row.loveCount ?? 0)),
   }
   if (options.includeItemNumber) dto.itemNumber = row.itemNumber
   return dto

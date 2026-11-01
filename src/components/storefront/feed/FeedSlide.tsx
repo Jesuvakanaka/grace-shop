@@ -2,9 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { track, useActiveDwell, useDwell } from "@/lib/analytics/client";
 import { lookAnchorId, photoLinkLabel, type FeedBadge, type FeedItem } from "@/lib/storefront/feed";
 import { mediaItems } from "@/lib/storefront/feed-media";
+import { photoProps } from "@/lib/storefront/tracking";
 import { cn } from "../cn";
+import { LoveButton } from "../loves/LoveButton";
 import { useShare } from "../product/useShare";
 import { ImageFallback, StorefrontImg } from "../StorefrontImage";
 import { FeedVideo } from "../video/FeedVideo";
@@ -47,6 +50,8 @@ type FeedSlideProps = {
   visitHref: string;
   /** Remember this slide before the visitor leaves for its product page. */
   onLeave: (slug: string) => void;
+  /** ZP-493: the feed tab ("new" or a category slug), sent with this look's events. */
+  collection: string;
 };
 
 /**
@@ -72,6 +77,7 @@ export function FeedSlide({
   onToggleDetails,
   visitHref,
   onLeave,
+  collection,
 }: FeedSlideProps) {
   const strip = useRef<HTMLDivElement>(null);
   const [photo, setPhoto] = useState(0);
@@ -113,6 +119,37 @@ export function FeedSlide({
   };
   const leave = () => onLeave(item.slug);
 
+  // ZP-493 analytics (docs/storefront/analytics.md). No scroll handlers: the
+  // current slide comes from the feed, dwell from IntersectionObserver.
+  const { slug } = item;
+  const isCurrent = slideOffset === 0;
+  useEffect(() => {
+    if (isCurrent) track("look_view", { slug, collection, position: index });
+  }, [isCurrent, slug, collection, index]);
+  useDwell(article, (seconds) => track("look_dwell", { slug, collection, seconds }), { key: slug });
+  // The photo on screen (null while the video item shows): 1-based among the photos.
+  const current = media[photo];
+  const shownPhoto = isCurrent && current?.kind === "image" ? photoProps(item.images, current.imageIndex) : null;
+  const shownKey = shownPhoto ? `${slug}-${shownPhoto.index}` : null;
+  useEffect(() => {
+    if (shownPhoto) track("photo_view", { slug, collection, ...shownPhoto });
+    // Once per photo shown (shownKey), not per render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownKey]);
+  useActiveDwell(
+    shownPhoto !== null,
+    (seconds) => {
+      if (shownPhoto) track("photo_dwell", { slug, collection, ...shownPhoto, seconds });
+    },
+    shownKey,
+  );
+  const enquire = () =>
+    track(item.soldOut ? "restock_request" : "whatsapp_enquire", { slug, collection, screen: "feed" });
+  const onShare = async () => {
+    const outcome = await share(item.shareUrl as string, `${item.name} – VYRA`);
+    if (outcome === "native" || outcome === "copy") track("share", { slug, collection, method: outcome, screen: "feed" });
+  };
+
   return (
     // An <article> (not a region landmark) named after the look.
     <article
@@ -146,6 +183,8 @@ export function FeedSlide({
                 priority={priority}
                 slideOffset={slideOffset}
                 sizes={SLIDE_SIZES}
+                slug={item.slug}
+                collection={collection}
               />
             );
           }
@@ -266,26 +305,14 @@ export function FeedSlide({
         </>
       ) : null}
 
+      {/* The rail, bottom up: the eye, the heart (ZP-507: both also in clean view), then with details Details, Share, Enquire. */}
       <div className={cn("absolute right-3 flex flex-col items-center gap-3.5", lifted ? "bottom-12" : "bottom-6")}>
-        <button
-          type="button"
-          onClick={onToggleDetails}
-          // One fixed name; aria-pressed says whether details are shown.
-          aria-pressed={details}
-          aria-label="Show details"
-          className={railItem}
-        >
-          {/* data-feed-eye: the first-visit guide rings this button (FeedGuide). */}
-          <span data-feed-eye="" className={cn("flex h-11 w-11 items-center justify-center rounded-full", railQuiet)}>
-            <EyeIcon className="h-5 w-5" />
-          </span>
-          <span className={railLabel}>{details ? "Hide" : "Show details"}</span>
-        </button>
         {details ? (
           <>
             {item.enquireHref ? (
               <a
                 href={item.enquireHref}
+                onClick={enquire}
                 className={railItem}
                 aria-label={item.soldOut ? `Ask about a restock of the ${item.name} on WhatsApp` : `Enquire about the ${item.name} on WhatsApp`}
               >
@@ -295,7 +322,7 @@ export function FeedSlide({
                 <span className={railLabel}>{item.soldOut ? "Restock" : "Enquire"}</span>
               </a>
             ) : (
-              <Link href={visitHref} className={railItem}>
+              <Link href={visitHref} onClick={() => track("visit_us", { screen: "feed" })} className={railItem}>
                 <span className={cn(railRing, "border border-brand-olive bg-brand-olive")}>
                   <PinIcon className="h-6 w-6" />
                 </span>
@@ -305,7 +332,7 @@ export function FeedSlide({
             {item.shareUrl ? (
               <button
                 type="button"
-                onClick={() => share(item.shareUrl as string, `${item.name} – VYRA`)}
+                onClick={() => void onShare()}
                 className={railItem}
                 aria-label={`Share the ${item.name}`}
               >
@@ -323,6 +350,21 @@ export function FeedSlide({
             </Link>
           </>
         ) : null}
+        <LoveButton slug={slug} name={item.name} loves={item.loves} variant="rail" />
+        <button
+          type="button"
+          onClick={onToggleDetails}
+          // One fixed name; aria-pressed says whether details are shown.
+          aria-pressed={details}
+          aria-label="Show details"
+          className={railItem}
+        >
+          {/* data-feed-eye: the first-visit guide rings this button (FeedGuide). */}
+          <span data-feed-eye="" className={cn("flex h-11 w-11 items-center justify-center rounded-full", railQuiet)}>
+            <EyeIcon className="h-5 w-5" />
+          </span>
+          <span className={railLabel}>{details ? "Hide" : "Show details"}</span>
+        </button>
       </div>
 
       <p

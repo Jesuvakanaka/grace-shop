@@ -59,6 +59,8 @@ export async function getWebsiteProduct(db: PrismaClient, productId: number, now
       publishedAt: true,
       sellingPriceUsd: true,
       imageUrl: true,
+      loveCount: true, // ZP-507: hearts, with a reset in the editor
+
       category: { select: { id: true, name: true, slug: true, published: true } },
       images: true,
     },
@@ -89,6 +91,7 @@ export async function listWebsiteStatus(db: PrismaClient) {
       publishedAt: true,
       featured: true,
       categoryId: true,
+      loveCount: true,
       category: { select: { id: true, name: true } },
       images: { select: { imageKey: true }, take: 1 },
     },
@@ -106,6 +109,8 @@ export async function listWebsiteStatus(db: PrismaClient) {
       categoryName: p.category?.name ?? null,
       missing: missing.filter((m) => m !== 'slug'),
       status: websiteStatus(p.published, missing),
+      /** ZP-507: "Love it" hearts. */
+      loves: p.loveCount,
     }
   })
 }

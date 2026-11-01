@@ -194,6 +194,8 @@ export type FeedItem = {
    * Optional so hand-written items (fixtures) need not list it.
    */
   rating?: { text: string; label: string } | null
+  /** ZP-507: hearts (cached count, >= 0). */
+  loves: number
 }
 
 export type FeedItemContext = {
@@ -223,6 +225,7 @@ export function toFeedItem(p: PublicProduct, ctx: FeedItemContext): FeedItem {
     href: sitePath(ctx.base, SITE_ROUTES.product(p.slug)),
     shareUrl: url,
     enquireHref,
+    loves: p.loves ?? 0,
     // Only set when there is a rating, so slides without reviews keep their shape.
     ...withRating(ctx.rating?.(p.slug) ?? null),
   }

@@ -256,6 +256,7 @@ describe('toFeedItem', () => {
       'enquireHref',
       'href',
       'images',
+      'loves', // ZP-507
       'name',
       'price',
       'shareUrl',

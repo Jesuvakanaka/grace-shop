@@ -8,7 +8,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export type ShareStatus = "idle" | "copied" | "failed";
 
-export function useShare(): { status: ShareStatus; share: (url: string, title: string) => Promise<void> } {
+/** What a share did (ZP-493 `share` event: "native" / "copy"; nothing is tracked for the others). */
+export type ShareOutcome = "native" | "copy" | "cancelled" | "failed";
+
+export function useShare(): { status: ShareStatus; share: (url: string, title: string) => Promise<ShareOutcome> } {
   const [status, setStatus] = useState<ShareStatus>("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -23,21 +26,23 @@ export function useShare(): { status: ShareStatus; share: (url: string, title: s
   }, []);
 
   const share = useCallback(
-    async (url: string, title: string) => {
+    async (url: string, title: string): Promise<ShareOutcome> => {
       if (typeof navigator.share === "function") {
         try {
           await navigator.share({ title, url });
-          return;
+          return "native";
         } catch (error) {
           // The visitor closed the sheet: nothing to say. Anything else: fall back to copying.
-          if (error instanceof DOMException && error.name === "AbortError") return;
+          if (error instanceof DOMException && error.name === "AbortError") return "cancelled";
         }
       }
       try {
         await navigator.clipboard.writeText(url);
         announce("copied");
+        return "copy";
       } catch {
         announce("failed");
+        return "failed";
       }
     },
     [announce],

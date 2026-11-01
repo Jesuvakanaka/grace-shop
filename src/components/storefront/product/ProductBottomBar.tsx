@@ -25,18 +25,19 @@ export function ProductBottomBar({ tel, visitHref }: { tel: string | null; visit
   return (
     <div className="sticky bottom-0 z-30 flex gap-2.5 border-t border-brand-ink/10! bg-brand-cream-50 px-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] pt-3 lg:hidden">
       {href ? (
-        <a href={href} className={primary}>
+        <a href={href} className={primary} data-track="enquire">
           <WhatsAppIcon className="h-5 w-5 shrink-0" />
           {label}
         </a>
       ) : (
-        <Link href={visitHref} className={primary}>
+        <Link href={visitHref} className={primary} data-track="visit_us">
           Visit us
         </Link>
       )}
       {tel ? (
         <a
           href={tel}
+          data-track="call"
           aria-label="Call the shop"
           className="sf-focus inline-flex min-h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[2px] border border-brand-ink! text-brand-ink transition-colors duration-200 hover:bg-brand-ink hover:text-brand-cream-50"
         >

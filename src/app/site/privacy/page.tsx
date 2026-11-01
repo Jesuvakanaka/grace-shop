@@ -82,6 +82,11 @@ export default async function PrivacyPage() {
             settings, which also resets it. The site also remembers small display choices in session storage, such as
             whether product details are shown. We do not set cookies.
           </p>
+          <p className="sf-body text-brand-ink-soft">
+            <strong className="font-medium text-brand-ink">Hearts:</strong> when you love a look, your browser
+            remembers it in local storage, and we count one heart per device: we store only an anonymous code made from
+            your device ID and the piece with a secret key (a salted hash), never the device ID itself.
+          </p>
         </Section>
 
         <Section id="privacy-never" title="What we never collect">

@@ -14,6 +14,8 @@ interface WebsiteInfo {
   status: WebsiteStatus;
   missing: PublishMissing[];
   categoryName: string | null;
+  /** ZP-507: "Love it" hearts on the website. */
+  loves: number;
 }
 
 // "Draft" = not published (ready or not); "Ready to publish" = not published and nothing missing.
@@ -398,13 +400,22 @@ export default function ProductsPage() {
     const w = websiteOf(p);
     if (!w) return null;
     return (
-      <span
-        className={`badge ${WEBSITE_BADGE[w.status]}`}
-        title={w.status === 'NOT_READY' ? describeMissing(w.missing) : undefined}
-        data-testid="product-website-status"
-        data-status={w.status}
-      >
-        {WEBSITE_STATUS_LABEL[w.status]}
+      <span className="inline-flex flex-wrap items-center gap-1.5">
+        <span
+          className={`badge ${WEBSITE_BADGE[w.status]}`}
+          title={w.status === 'NOT_READY' ? describeMissing(w.missing) : undefined}
+          data-testid="product-website-status"
+          data-status={w.status}
+        >
+          {WEBSITE_STATUS_LABEL[w.status]}
+        </span>
+        {/* ZP-507: hearts from website visitors (one per phone). */}
+        {w.loves > 0 && (
+          <span className="text-xs text-slate-500 whitespace-nowrap" title="Website hearts (one per phone)" data-testid="product-website-loves">
+            <span aria-hidden="true">♥</span> {w.loves}
+            <span className="sr-only"> {w.loves === 1 ? 'heart' : 'hearts'}</span>
+          </span>
+        )}
       </span>
     );
   };

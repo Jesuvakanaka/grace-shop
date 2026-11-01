@@ -6,6 +6,7 @@
 // so the feed returns as they left it (src/lib/storefront/back-target.ts).
 import Link from "next/link";
 import type { MouseEvent } from "react";
+import { track } from "@/lib/analytics/client";
 import { feedLookHref, shouldGoBack } from "@/lib/storefront/back-target";
 import { Wordmark } from "../Brand";
 import { ChevronLeftIcon } from "../icons";
@@ -66,7 +67,16 @@ export function ProductTopBar({
         <Wordmark className="h-[18px] w-auto text-brand-ink" title="" />
       </Link>
       {shareUrl ? (
-        <button type="button" onClick={() => share(shareUrl, shareTitle)} className={iconButton} aria-label="Share this piece">
+        <button
+          type="button"
+          onClick={async () => {
+            const outcome = await share(shareUrl, shareTitle);
+            // ZP-493: a completed share (not a closed sheet or a failed copy).
+            if (outcome === "native" || outcome === "copy") track("share", { slug, method: outcome, screen: "product" });
+          }}
+          className={iconButton}
+          aria-label="Share this piece"
+        >
           <ShareIcon />
         </button>
       ) : (

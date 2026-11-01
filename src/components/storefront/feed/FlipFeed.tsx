@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { track } from "@/lib/analytics/client";
 import { loadFeedAction, type FeedActionResult } from "@/lib/storefront/feed-actions";
 import {
   detailsPreferenceValue,
@@ -228,17 +229,19 @@ export function FlipFeed({
     [apply],
   );
 
-  /** Show another tab. On failure, fall back to a full page load of that tab. */
+  /** Show another tab. On failure, fall back to a full page load of that tab. True when the looks arrived. */
   const switchTab = useCallback(
-    async (id: string, slug: string | null) => {
+    async (id: string, slug: string | null): Promise<boolean> => {
       const outcome = await load({ tab: id, offset: 0, through: slug }, "replace", slug);
-      if (outcome === "stale") return;
+      if (outcome === "stale") return false;
       const url = feedLocation(window.location.pathname, window.location.search, id, slug);
       if (outcome === "failed") {
+        track("action_failed", { action: "collection_switch" });
         window.location.assign(url);
-        return;
+        return false;
       }
       replaceUrl(feedLocation(window.location.pathname, window.location.search, outcome.tab, slug));
+      return true;
     },
     [load],
   );
@@ -246,7 +249,12 @@ export function FlipFeed({
   const loadMore = useCallback(async () => {
     if (nextOffset === null || busy.current) return;
     const outcome = await load({ tab, offset: nextOffset }, "append");
-    if (outcome === "failed") setLoadFailed(true);
+    if (outcome === "failed") {
+      setLoadFailed(true);
+      track("action_failed", { action: "feed_load" });
+    } else if (outcome !== "stale") {
+      track("feed_load_more", { collection: tab, loaded: Math.min(10_000, nextOffset + outcome.items.length) });
+    }
   }, [load, nextOffset, tab]);
 
   // Jump to a pending slide once the items it needs are in the DOM.
@@ -304,6 +312,7 @@ export function FlipFeed({
             initialItems.length > 0 &&
             shouldOpenGuide({ seen: readGuideSeen(localStore()), hash: window.location.hash, replay: false });
           setGuide(open ? "open" : "done");
+          if (open) track("guide_shown");
         });
 
     const slug = parseLookHash(window.location.hash);
@@ -356,6 +365,7 @@ export function FlipFeed({
         sheetRef.current?.close();
         syncActive();
         setGuide("open");
+        track("guide_replayed");
       } else {
         setGuide((g) => (g === "pending" ? "done" : g));
       }
@@ -404,6 +414,14 @@ export function FlipFeed({
     return () => clearTimeout(timer);
   }, [active, items, tab]);
 
+  // ZP-493: the end slide of a collection reached (once per collection per page load).
+  const endsReached = useRef(new Set<string>());
+  useEffect(() => {
+    if (!atEnd || items.length === 0 || endsReached.current.has(tab)) return;
+    endsReached.current.add(tab);
+    track("feed_end_reached", { collection: tab, looks: Math.min(10_000, items.length) });
+  }, [atEnd, items.length, tab]);
+
   // ---------------------------------------------------------- actions
 
   const selectTab = (id: string) => {
@@ -413,7 +431,10 @@ export function FlipFeed({
       return;
     }
     // The pressed tab changes when its looks arrive (tab and looks never disagree).
-    void switchTab(id, null);
+    const from = tab;
+    void switchTab(id, null).then((ok) => {
+      if (ok) track("collection_switch", { from, to: id });
+    });
   };
 
   const retryLoadMore = () => {
@@ -472,6 +493,8 @@ export function FlipFeed({
   const toggleDetails = () => {
     const next = !details;
     setDetails(next);
+    const look = items[active];
+    if (look) track(next ? "details_show" : "details_hide", { slug: look.slug, collection: tab });
     try {
       window.sessionStorage.setItem(FEED_DETAILS_STORAGE_KEY, detailsPreferenceValue(next));
     } catch {
@@ -555,6 +578,7 @@ export function FlipFeed({
               onToggleDetails={toggleDetails}
               visitHref={links.visit}
               onLeave={onLeave}
+              collection={tab}
             />
           ))}
           {nextOffset === null ? (
@@ -693,6 +717,7 @@ function FeedEnd({
         ) : null}
         <Link
           href={visitHref}
+          onClick={() => track("visit_us", { screen: "feed" })}
           className="sf-focus flex min-h-[50px] items-center justify-center rounded-[2px] border border-brand-ink! text-[13px] font-medium uppercase tracking-[0.16em] text-brand-ink hover:bg-brand-ink hover:text-brand-cream-50"
         >
           Visit our store

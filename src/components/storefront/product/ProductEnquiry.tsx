@@ -7,6 +7,7 @@
 // buildWhatsAppLink (via productPageEnquiryHref: the site settings template,
 // or the feed's restock message for sold-out pieces, ZP-503).
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { track } from "@/lib/analytics/client";
 import type { WhatsAppContactSettings } from "@/lib/site-settings/whatsapp";
 import { enquiryLabel, toggleOption } from "@/lib/storefront/product-enquiry";
 import { productPageEnquiryHref } from "@/lib/storefront/product-page-enquiry";
@@ -21,6 +22,9 @@ type EnquiryState = {
   setSize: (value: string | null) => void;
   href: string | null;
   label: string;
+  /** ZP-493: the piece (analytics) and whether it is sold out (restock_request instead of whatsapp_enquire). */
+  slug: string | null;
+  soldOut: boolean;
 };
 
 const EnquiryContext = createContext<EnquiryState | null>(null);
@@ -37,6 +41,7 @@ export function ProductEnquiryProvider({
   productUrl,
   availability,
   productRef,
+  slug = null,
   children,
 }: {
   /** Only the WhatsApp fields of the public site settings. */
@@ -47,6 +52,8 @@ export function ProductEnquiryProvider({
   availability: Availability;
   /** ZP-504: the public ref ("V-0099"), never the item number. */
   productRef?: string | null;
+  /** ZP-493: the piece's slug, for the size / colour / enquiry analytics events. */
+  slug?: string | null;
   children: ReactNode;
 }) {
   const [colour, setColour] = useState<string | null>(null);
@@ -60,8 +67,10 @@ export function ProductEnquiryProvider({
       // ZP-503: sold-out pieces send the restock message; ZP-504: the public ref goes along.
       href: productPageEnquiryHref(contacts, availability, { name: productName, url: productUrl, colour, size, ref: productRef }),
       label: enquiryLabel(availability),
+      slug,
+      soldOut: availability === "SOLD_OUT",
     }),
-    [colour, size, contacts, productName, productUrl, availability, productRef],
+    [colour, size, contacts, productName, productUrl, availability, productRef, slug],
   );
   return <EnquiryContext.Provider value={value}>{children}</EnquiryContext.Provider>;
 }
@@ -110,12 +119,21 @@ function OptionGroup({
 
 /** Colour and size chips (single select each; press again to clear). Hidden when there are none. */
 export function ProductOptions({ colours, sizes }: { colours: string[]; sizes: string[] }) {
-  const { colour, size, setColour, setSize } = useEnquiry();
+  const { colour, size, setColour, setSize, slug } = useEnquiry();
   if (colours.length === 0 && sizes.length === 0) return null;
+  // ZP-493: a chip picked (not cleared), sent exactly as the chip shows it.
+  const pickColour = (value: string | null) => {
+    setColour(value);
+    if (value && slug) track("colour_select", { slug, colour: value });
+  };
+  const pickSize = (value: string | null) => {
+    setSize(value);
+    if (value && slug) track("size_select", { slug, size: value });
+  };
   return (
     <div className="flex flex-col gap-6">
-      {colours.length > 0 ? <OptionGroup legend="Colour" options={colours} selected={colour} onSelect={setColour} /> : null}
-      {sizes.length > 0 ? <OptionGroup legend="Size" options={sizes} selected={size} onSelect={setSize} /> : null}
+      {colours.length > 0 ? <OptionGroup legend="Colour" options={colours} selected={colour} onSelect={pickColour} /> : null}
+      {sizes.length > 0 ? <OptionGroup legend="Size" options={sizes} selected={size} onSelect={pickSize} /> : null}
     </div>
   );
 }

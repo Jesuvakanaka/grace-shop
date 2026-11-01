@@ -179,7 +179,10 @@ once with a React `<style href precedence>`):
   caption is one link to the product page.
 - A light, short bottom scrim (190px, up to 72% ink; at least 62% behind the
   caption, plus a text shadow).
-- Rail, above the eye: **Enquire** (wa.me link from `buildWhatsAppLink` with the owner's
+- ZP-507: a **heart** sits directly above the eye, in clean view too ("Love",
+  or the number from 3 loves; see `docs/storefront/hearts.md`). The eye stays
+  at the bottom of the rail, so it does not move when details open.
+- Rail, above the heart: **Enquire** (wa.me link from `buildWhatsAppLink` with the owner's
   enquiry template, via `productEnquiryHref`), or **Restock** for sold-out
   pieces (`RESTOCK_TEMPLATE`: "Hi VYRA, please let me know when the
   {product} is back in stock. ({url})", also through `buildWhatsAppLink`).

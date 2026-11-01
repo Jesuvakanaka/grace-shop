@@ -52,6 +52,8 @@ export const PRODUCT_SELECT = {
   priceDisplay: true,
   sellingPriceUsd: true,
   currentQuantity: true,
+  // ZP-507: public as `loves` (cached with the catalogue, never per tap).
+  loveCount: true,
   category: { select: { slug: true, name: true, published: true } },
   images: { select: { id: true, imageKey: true, alt: true, sortOrder: true, isPrimary: true } },
   // ZP-501: the DTO keeps only { src, poster, width, height } of a READY video.

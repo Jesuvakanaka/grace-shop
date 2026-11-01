@@ -22,8 +22,10 @@ import { SectionHeader } from "../SectionHeader";
 import type { PublicProduct } from "../types";
 import { ProductBottomBar } from "./ProductBottomBar";
 import { ProductEnquiryButton, ProductEnquiryProvider, ProductOptions } from "./ProductEnquiry";
+import { LoveButton } from "../loves/LoveButton";
 import { ProductTopBar } from "./ProductTopBar";
 import { ProductReviews, RatingSummaryLink, type ProductReviewsData } from "../reviews/ProductReviews";
+import { ProductTracking } from "./ProductTracking";
 import { RelatedRow } from "./RelatedRow";
 import { ShareButton } from "./ShareButton";
 import { StoreVisitRow } from "./StoreVisitRow";
@@ -107,7 +109,9 @@ export function ProductView({
         productUrl={productUrl}
         availability={product.availability}
         productRef={product.ref}
+        slug={product.slug}
       >
+        <ProductTracking slug={product.slug} />
         <Container className="pb-8 lg:pb-20 lg:pt-8">
           <nav aria-label="Breadcrumb" className="mb-8 hidden lg:block">
             <ol className="sf-label flex flex-wrap items-center gap-x-2 text-brand-ink-soft">
@@ -132,7 +136,7 @@ export function ProductView({
           <div className="grid grid-cols-[minmax(0,1fr)] gap-[22px] lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:gap-16">
             {/* Phones: full width under the top bar. */}
             <div className="-mx-4 min-w-0 sm:-mx-6 lg:mx-0">
-              <Gallery images={product.images.map(toImageData)} video={product.video} label={product.name} eager counter />
+              <Gallery images={product.images.map(toImageData)} video={product.video} label={product.name} eager counter slug={product.slug} />
             </div>
 
             <div className="flex flex-col gap-[22px] lg:sticky lg:top-28 lg:gap-7 lg:self-start">
@@ -155,7 +159,12 @@ export function ProductView({
                   {tag ? <Badge tone={tag.tone}>{tag.label}</Badge> : null}
                   {itemNumber ? <span className="sf-label text-brand-ink-soft">Ref {itemNumber}</span> : null}
                 </div>
-                <RatingSummaryLink summary={reviews?.summary ?? null} />
+                {/* The design row under the price: rating (ZP-508) on the left, the heart (ZP-507) on the right. */}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <RatingSummaryLink summary={reviews?.summary ?? null} />
+                  {/* "Love it" / "Loved by 24" (not on an owner preview of an unpublished piece). */}
+                  {!preview ? <LoveButton slug={product.slug} name={product.name} loves={product.loves} variant="pill" /> : null}
+                </div>
               </div>
 
               <ProductOptions colours={colours} sizes={sizes} />
@@ -176,17 +185,17 @@ export function ProductView({
                 {!hasWhatsApp || tel || shareUrl ? (
                   <div className="grid grid-cols-2 items-start gap-3">
                     {!hasWhatsApp ? (
-                      <Button href={to(SITE_ROUTES.visit)} variant="primary" fullWidth className="col-span-2">
+                      <Button href={to(SITE_ROUTES.visit)} variant="primary" fullWidth className="col-span-2" data-track="visit_us">
                         Visit us
                       </Button>
                     ) : null}
                     {tel ? (
-                      <a href={tel} className="sf-focus sf-label-lg inline-flex min-h-11 w-full items-center justify-center rounded-[2px] border border-brand-ink! px-4 py-4 text-brand-ink transition-colors duration-200 hover:bg-brand-ink hover:text-brand-cream">
+                      <a href={tel} data-track="call" className="sf-focus sf-label-lg inline-flex min-h-11 w-full items-center justify-center rounded-[2px] border border-brand-ink! px-4 py-4 text-brand-ink transition-colors duration-200 hover:bg-brand-ink hover:text-brand-cream">
                         Call us
                       </a>
                     ) : null}
                     {shareUrl ? (
-                      <ShareButton url={shareUrl} title={shareTitle} className={tel ? undefined : "col-span-2"} />
+                      <ShareButton url={shareUrl} title={shareTitle} slug={product.slug} className={tel ? undefined : "col-span-2"} />
                     ) : null}
                   </div>
                 ) : null}
