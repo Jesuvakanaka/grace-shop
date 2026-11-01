@@ -62,7 +62,7 @@ deletes its invites and reviews.
 **Shop rating** = the `shopStars` of approved piece reviews plus the `stars` of
 approved shop-only reviews; "N verified customers" is the number of those.
 
-Migration: `prisma/migrations/20261103090000_reviews` (also adds
+Migration: `prisma/migrations/20261104090000_reviews` (also adds
 `SiteSettings.googleReviewUrl`).
 
 ## Security
