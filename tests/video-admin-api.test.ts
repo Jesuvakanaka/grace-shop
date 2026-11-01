@@ -25,8 +25,9 @@ import * as uploadsRoute from '../src/app/api/website/products/[id]/video/upload
 import * as chunkRoute from '../src/app/api/website/products/[id]/video/chunks/[index]/route'
 import * as publicRoute from '../src/app/api/videos/public/[key]/route'
 import * as websiteProduct from '../src/app/api/website/products/[id]/route'
-import { ffmpegPath, ffprobePath } from '../src/lib/website/video-process'
-import { processVideoUpload, removeProductVideo } from '../src/lib/website/video'
+import { createHash, randomBytes } from 'node:crypto'
+import { ffmpegPath, ffprobePath, processVideoFile, type ProcessedVideo } from '../src/lib/website/video-process'
+import { processVideoUpload, removeProductVideo, storeVideoChunk } from '../src/lib/website/video'
 import { signVideoUpload } from '../src/lib/website/video-upload-token'
 import { VIDEO_CHUNK_BYTES, VIDEO_MAX_UPLOAD_BYTES } from '../src/lib/website/video-validation'
 import type { RevalidateScope } from '../src/lib/website/revalidate'
@@ -331,5 +332,167 @@ describe('admin video API (ZP-501)', () => {
     assert.ok(up)
     await processVideoUpload({ db: prisma, storage: getVideoStorage(), revalidate: (s) => scopes.push(s) }, up)
     assert.deepStrictEqual(scopes, [{ productSlugs: [p.slug] }])
+  })
+
+  // ─── Review fixes (no ffmpeg needed: processing is stubbed) ───────────────
+
+  /** A tiny "MP4" that passes the sniffer (ISO-BMFF ftyp isom). */
+  function fakeMp4(): Buffer {
+    const b = Buffer.alloc(64)
+    b.writeUInt32BE(16, 0)
+    b.write('ftypisom', 4, 'latin1')
+    randomBytes(40).copy(b, 24)
+    return b
+  }
+  /** Stub for the ffmpeg step: a unique "video" and poster in the work folder. */
+  async function fakeProcess(_input: string, workDir: string): Promise<ProcessedVideo> {
+    const bytes = randomBytes(64)
+    const poster = randomBytes(32)
+    const videoFile = path.join(workDir, 'out.mp4')
+    fs.writeFileSync(videoFile, bytes)
+    const hash = (b: Buffer) => createHash('sha256').update(b).digest('hex').slice(0, 32)
+    return {
+      videoFile, videoHash: hash(bytes), videoBytes: bytes.length, poster, posterHash: hash(poster),
+      width: 720, height: 1280, durationMs: 5000, sourceContainer: 'mp4', hdr: null, toneMap: null,
+    }
+  }
+  async function storedUpload(productId: number) {
+    const bytes = fakeMp4()
+    const { upload: up } = await signVideoUpload({ productId, size: bytes.length, username: 'zp501-owner' })
+    await storeVideoChunk(getVideoStorage(), up, 0, new Blob([new Uint8Array(bytes)]).stream())
+    return up
+  }
+  const noop = () => {}
+  const chunkExists = async (uploadId: string) => (await getVideoStorage().stat(`videos/uploads/${uploadId}/0.part`)) !== null
+
+  test('a database error while taking the lock does not leave the instance busy (no 503 afterwards)', async () => {
+    const p = await product()
+    const failing = new Proxy(prisma, {
+      get(target, prop, receiver) {
+        if (prop === 'productVideo') throw new Error('database unavailable')
+        return Reflect.get(target, prop, receiver)
+      },
+    })
+    await assert.rejects(
+      processVideoUpload({ db: failing, storage: getVideoStorage(), revalidate: noop, process: fakeProcess }, await storedUpload(p.id)),
+      (e: any) => e.status === 500,
+    )
+    const ok = await processVideoUpload(
+      { db: prisma, storage: getVideoStorage(), revalidate: noop, process: fakeProcess },
+      await storedUpload(p.id),
+    )
+    assert.strictEqual(ok.status, 'READY')
+  })
+
+  test('removing the video while it processes: it is not brought back (409), first video and replacement', async () => {
+    for (const withExisting of [false, true]) {
+      const p = await product()
+      const deps = { db: prisma, storage: getVideoStorage(), revalidate: noop }
+      if (withExisting) await processVideoUpload({ ...deps, process: fakeProcess }, await storedUpload(p.id))
+      const removingMidway = async (input: string, workDir: string) => {
+        assert.strictEqual((await call(videoRoute.DELETE, 'DELETE', { id: String(p.id) })).status, 200)
+        return fakeProcess(input, workDir)
+      }
+      await assert.rejects(
+        processVideoUpload({ ...deps, process: removingMidway }, await storedUpload(p.id)),
+        (e: any) => e.status === 409 && /removed or replaced while/.test(e.message),
+      )
+      assert.strictEqual(await prisma.productVideo.findUnique({ where: { productId: p.id } }), null, `withExisting=${withExisting}`)
+    }
+  })
+
+  test('a second upload while one is processing (any instance) is 409 and keeps its chunks - replacements too; a stale lock is taken over', async () => {
+    const p = await product()
+    const deps = { db: prisma, storage: getVideoStorage(), revalidate: noop, process: fakeProcess }
+    const first = await processVideoUpload(deps, await storedUpload(p.id))
+    // Another instance is replacing it right now: READY stays (public video up), the lock is set.
+    await prisma.productVideo.update({
+      where: { productId: p.id },
+      data: { uploadId: 'f'.repeat(32), uploadStartedAt: new Date() },
+    })
+    const state = await call(videoRoute.GET, 'GET', { id: String(p.id) })
+    assert.strictEqual(state.json.video.status, 'READY')
+    assert.strictEqual(state.json.video.processing, true)
+    assert.strictEqual(state.json.video.url, first.url)
+
+    const second = await storedUpload(p.id)
+    await assert.rejects(processVideoUpload(deps, second), (e: any) => e.status === 409 && /already being processed/.test(e.message))
+    assert.ok(await chunkExists(second.uploadId), 'chunks of the refused upload are kept for a retry')
+    const row = await prisma.productVideo.findUniqueOrThrow({ where: { productId: p.id } })
+    assert.strictEqual(row.status, 'READY')
+    assert.strictEqual(row.uploadId, 'f'.repeat(32), 'the other upload keeps its lock')
+
+    // The other instance died 11 minutes ago: its lock is stale, the retry wins.
+    await prisma.productVideo.update({ where: { productId: p.id }, data: { uploadStartedAt: new Date(Date.now() - 11 * 60_000) } })
+    const retried = await processVideoUpload(deps, second)
+    assert.strictEqual(retried.status, 'READY')
+    assert.strictEqual(retried.processing, false)
+    assert.notStrictEqual(retried.url, first.url)
+    assert.ok(!(await chunkExists(second.uploadId)), 'chunks deleted once processed')
+  })
+
+  // ─── Review fixes with real ffmpeg ─────────────────────────────────────────
+
+  test('a WebM whose header claims 10 s but holds 40 s is refused after encoding', needsFfmpeg, async () => {
+    const liar = makeClip('liar.webm', ['-f', 'lavfi', '-i', 'testsrc=duration=40:size=160x120:rate=10', '-c:v', 'libvpx-vp9', '-b:v', '50k', '-deadline', 'realtime'])
+    const at = liar.indexOf(Buffer.from([0x44, 0x89, 0x88])) // Segment Info > Duration (float64, ms)
+    assert.ok(at > 0)
+    liar.writeDoubleBE(10_000, at + 3)
+    const p = await product()
+    const r = await call(videoRoute.POST, 'POST', { id: String(p.id) }, { body: { token: await upload(p.id, liar) } })
+    assert.strictEqual(r.status, 400, JSON.stringify(r.json))
+    assert.match(r.json.error, /longer than its file says \(10 s\)/)
+  })
+
+  test('input larger than 4K is refused', needsFfmpeg, async () => {
+    const big = makeClip('big.mp4', ['-f', 'lavfi', '-i', 'color=c=red:size=4096x2160:duration=1:rate=5', '-c:v', 'libx264', '-preset', 'ultrafast'])
+    const p = await product()
+    const r = await call(videoRoute.POST, 'POST', { id: String(p.id) }, { body: { token: await upload(p.id, big) } })
+    assert.strictEqual(r.status, 400)
+    assert.match(r.json.error, /too large \(max 4K/)
+  })
+
+  test('HDR (10-bit HLG and PQ, e.g. iPhone) is tone-mapped to 8-bit SDR BT.709', needsFfmpeg, async () => {
+    const hdrClip = (name: string, trc: string) =>
+      makeClip(name, [
+        '-f', 'lavfi', '-i', 'testsrc2=duration=2:size=1080x1920:rate=30',
+        '-vf', 'format=yuv420p10le', '-c:v', 'libx265', '-preset', 'ultrafast', '-tag:v', 'hvc1',
+        '-x265-params', `log-level=error:colorprim=bt2020:transfer=${trc}:colormatrix=bt2020nc`,
+        '-color_primaries', 'bt2020', '-color_trc', trc, '-colorspace', 'bt2020nc',
+      ])
+    const hlg = hdrClip('hlg.mp4', 'arib-std-b67')
+    const pq = hdrClip('pq.mp4', 'smpte2084')
+    const input = ffprobeJson(path.join(TMP, 'hlg.mp4')).streams[0]
+    assert.strictEqual(input.color_transfer, 'arib-std-b67')
+    assert.strictEqual(input.pix_fmt, 'yuv420p10le')
+
+    // Through the API (tone-map mode detected from this ffmpeg's filters).
+    const p = await product()
+    const r = await call(videoRoute.POST, 'POST', { id: String(p.id) }, { body: { token: await upload(p.id, hlg) } })
+    assert.strictEqual(r.status, 200, JSON.stringify(r.json))
+    const row = await prisma.productVideo.findUniqueOrThrow({ where: { productId: p.id } })
+    const out = ffprobeJson((getVideoStorage() as any).pathFor(row.videoKey)).streams[0]
+    assert.strictEqual(out.pix_fmt, 'yuv420p')
+    assert.strictEqual(out.profile, 'High')
+    assert.strictEqual(out.color_transfer, 'bt709')
+    assert.strictEqual(out.color_primaries, 'bt709')
+    assert.strictEqual(out.color_space, 'bt709')
+
+    // Both tone-map paths directly, on PQ: zscale+tonemap, and the matrix fallback.
+    const pqFile = path.join(TMP, 'pq.mp4')
+    for (const toneMap of ['zscale', 'matrix'] as const) {
+      const work = fs.mkdtempSync(path.join(process.env.GRACE_VIDEO_TMP_DIR!, 'hdr-'))
+      try {
+        const done = await processVideoFile(pqFile, work, { toneMap })
+        assert.strictEqual(done.hdr, 'smpte2084')
+        assert.strictEqual(done.toneMap, toneMap)
+        const s = ffprobeJson(done.videoFile).streams[0]
+        assert.strictEqual(s.pix_fmt, 'yuv420p', toneMap)
+        assert.strictEqual(s.color_transfer, 'bt709', toneMap)
+      } finally {
+        fs.rmSync(work, { recursive: true, force: true })
+      }
+    }
+    assert.ok(pq.length > 0)
   })
 })

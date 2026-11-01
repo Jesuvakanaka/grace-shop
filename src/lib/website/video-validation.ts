@@ -19,8 +19,18 @@ export const VIDEO_DURATION_TOLERANCE_MS = 500
  * 32 MiB. 8 MiB stays well under both.
  */
 export const VIDEO_CHUNK_BYTES = 8 * 1024 * 1024
-/** Refuse inputs whose frames are absurdly large (decoder memory). */
-export const VIDEO_MAX_INPUT_DIMENSION = 8192
+/**
+ * Largest input frame: 4K (3840x2160) in either orientation. Bounds decoder
+ * memory; ffmpeg/ffprobe also get `-max_pixels` so a stream that changes size
+ * mid-way cannot decode larger frames than this.
+ */
+export const VIDEO_MAX_INPUT_LONG_SIDE = 3840
+export const VIDEO_MAX_INPUT_SHORT_SIDE = 2160
+export const VIDEO_MAX_INPUT_PIXELS = VIDEO_MAX_INPUT_LONG_SIDE * VIDEO_MAX_INPUT_SHORT_SIDE
+
+/** HDR transfer characteristics (ffprobe color_transfer) that are tone-mapped to SDR. */
+export const HDR_TRANSFERS = ['arib-std-b67', 'smpte2084'] as const
+export type HdrTransfer = (typeof HDR_TRANSFERS)[number]
 
 export const VIDEO_ACCEPT_LABEL = 'MP4, MOV or WebM, up to 60 MB and 30 seconds'
 /** For <input accept>; a hint only, the server sniffs the bytes. */
@@ -34,7 +44,7 @@ export const VIDEO_REFUSALS = {
   notVideo: 'That file is not a supported video. Use an MP4, MOV or WebM video.',
   unreadable: 'The video could not be read. Try exporting it again as MP4.',
   noVideoStream: 'That file has no video picture in it (only sound?).',
-  tooBig: 'The video picture is too large to process.',
+  tooBig: 'The video picture is too large (max 4K, 3840×2160). Export it at 1080p and try again.',
 } as const
 
 export type Parsed<T> = { ok: true; data: T } | { ok: false; error: string }
@@ -126,6 +136,8 @@ export type ProbedVideo = {
   height: number
   durationMs: number
   fps: number
+  /** HLG or PQ transfer (iPhone HDR); null for SDR. */
+  hdr: HdrTransfer | null
 }
 
 function num(v: unknown): number | null {
@@ -171,7 +183,9 @@ export function checkProbe(probe: unknown, container: VideoContainer): Parsed<Pr
   if (!w || !h || w <= 0 || h <= 0 || !Number.isInteger(w) || !Number.isInteger(h)) {
     return { ok: false, error: VIDEO_REFUSALS.unreadable }
   }
-  if (w > VIDEO_MAX_INPUT_DIMENSION || h > VIDEO_MAX_INPUT_DIMENSION) return { ok: false, error: VIDEO_REFUSALS.tooBig }
+  if (Math.max(w, h) > VIDEO_MAX_INPUT_LONG_SIDE || Math.min(w, h) > VIDEO_MAX_INPUT_SHORT_SIDE) {
+    return { ok: false, error: VIDEO_REFUSALS.tooBig }
+  }
 
   const seconds = num(probe.format.duration) ?? num(video.duration)
   if (seconds === null || seconds <= 0) return { ok: false, error: VIDEO_REFUSALS.unreadable }
@@ -192,6 +206,9 @@ export function checkProbe(probe: unknown, container: VideoContainer): Parsed<Pr
       height: sideways ? w : h,
       durationMs: Math.min(durationMs, VIDEO_MAX_DURATION_MS + VIDEO_DURATION_TOLERANCE_MS),
       fps: Math.round((rate(video.avg_frame_rate) || rate(video.r_frame_rate) || 30) * 100) / 100,
+      hdr: (HDR_TRANSFERS as readonly string[]).includes(String(video.color_transfer))
+        ? (video.color_transfer as HdrTransfer)
+        : null,
     },
   }
 }

@@ -22,6 +22,8 @@ interface AdminVideo {
   durationMs: number | null;
   sizeBytes: number | null;
   error: string | null;
+  /** An upload is being processed (also a replacement, from another tab or device). */
+  processing: boolean;
 }
 
 type Phase = { kind: 'idle' } | { kind: 'uploading'; fraction: number } | { kind: 'processing' };
@@ -185,7 +187,7 @@ export function WebsiteVideo({ productId }: { productId: number }) {
           <p className="text-xs text-slate-600 mt-1">Uploading… {Math.round(phase.fraction * 100)}%</p>
         </div>
       )}
-      {(phase.kind === 'processing' || (phase.kind === 'idle' && video?.status === 'PROCESSING')) && (
+      {(phase.kind === 'processing' || (phase.kind === 'idle' && (video?.status === 'PROCESSING' || video?.processing))) && (
         <p className="text-sm text-slate-600 mt-2" data-testid="website-video-processing">
           Processing the video… this can take up to a minute.
         </p>

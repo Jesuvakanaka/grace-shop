@@ -17,6 +17,7 @@ import { randomBytes } from 'node:crypto'
 import { isVideoStorageKey } from './video-keys'
 
 export type ByteRange = { start: number; end: number }
+export type ObjectStat = { size: number; updatedAt: Date }
 
 export interface VideoStorage {
   readonly kind: 'local' | 'gcs'
@@ -24,10 +25,13 @@ export interface VideoStorage {
   putBytes(key: string, bytes: Buffer, contentType: string): Promise<void>
   /** Store a local file (streamed, never fully in memory). Idempotent like putBytes. */
   putFile(key: string, file: string, contentType: string): Promise<void>
-  /** Object size in bytes, or null when it does not exist. */
-  size(key: string): Promise<number | null>
-  /** Node stream of the object (or an inclusive byte range); null when it does not exist. */
-  read(key: string, range?: ByteRange): Promise<Readable | null>
+  /** Size and last change of the object (one metadata request), or null when it does not exist. */
+  stat(key: string): Promise<ObjectStat | null>
+  /**
+   * Node stream of the object, or an inclusive byte range of it. No existence
+   * check of its own: call stat first (the stream errors if the object vanished).
+   */
+  read(key: string, range?: ByteRange): Promise<Readable>
   /** Delete; a missing object is fine. */
   remove(key: string): Promise<void>
 }
@@ -51,11 +55,11 @@ export class LocalVideoStorage implements VideoStorage {
     return full
   }
 
-  async size(key: string): Promise<number | null> {
+  async stat(key: string): Promise<ObjectStat | null> {
     if (!isVideoStorageKey(key)) return null
     try {
       const s = await stat(this.pathFor(key))
-      return s.isFile() ? s.size : null
+      return s.isFile() ? { size: s.size, updatedAt: s.mtime } : null
     } catch {
       return null
     }
@@ -63,7 +67,7 @@ export class LocalVideoStorage implements VideoStorage {
 
   private async writeVia(key: string, write: (tmp: string) => Promise<void>, overwrite: boolean) {
     const target = this.pathFor(key)
-    if (!overwrite && (await this.size(key)) !== null) return
+    if (!overwrite && (await this.stat(key)) !== null) return
     await mkdir(path.dirname(target), { recursive: true })
     const tmp = `${target}.${randomBytes(6).toString('hex')}.tmp`
     try {
@@ -74,7 +78,9 @@ export class LocalVideoStorage implements VideoStorage {
     }
   }
 
-  async putBytes(key: string, bytes: Buffer): Promise<void> {
+  // The content type is not stored locally: delivery derives it from the key.
+  async putBytes(key: string, bytes: Buffer, _contentType?: string): Promise<void> {
+    void _contentType
     const overwrite = key.endsWith('.part')
     await this.writeVia(key, (tmp) => pipeline(Readable.from([bytes]), createWriteStream(tmp)), overwrite)
   }
@@ -84,8 +90,7 @@ export class LocalVideoStorage implements VideoStorage {
     await this.writeVia(key, (tmp) => pipeline(createReadStream(file), createWriteStream(tmp)), overwrite)
   }
 
-  async read(key: string, range?: ByteRange): Promise<Readable | null> {
-    if ((await this.size(key)) === null) return null
+  async read(key: string, range?: ByteRange): Promise<Readable> {
     return createReadStream(this.pathFor(key), range ? { start: range.start, end: range.end } : undefined)
   }
 
@@ -101,7 +106,7 @@ export class LocalVideoStorage implements VideoStorage {
 export type GcsVideoFileLike = {
   save(data: Buffer, options: { contentType: string; resumable: boolean; metadata?: Record<string, unknown> }): Promise<unknown>
   exists(): Promise<[boolean]>
-  getMetadata(): Promise<[{ size?: string | number }, ...unknown[]]>
+  getMetadata(): Promise<[{ size?: string | number; updated?: string }, ...unknown[]]>
   createReadStream(options?: { start?: number; end?: number }): NodeJS.ReadableStream
   createWriteStream(options: { contentType: string; resumable: boolean; metadata?: Record<string, unknown> }): NodeJS.WritableStream
   delete(options?: { ignoreNotFound?: boolean }): Promise<unknown>
@@ -129,14 +134,21 @@ export class GcsVideoStorage implements VideoStorage {
     return (await this.clientPromise).bucket(this.bucketName).file(key)
   }
 
-  async size(key: string): Promise<number | null> {
+  /** One metadata request; a 404 means the object does not exist. */
+  async stat(key: string): Promise<ObjectStat | null> {
     if (!isVideoStorageKey(key)) return null
     const file = await this.file(key)
-    const [exists] = await file.exists()
-    if (!exists) return null
-    const [meta] = await file.getMetadata()
+    let meta: { size?: string | number; updated?: string }
+    try {
+      ;[meta] = await file.getMetadata()
+    } catch (error) {
+      if ((error as { code?: unknown })?.code === 404) return null
+      throw error
+    }
     const size = Number(meta.size)
-    return Number.isFinite(size) ? size : null
+    if (!Number.isFinite(size)) return null
+    const updated = meta.updated ? new Date(meta.updated) : new Date(0)
+    return { size, updatedAt: Number.isNaN(updated.getTime()) ? new Date(0) : updated }
   }
 
   async putBytes(key: string, bytes: Buffer, contentType: string): Promise<void> {
@@ -160,8 +172,7 @@ export class GcsVideoStorage implements VideoStorage {
     )
   }
 
-  async read(key: string, range?: ByteRange): Promise<Readable | null> {
-    if ((await this.size(key)) === null) return null
+  async read(key: string, range?: ByteRange): Promise<Readable> {
     const file = await this.file(key)
     return file.createReadStream(range ? { start: range.start, end: range.end } : undefined) as Readable
   }

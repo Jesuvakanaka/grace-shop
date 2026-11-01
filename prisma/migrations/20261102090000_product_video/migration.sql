@@ -13,6 +13,8 @@ CREATE TABLE "ProductVideo" (
     "durationMs" INTEGER,
     "sizeBytes" INTEGER,
     "error" TEXT,
+    "uploadId" TEXT,
+    "uploadStartedAt" TIMESTAMP(3),
     "createdBy" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,

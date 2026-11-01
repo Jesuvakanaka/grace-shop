@@ -24,7 +24,17 @@ import { createReadStream } from 'node:fs'
 import { mkdtemp, rm, stat } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { checkProbe, sniffVideoContainer, VIDEO_REFUSALS, type ProbedVideo, type VideoContainer } from './video-validation'
+import {
+  checkProbe,
+  sniffVideoContainer,
+  VIDEO_DURATION_TOLERANCE_MS,
+  VIDEO_MAX_DURATION_MS,
+  VIDEO_MAX_INPUT_PIXELS,
+  VIDEO_REFUSALS,
+  type HdrTransfer,
+  type ProbedVideo,
+  type VideoContainer,
+} from './video-validation'
 
 if (typeof window !== 'undefined') throw new Error('video-process is server-only')
 
@@ -61,9 +71,69 @@ export function planTranscode(input: Pick<ProbedVideo, 'width' | 'height' | 'fps
 
 const DEMUXER: Record<VideoContainer, string> = { mp4: 'mov', mov: 'mov', webm: 'matroska' }
 
-/** Input options shared by ffprobe and ffmpeg: explicit demuxer, local files only. */
+/**
+ * Input options shared by ffprobe and ffmpeg: explicit demuxer, local files
+ * only, and a decoder frame-size ceiling (`-max_pixels`, 4K) so a stream that
+ * changes resolution mid-way cannot make the decoder allocate huge frames.
+ */
 function inputArgs(input: string, container: VideoContainer): string[] {
-  return ['-protocol_whitelist', 'file', '-f', DEMUXER[container], '-i', input]
+  return [
+    '-protocol_whitelist', 'file',
+    '-max_pixels', String(VIDEO_MAX_INPUT_PIXELS),
+    '-f', DEMUXER[container], '-i', input,
+  ]
+}
+
+/** Encoding stops here whatever the container claims (30 s + rounding). */
+export const OUTPUT_MAX_SECONDS = (VIDEO_MAX_DURATION_MS + VIDEO_DURATION_TOLERANCE_MS) / 1000
+/** Output file size ceiling (`-fs`); ~2.5 Mbps x 30.5 s is under 10 MB, so only a runaway encode reaches it. */
+export const OUTPUT_MAX_BYTES = 40 * 1024 * 1024
+
+export type ToneMapMode = 'zscale' | 'matrix'
+
+/**
+ * Filters for one transcode. SDR: scale (+fps). HDR (HLG/PQ, e.g. iPhone):
+ * - 'zscale' (libzimg; Debian's ffmpeg has it, the Dockerfile checks):
+ *   scale, linearise from BT.2020 + the HDR transfer, tone-map with Hable,
+ *   convert to BT.709 primaries/transfer/matrix, 8-bit 4:2:0.
+ * - 'matrix' (fallback when zscale is missing): a BT.2020 -> BT.709 matrix
+ *   conversion in the scaler. Colours are flatter, but never unplayable.
+ */
+export function buildVideoFilters(plan: TranscodePlan, hdr: HdrTransfer | null, mode: ToneMapMode): string {
+  const filters: string[] = []
+  if (!hdr) {
+    filters.push(`scale=${plan.width}:${plan.height}`)
+  } else if (mode === 'zscale') {
+    filters.push(
+      `scale=${plan.width}:${plan.height}`,
+      `zscale=tin=${hdr}:pin=bt2020:min=bt2020nc:t=linear:npl=100`,
+      'format=gbrpf32le',
+      'zscale=p=bt709',
+      'tonemap=tonemap=hable:desat=0',
+      'zscale=t=bt709:m=bt709:p=bt709:r=tv',
+    )
+  } else {
+    filters.push(`scale=${plan.width}:${plan.height}:in_color_matrix=bt2020:out_color_matrix=bt709:out_range=tv`)
+  }
+  filters.push('format=yuv420p')
+  // Tag the frames BT.709 (newer ffmpeg takes colour tags from the frames, so
+  // -color_trc alone would leave e.g. "smpte2084" on the matrix fallback).
+  if (hdr) filters.push('setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv')
+  if (plan.fps) filters.push(`fps=${plan.fps}`)
+  return filters.join(',')
+}
+
+let filterSupport: Promise<ToneMapMode> | null = null
+
+/** 'zscale' when this ffmpeg has the zscale and tonemap filters, else 'matrix'. Checked once. */
+export function detectToneMapMode(ffmpeg: string): Promise<ToneMapMode> {
+  filterSupport ??= runTool(ffmpeg, ['-hide_banner', '-filters'], { timeoutMs: 10_000, maxStdoutBytes: 1024 * 1024 })
+    .then((out) => {
+      const text = out.toString('utf8')
+      return /\szscale\s/.test(text) && /\stonemap\s/.test(text) ? 'zscale' : 'matrix'
+    })
+    .catch(() => 'matrix' as const)
+  return filterSupport
 }
 
 export function buildProbeArgs(input: string, container: VideoContainer): string[] {
@@ -86,9 +156,8 @@ export function buildTranscodeArgs(
   plan: TranscodePlan,
   container: VideoContainer,
   threads = 2,
+  options: { hdr?: HdrTransfer | null; toneMap?: ToneMapMode } = {},
 ): string[] {
-  const filters = [`scale=${plan.width}:${plan.height}`]
-  if (plan.fps) filters.push(`fps=${plan.fps}`)
   const t = String(Math.max(1, Math.min(16, Math.floor(threads))))
   return [
     '-hide_banner', '-nostdin', '-loglevel', 'error', '-y',
@@ -97,13 +166,52 @@ export function buildTranscodeArgs(
     '-threads', t, '-filter_threads', '1',
     '-map', '0:v:0', '-an', '-sn', '-dn',
     '-map_metadata', '-1', '-map_chapters', '-1',
-    '-vf', filters.join(','),
+    // Hard output caps, whatever the container claims (duration bypass).
+    '-t', String(OUTPUT_MAX_SECONDS), '-fs', String(OUTPUT_MAX_BYTES),
+    '-vf', buildVideoFilters(plan, options.hdr ?? null, options.toneMap ?? 'zscale'),
     '-c:v', 'libx264', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-preset', 'veryfast',
     '-b:v', VIDEO_BITRATE, '-maxrate', '2500k', '-bufsize', '4M',
+    '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv',
     '-fflags', '+bitexact', '-flags:v', '+bitexact',
     '-movflags', '+faststart',
     '-f', 'mp4', output,
   ]
+}
+
+/** Probe of the transcoded MP4 (no demuxer forcing needed: we wrote it). */
+export function buildOutputProbeArgs(file: string): string[] {
+  return ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', '-protocol_whitelist', 'file', '-f', 'mp4', '-i', file]
+}
+
+/**
+ * Check the encoded file: one H.264 stream of the planned size, at most
+ * 30.5 s, and not more than 1 s longer than the input claimed. A container
+ * that under-reports its duration (e.g. a WebM claiming 10 s but holding
+ * minutes) is cut at -t 30.5 by ffmpeg and refused here.
+ */
+export function checkOutput(
+  probe: unknown,
+  plan: TranscodePlan,
+  claimedMs: number,
+): { ok: true; data: { durationMs: number } } | { ok: false; error: string } {
+  const p = probe as { format?: { duration?: unknown }; streams?: unknown } | null
+  const streams = Array.isArray(p?.streams) ? (p!.streams as Record<string, unknown>[]) : []
+  const video = streams.filter((s) => s && s.codec_type === 'video')
+  const seconds = Number(p?.format?.duration)
+  if (video.length !== 1 || !Number.isFinite(seconds) || seconds <= 0) return { ok: false, error: VIDEO_REFUSALS.unreadable }
+  const v = video[0]
+  if (v.codec_name !== 'h264' || v.width !== plan.width || v.height !== plan.height) {
+    return { ok: false, error: VIDEO_REFUSALS.unreadable }
+  }
+  const durationMs = Math.round(seconds * 1000)
+  if (durationMs > OUTPUT_MAX_SECONDS * 1000 + 100) return { ok: false, error: VIDEO_REFUSALS.unreadable }
+  if (durationMs > claimedMs + 1000) {
+    return {
+      ok: false,
+      error: `The video is longer than its file says (${Math.round(claimedMs / 1000)} s). Export it again as MP4, at most ${VIDEO_MAX_DURATION_MS / 1000} s.`,
+    }
+  }
+  return { ok: true, data: { durationMs } }
 }
 
 /** One PNG frame at `atSeconds` of the transcoded MP4, written to stdout. */
@@ -211,12 +319,17 @@ export type ProcessedVideo = {
   height: number
   durationMs: number
   sourceContainer: VideoContainer
+  /** HDR transfer of the input (tone-mapped), or null for SDR. */
+  hdr: HdrTransfer | null
+  toneMap: ToneMapMode | null
 }
 
 export type ProcessDeps = {
   ffmpeg?: string
   ffprobe?: string
   threads?: number
+  /** Force the HDR path (tests); default: detected from `ffmpeg -filters`. */
+  toneMap?: ToneMapMode
   timeouts?: { probe?: number; transcode?: number; poster?: number }
 }
 
@@ -243,24 +356,43 @@ export async function processVideoFile(inputFile: string, workDir: string, deps:
     probeJson = JSON.parse(out.toString('utf8'))
   } catch (error) {
     if (error instanceof ToolError && error.reason === 'spawn') throw error
+    // The decoder refused a frame above -max_pixels (4K): say so.
+    if (error instanceof ToolError && /exceeds specified max pixel count/i.test(error.stderr)) {
+      throw new VideoRejectedError(VIDEO_REFUSALS.tooBig)
+    }
     throw new VideoRejectedError(VIDEO_REFUSALS.unreadable)
   }
   const probed = checkProbe(probeJson, container)
   if (!probed.ok) throw new VideoRejectedError(probed.error)
 
   const plan = planTranscode(probed.data)
+  const toneMap = probed.data.hdr ? (deps.toneMap ?? (await detectToneMapMode(ffmpeg))) : 'zscale'
   const videoFile = path.join(workDir, 'out.mp4')
   try {
-    await runTool(ffmpeg, buildTranscodeArgs(inputFile, videoFile, plan, container, deps.threads ?? videoThreads()), {
-      timeoutMs: t.transcode ?? TRANSCODE_TIMEOUT_MS,
-      maxStdoutBytes: 64 * 1024,
+    const args = buildTranscodeArgs(inputFile, videoFile, plan, container, deps.threads ?? videoThreads(), {
+      hdr: probed.data.hdr,
+      toneMap,
     })
+    await runTool(ffmpeg, args, { timeoutMs: t.transcode ?? TRANSCODE_TIMEOUT_MS, maxStdoutBytes: 64 * 1024 })
   } catch (error) {
     if (error instanceof ToolError && error.reason === 'exit') throw new VideoRejectedError(VIDEO_REFUSALS.unreadable)
     throw error
   }
 
-  const durationS = probed.data.durationMs / 1000
+  // Verify what was actually encoded, not what the container claimed.
+  const videoBytes = (await stat(videoFile)).size
+  if (videoBytes >= OUTPUT_MAX_BYTES - 1024 * 1024) throw new VideoRejectedError(VIDEO_REFUSALS.unreadable)
+  let outputJson: unknown
+  try {
+    const out = await runTool(ffprobe, buildOutputProbeArgs(videoFile), { timeoutMs: t.probe ?? PROBE_TIMEOUT_MS, maxStdoutBytes: 1024 * 1024 })
+    outputJson = JSON.parse(out.toString('utf8'))
+  } catch {
+    throw new VideoRejectedError(VIDEO_REFUSALS.unreadable)
+  }
+  const output = checkOutput(outputJson, plan, probed.data.durationMs)
+  if (!output.ok) throw new VideoRejectedError(output.error)
+
+  const durationS = output.data.durationMs / 1000
   const png = await runTool(ffmpeg, buildPosterArgs(videoFile, Math.min(1, durationS / 3)), {
     timeoutMs: t.poster ?? POSTER_TIMEOUT_MS,
     maxStdoutBytes: 32 * 1024 * 1024,
@@ -273,13 +405,15 @@ export async function processVideoFile(inputFile: string, workDir: string, deps:
   return {
     videoFile,
     videoHash: await sha256File(videoFile),
-    videoBytes: (await stat(videoFile)).size,
+    videoBytes,
     poster,
     posterHash: createHash('sha256').update(poster).digest('hex').slice(0, 32),
     width: plan.width,
     height: plan.height,
-    durationMs: probed.data.durationMs,
+    durationMs: output.data.durationMs,
     sourceContainer: container,
+    hdr: probed.data.hdr,
+    toneMap: probed.data.hdr ? toneMap : null,
   }
 }
 

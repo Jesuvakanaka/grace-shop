@@ -32,13 +32,32 @@ product (`productId` unique, cascade delete):
 | `videoKey`, `posterKey` | `videos/<32 hex>.mp4`, `videos/<32 hex>.webp` (content-hashed) |
 | `width`, `height`, `durationMs`, `sizeBytes` | of the processed MP4 |
 | `error` | owner-facing reason when `FAILED` |
+| `uploadId`, `uploadStartedAt` | processing lock: the upload being processed now (any instance) |
 | `createdBy`, `createdAt`, `updatedAt` | |
 
 A first upload is `PROCESSING` while it runs, then `READY` or `FAILED`.
-A **replacement** leaves the current `READY` video live until the new one is
-stored (no gap on the public site); if the replacement fails, the old one
-stays. A `PROCESSING` row older than 10 minutes (instance stopped mid-way) is
-shown as failed and a new upload is allowed.
+A **replacement** keeps the current video `READY` (keys untouched) until the
+new one is stored, so the public site never has a gap; if the replacement
+fails, the old one stays exactly as it was.
+
+**Processing lock (cross-instance).** Every processing run, first video or
+replacement, first takes the lock atomically (`updateMany … where uploadId is
+null or the lock is older than 10 minutes`, or `create` for a first row). A
+second upload while a fresh lock is held gets **409** "A video for this
+product is already being processed" and its chunks are kept so it can retry
+(chunks are also kept on the per-instance **503** busy answer). The run
+finishes with an update conditional on its own `uploadId`: if the video was
+removed (row deleted) or the lock taken over meanwhile, nothing is written
+back and the request answers 409 "removed or replaced while this one was
+processing". A lock older than 10 minutes (instance stopped mid-way) is
+stale: a first video then shows as failed, and a new upload takes the lock
+over. The admin `GET` reports `processing: true` while a fresh lock is held,
+so the panel shows "Processing" for replacements too.
+
+Design note (deviation from the review wording): the review asked to set the
+row to PROCESSING for replacements as well. The lock columns give the same
+cross-instance 409 guard without taking the live public video offline
+(public delivery only serves READY rows) for the length of the transcode.
 
 ## Upload flow (chunked)
 
@@ -81,32 +100,57 @@ lifecycle rule on the images bucket deleting objects with prefix
    refused), EBML with DocType `webm` → webm (other Matroska refused). The
    client's file name and MIME type are never used.
 2. **ffprobe**, forced to that demuxer (`-f mov` / `-f matroska`) with
-   `-protocol_whitelist file`: must be the same container, have a video stream,
-   frames ≤ 8192 px, duration ≤ 30 s (+0.5 s container rounding). Rotation
-   metadata (phones) is applied to get the display size.
-3. **ffmpeg**: first video stream only, `-an -sn -dn`, `-map_metadata -1
+   `-protocol_whitelist file` and `-max_pixels 8294400`: must be the same
+   container, have a video stream, be at most **4K** (3840×2160 in either
+   orientation; larger is refused with "too large (max 4K…)"), duration ≤ 30 s
+   (+0.5 s container rounding). Rotation metadata (phones) is applied to get
+   the display size; the HDR transfer (`color_transfer` `arib-std-b67` = HLG or
+   `smpte2084` = PQ) is noted.
+3. **ffmpeg**: same input options (`-max_pixels` bounds the decoder even if
+   the stream changes resolution mid-way; the scale filter outputs a fixed
+   size), first video stream only, `-an -sn -dn`, `-map_metadata -1
    -map_chapters -1`, scaled to fit **720×1280** (portrait/square) or
    **1280×720** (landscape), never upscaled, even sizes, at most 30 fps;
    `libx264 -profile:v high -pix_fmt yuv420p -preset veryfast -b:v 2M
-   -maxrate 2500k -bufsize 4M`, `-movflags +faststart`, bitexact flags.
-   2 decoder/encoder threads (`GRACE_VIDEO_THREADS`), see memory below.
-4. **Poster**: one frame at min(1 s, ⅓ of the clip) as PNG on stdout →
+   -maxrate 2500k -bufsize 4M`, BT.709 colour tags, `-movflags +faststart`,
+   bitexact flags. **Hard output caps** whatever the container claims:
+   `-t 30.5` and `-fs 41943040` (40 MB). 2 decoder/encoder threads
+   (`GRACE_VIDEO_THREADS`), see memory below.
+   - **HDR → SDR** (iPhone records HLG/PQ 10-bit by default): when ffmpeg has
+     the `zscale` (libzimg) and `tonemap` filters (checked once with
+     `ffmpeg -filters`; Debian bookworm's ffmpeg is built with
+     `--enable-libzimg`, and the Dockerfile build fails without them):
+     `scale, zscale=tin=<hlg|pq>:pin=bt2020:min=bt2020nc:t=linear:npl=100,
+     format=gbrpf32le, zscale=p=bt709, tonemap=tonemap=hable:desat=0,
+     zscale=t=bt709:m=bt709:p=bt709:r=tv, format=yuv420p`. Fallback without
+     zscale: a BT.2020 → BT.709 matrix conversion in the scaler (flatter
+     colours, still plays everywhere). Frames are then tagged BT.709
+     (`setparams`), so players never treat the result as HDR.
+4. **Verify the encoded file** with ffprobe: exactly one H.264 stream of the
+   planned size, ≤ 30.5 s, below the `-fs` cap, and **not more than 1 s longer
+   than the input claimed**. A WebM whose header says 10 s but which holds
+   minutes is cut at 30.5 s by `-t` and refused here ("The video is longer
+   than its file says (10 s)…").
+5. **Poster**: one frame at min(1 s, ⅓ of the clip) as PNG on stdout →
    WebP (quality 80) with sharp.
-5. Keys `videos/<sha256[:32]>.mp4` / `.webp`; stored with the existing image
-   storage settings (below), then the row becomes `READY` and the product's
-   storefront tags are expired.
+6. Keys `videos/<sha256[:32]>.mp4` / `.webp`; stored with the existing image
+   storage settings (below), then the row becomes `READY` (conditional on the
+   processing lock) and the product's storefront tags are expired.
 
 ffmpeg/ffprobe run via `child_process.spawn(bin, argsArray, { shell: false })`
 with a SIGKILL timeout (probe 20 s, transcode 150 s, poster 20 s) and capped
 stdout/stderr. Each job uses a private `mkdtemp` folder under
 `GRACE_VIDEO_TMP_DIR` or `os.tmpdir()` (TEMP on Windows, `/tmp` on Cloud Run),
 removed in a `finally`. One video is processed at a time per instance (a
-second concurrent request gets 503 "try again in a minute").
+second concurrent request gets 503 "try again in a minute"); the in-process
+flag is set and cleared inside the same `try`/`finally`, so a database error
+can never leave the instance stuck at 503.
 
 ### ffmpeg binaries: Debian `ffmpeg` in the image
 
 The Cloud Run image installs Debian bookworm's `ffmpeg` package (runner stage
-of the `Dockerfile`; the build fails if `libx264` or `ffprobe` is missing).
+of the `Dockerfile`; the build fails if `libx264`, the `zscale` or `tonemap`
+filter, or `ffprobe` is missing).
 Chosen over the `ffmpeg-static` / `ffprobe-static` npm packages because:
 
 - ffmpeg parses untrusted uploads; the distro package gets security fixes on
@@ -133,10 +177,10 @@ Measured locally (Windows, ffmpeg 9.0.1) on a deliberately hard worst case: a
 
 | threads | probe + transcode + poster | output |
 |---|---|---|
-| 2 (default) | 12.6 s | 7.5 MB, 720×1280 |
-| 1 | 30.2 s | 7.5 MB |
+| 2 (default) | 12.6 s (17.0 s with the output check, machine ~50 % busy) | 7.5 MB, 720×1280 |
+| 1 | 30.2 s (37.0 s, same) | 7.5 MB |
 
-A 5 s 1080×1920 test clip takes ~2.5 s. Cloud Run's 1 vCPU is slower than a
+A 5 s 1080×1920 test clip takes ~2.5 s on an idle machine. Cloud Run's 1 vCPU is slower than a
 desktop core; even at 2× slower the worst case is ~60 s, well inside the
 service's 300 s request timeout, so v1 processes in the request (route
 `maxDuration = 300`). Real phone clips compress far better than noise.
@@ -162,17 +206,29 @@ row staying `PROCESSING` until the job finishes and the panel polling
 - Anything else on the public route (bad name, unknown key, unpublished,
   not READY, bytes missing) is the same plain **404** (`Cache-Control: no-store`).
 - **HTTP Range**: one byte range (`bytes=a-b`, `bytes=a-`, `bytes=-n`) → **206**
-  with `Content-Range: bytes a-b/size` and the exact `Content-Length`;
-  unsatisfiable or malformed byte ranges (and multi-range) → **416** with
-  `Content-Range: bytes */size`; another unit is ignored (200). `Accept-Ranges:
-  bytes` always.
+  with `Content-Range: bytes a-b/size` and the exact `Content-Length`. A
+  well-formed range that cannot be satisfied (starts at/after the end,
+  `bytes=-0`, empty file) → **416** with `Content-Range: bytes */size`.
+  Following RFC 9110 a Range header that is malformed, multi-range, has
+  last < first, overflowing numbers or another unit is **ignored** → 200 with
+  the whole file. `Accept-Ranges: bytes` always.
+- **Conditional requests**: strong `ETag` = `"<32 hex>"` (the content hash in
+  the key) and `Last-Modified` = the stored object's time (one metadata
+  request; its size is passed on to the ranged read). `If-None-Match` (weak
+  comparison, `*` allowed) → **304**; otherwise `If-Modified-Since` ≥
+  Last-Modified → 304. `If-Range` keeps the range only for a strong ETag
+  match or the exact Last-Modified date, else the whole file is sent. The
+  published-only check runs first, so an unpublished video is 404 even with
+  a matching ETag.
 - Headers: `Content-Type: video/mp4` (or `image/webp` for posters), never from
   the stored object; `X-Content-Type-Options: nosniff`; `Content-Security-Policy:
   default-src 'none'; sandbox`.
-- Public cache: `public, max-age=31536000, immutable` (keys are content-hashed,
-  a new video has a new URL). Trade-off: a browser or CDN that already fetched a
-  video may keep it after the product is unpublished; the origin returns 404 at
-  once and the storefront stops linking it. Photos keep their 5-minute cache.
+- **Public cache (owner decision, same as photos)**: `PUBLIC_IMAGE_CACHE_CONTROL`
+  from `src/lib/storefront/public-image.ts`, i.e. `public, max-age=300,
+  s-maxage=300, stale-while-revalidate=60`. Browsers and shared caches stop
+  reusing an unpublished video within about 5 minutes; revalidating an
+  unchanged one is a cheap 304 thanks to the ETag. Private route:
+  `private, max-age=86400`.
 - The storefront host (`GRACE_STOREFRONT_HOSTS`) lets `/api/videos/public/`
   through (`src/lib/host-routing.ts`); `/api/videos/<key>` is 404 there.
 - Keys accepted anywhere: `videos/<32 hex>.mp4`, `videos/<32 hex>.webp`,
@@ -188,7 +244,9 @@ row staying `PROCESSING` until the job finishes and the panel polling
 runtime service account, objects under `videos/`), local files under
 `GRACE_IMAGE_DIR` (default `.data/uploads/videos/`) in development. Unlike
 the image driver it supports byte-range reads, streamed file uploads and
-deletes (for chunks).
+deletes (for chunks). `stat` is a single metadata request (GCS
+`getMetadata`, 404 = missing) giving size and last change; `read` does no
+existence check of its own.
 
 ## Public DTO
 
@@ -211,9 +269,16 @@ A successfully processed video and a removed one call
 - `tests/video-validation.test.ts`: sniffing, limits, upload body/chunk index,
   key formats/traversal, ffprobe checks, transcode plan/arguments, Range parsing.
 - `tests/video-dto.test.ts`: DTO allow-list, preview URLs.
-- `tests/video-delivery-db.test.ts`: published-only rule, Range/416, headers,
-  HEAD, private route auth, storefront host routing.
-- `tests/video-admin-api.test.ts` (real ffmpeg): owner-only, id validation,
-  refusals, end-to-end 1080×1920 → 720×1280 H.264 High yuv420p with no audio,
-  no metadata and faststart, WebM/MOV, 32 s refused, replacement failure keeps
-  the old video, removal, revalidation.
+- `tests/video-storage.test.ts`: GCS driver (one metadata request per stat,
+  range passed through) with a fake client; local driver.
+- `tests/video-delivery-db.test.ts`: published-only rule, Range/416/ignored
+  ranges, cache policy, ETag/Last-Modified/304/If-Range, HEAD, private route
+  auth, storefront host routing.
+- `tests/video-admin-api.test.ts`: owner-only, id validation, refusals,
+  busy flag released after a DB error, remove-while-processing not
+  resurrected, cross-instance lock (409 keeps chunks, stale lock taken over);
+  with real ffmpeg: end-to-end 1080×1920 → 720×1280 H.264 High yuv420p with
+  no audio, no metadata and faststart, WebM/MOV, 32 s refused, a WebM lying
+  about its duration refused, > 4K refused, HLG and PQ 10-bit tone-mapped to
+  8-bit BT.709 (zscale and matrix paths), replacement failure keeps the old
+  video, removal, revalidation.

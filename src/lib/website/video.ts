@@ -54,6 +54,8 @@ export type AdminVideo = {
   durationMs: number | null
   sizeBytes: number | null
   error: string | null
+  /** An upload is being processed right now (first video or replacement). */
+  processing: boolean
   updatedAt: string
 }
 
@@ -66,8 +68,15 @@ type VideoRow = {
   durationMs: number | null
   sizeBytes: number | null
   error: string | null
+  uploadId: string | null
+  uploadStartedAt: Date | null
   updatedAt: Date
 }
+
+const lockFresh = (row: Pick<VideoRow, 'uploadId' | 'uploadStartedAt'>, now: Date) =>
+  row.uploadId !== null &&
+  row.uploadStartedAt !== null &&
+  now.getTime() - row.uploadStartedAt.getTime() <= VIDEO_PROCESSING_STALE_MS
 
 const safeUrl = (key: string | null) => {
   try {
@@ -79,7 +88,7 @@ const safeUrl = (key: string | null) => {
 
 export function toAdminVideo(row: VideoRow | null, now = new Date()): AdminVideo | null {
   if (!row) return null
-  const stale = row.status === 'PROCESSING' && now.getTime() - row.updatedAt.getTime() > VIDEO_PROCESSING_STALE_MS
+  const stale = row.status === 'PROCESSING' && !lockFresh(row, now)
   const ready = row.status === 'READY'
   return {
     status: stale ? 'FAILED' : row.status,
@@ -90,6 +99,7 @@ export function toAdminVideo(row: VideoRow | null, now = new Date()): AdminVideo
     durationMs: ready ? row.durationMs : null,
     sizeBytes: ready ? row.sizeBytes : null,
     error: stale ? STALE_PROCESSING_ERROR : row.status === 'FAILED' ? row.error : null,
+    processing: lockFresh(row, now),
     updatedAt: row.updatedAt.toISOString(),
   }
 }
@@ -158,8 +168,8 @@ async function removeChunks(storage: VideoStorage, upload: VideoUpload) {
 /** Concatenate the stored chunks into one local file, checking every size and the total cap. */
 async function assemble(storage: VideoStorage, upload: VideoUpload, target: string) {
   for (let i = 0; i < upload.chunks; i++) {
-    const size = await storage.size(uploadChunkKey(upload.uploadId, i))
-    if (size !== expectedChunkBytes(upload.size, i)) {
+    const stat = await storage.stat(uploadChunkKey(upload.uploadId, i))
+    if (stat?.size !== expectedChunkBytes(upload.size, i)) {
       throw new WebsiteError(400, 'The upload is incomplete. Please upload the video again.')
     }
   }
@@ -176,7 +186,6 @@ async function assemble(storage: VideoStorage, upload: VideoUpload, target: stri
   const source = (async function* () {
     for (let i = 0; i < upload.chunks; i++) {
       const stream = await storage.read(uploadChunkKey(upload.uploadId, i))
-      if (!stream) throw new WebsiteError(400, 'The upload is incomplete. Please upload the video again.')
       for await (const chunk of stream) yield chunk as Buffer
     }
   })()
@@ -202,26 +211,57 @@ export type ProcessUploadDeps = {
  * the product's video. Throws WebsiteError (400 refusals with the reason,
  * 404, 409, 503) or an unexpected error (500).
  */
+export const ALREADY_PROCESSING_ERROR = 'A video for this product is already being processed. Please wait for it to finish.'
+export const REMOVED_WHILE_PROCESSING_ERROR =
+  'The video was removed or replaced while this one was processing, so it was not saved.'
+
+/**
+ * Take the processing lock for this upload (any instance; atomic). A first
+ * video becomes PROCESSING; a replacement keeps its READY status and keys so
+ * the public video stays up. Returns whether this is a replacement. Throws
+ * 409 while another upload holds a fresh lock.
+ */
+async function acquireLock(db: PrismaClient, upload: VideoUpload, now: Date): Promise<{ replacing: boolean }> {
+  const where = { productId: upload.productId }
+  const existing = await db.productVideo.findUnique({ where })
+  const lock = { uploadId: upload.uploadId, uploadStartedAt: now, createdBy: upload.username }
+  if (!existing) {
+    try {
+      await db.productVideo.create({ data: { productId: upload.productId, status: 'PROCESSING', ...lock } })
+      return { replacing: false }
+    } catch (error) {
+      if ((error as { code?: unknown })?.code === 'P2002') throw new WebsiteError(409, ALREADY_PROCESSING_ERROR)
+      throw error
+    }
+  }
+  const replacing = existing.status === 'READY'
+  const { count } = await db.productVideo.updateMany({
+    where: {
+      ...where,
+      OR: [{ uploadId: null }, { uploadStartedAt: null }, { uploadStartedAt: { lt: new Date(now.getTime() - VIDEO_PROCESSING_STALE_MS) } }],
+    },
+    data: replacing ? lock : { ...lock, status: 'PROCESSING', error: null, videoKey: null, posterKey: null },
+  })
+  if (count === 0) throw new WebsiteError(409, ALREADY_PROCESSING_ERROR)
+  return { replacing }
+}
+
 export async function processVideoUpload(deps: ProcessUploadDeps, upload: VideoUpload): Promise<AdminVideo> {
   const { db, storage } = deps
   const product = await requireProduct(db, upload.productId)
   if (busy) throw new WebsiteError(503, 'Another video is being processed. Please try again in a minute.')
-  busy = true
   const now = deps.now ?? (() => new Date())
+  const mine = { productId: upload.productId, uploadId: upload.uploadId }
   let workDir: string | null = null
-  const existing = await db.productVideo.findUnique({ where: { productId: upload.productId } })
-  const replacing = existing?.status === 'READY'
+  let locked = false
+  let replacing = false
+  // 409 (someone else is processing) and 503 (this instance is busy): the
+  // owner can retry with the same upload, so its chunks are kept.
+  let keepChunks = false
+  busy = true
   try {
-    if (existing?.status === 'PROCESSING' && now().getTime() - existing.updatedAt.getTime() <= VIDEO_PROCESSING_STALE_MS) {
-      throw new WebsiteError(409, 'A video for this product is already being processed.')
-    }
-    if (!replacing) {
-      await db.productVideo.upsert({
-        where: { productId: upload.productId },
-        create: { productId: upload.productId, status: 'PROCESSING', createdBy: upload.username },
-        update: { status: 'PROCESSING', error: null, videoKey: null, posterKey: null, createdBy: upload.username },
-      })
-    }
+    ;({ replacing } = await acquireLock(db, upload, now()))
+    locked = true
 
     workDir = await makeWorkDir(deps.tempRoot)
     const input = path.join(workDir, 'input.bin')
@@ -233,20 +273,11 @@ export async function processVideoUpload(deps: ProcessUploadDeps, upload: VideoU
     await storage.putFile(videoKey, processed.videoFile, VIDEO_CONTENT_TYPE)
     await storage.putBytes(posterKey, processed.poster, POSTER_CONTENT_TYPE)
 
-    const row = await db.productVideo.upsert({
-      where: { productId: upload.productId },
-      create: {
-        productId: upload.productId,
-        status: 'READY',
-        videoKey,
-        posterKey,
-        width: processed.width,
-        height: processed.height,
-        durationMs: processed.durationMs,
-        sizeBytes: processed.videoBytes,
-        createdBy: upload.username,
-      },
-      update: {
+    // Only if this upload still holds the lock: a video removed (row deleted)
+    // or taken over meanwhile is never brought back.
+    const { count } = await db.productVideo.updateMany({
+      where: mine,
+      data: {
         status: 'READY',
         videoKey,
         posterKey,
@@ -256,17 +287,28 @@ export async function processVideoUpload(deps: ProcessUploadDeps, upload: VideoU
         sizeBytes: processed.videoBytes,
         error: null,
         createdBy: upload.username,
+        uploadId: null,
+        uploadStartedAt: null,
       },
     })
+    locked = false
+    if (count === 0) throw new WebsiteError(409, REMOVED_WHILE_PROCESSING_ERROR)
     deps.revalidate({ productSlugs: [product.slug] })
-    return toAdminVideo(row, now())!
+    return toAdminVideo(await db.productVideo.findUniqueOrThrow({ where: { productId: upload.productId } }), now())!
   } catch (error) {
     const known = error instanceof VideoRejectedError || error instanceof WebsiteError
     const message = known ? error.message : GENERIC_PROCESSING_ERROR
-    const alreadyRunning = error instanceof WebsiteError && error.status === 409
-    if (!replacing && !alreadyRunning) {
+    if (error instanceof WebsiteError && error.status === 409 && error.message === ALREADY_PROCESSING_ERROR) keepChunks = true
+    if (locked) {
+      // Release the lock; a first video becomes FAILED with the reason, a
+      // replacement leaves the current READY video exactly as it was.
       await db.productVideo
-        .update({ where: { productId: upload.productId }, data: { status: 'FAILED', error: message } })
+        .updateMany({
+          where: mine,
+          data: replacing
+            ? { uploadId: null, uploadStartedAt: null }
+            : { status: 'FAILED', error: message, uploadId: null, uploadStartedAt: null },
+        })
         .catch(() => {})
     }
     if (error instanceof VideoRejectedError) throw new WebsiteError(400, error.message)
@@ -276,7 +318,7 @@ export async function processVideoUpload(deps: ProcessUploadDeps, upload: VideoU
   } finally {
     busy = false
     if (workDir) await removeWorkDir(workDir).catch(() => {})
-    await removeChunks(storage, upload)
+    if (!keepChunks) await removeChunks(storage, upload)
   }
 }
 

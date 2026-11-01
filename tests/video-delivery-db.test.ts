@@ -23,6 +23,7 @@ import { getVideoStorage } from '../src/lib/storage/videos'
 import * as publicRoute from '../src/app/api/videos/public/[key]/route'
 import * as privateRoute from '../src/app/api/videos/[key]/route'
 import { decideHostRouting } from '../src/lib/host-routing'
+import { PUBLIC_IMAGE_CACHE_CONTROL } from '../src/lib/storefront/public-image'
 
 const HEX = (c: string) => c.repeat(32)
 const BYTES = Buffer.from(Array.from({ length: 1000 }, (_, i) => i % 251))
@@ -93,14 +94,18 @@ describe('video delivery (ZP-501)', () => {
     fs.rmSync(DIR, { recursive: true, force: true })
   })
 
-  test('a READY video of a public product: 200, video/mp4, nosniff, immutable, Accept-Ranges', async () => {
+  test('a READY video of a public product: 200, video/mp4, nosniff, photo cache policy, ETag, Last-Modified, Accept-Ranges', async () => {
     const v = await productWithVideo({ letter: 'a' })
     const { res, body } = await get(publicRoute.GET, v.mp4)
     assert.strictEqual(res.status, 200)
     assert.strictEqual(res.headers.get('content-type'), 'video/mp4')
     assert.strictEqual(res.headers.get('x-content-type-options'), 'nosniff')
     assert.strictEqual(res.headers.get('accept-ranges'), 'bytes')
-    assert.match(res.headers.get('cache-control') ?? '', /public.*max-age=31536000.*immutable/)
+    // Same policy as public photos (public-image.ts): 5 minutes, no "immutable".
+    assert.strictEqual(res.headers.get('cache-control'), PUBLIC_IMAGE_CACHE_CONTROL)
+    assert.match(res.headers.get('cache-control') ?? '', /^public, max-age=300\b/)
+    assert.strictEqual(res.headers.get('etag'), `"${HEX('a')}"`)
+    assert.ok(!Number.isNaN(Date.parse(res.headers.get('last-modified') ?? '')), 'Last-Modified is an HTTP date')
     assert.strictEqual(res.headers.get('content-length'), '1000')
     assert.ok(body.equals(BYTES))
 
@@ -127,11 +132,52 @@ describe('video delivery (ZP-501)', () => {
     assert.strictEqual(suffix.res.status, 206)
     assert.ok(suffix.body.equals(BYTES.subarray(990)))
 
-    for (const bad of ['bytes=1000-', 'bytes=5-1', 'bytes=0-1,4-5', 'bytes=abc']) {
+    for (const bad of ['bytes=1000-', 'bytes=1000-1001', 'bytes=-0']) {
       const r = await get(publicRoute.GET, v.mp4, { range: bad })
       assert.strictEqual(r.res.status, 416, bad)
       assert.strictEqual(r.res.headers.get('content-range'), 'bytes */1000', bad)
     }
+    // Malformed, multi-range, last < first, overflowing: ignored, the whole file (RFC 9110).
+    for (const ignored of ['bytes=5-1', 'bytes=0-1,4-5', 'bytes=abc', 'bytes=99999999999999999999-']) {
+      const r = await get(publicRoute.GET, v.mp4, { range: ignored })
+      assert.strictEqual(r.res.status, 200, ignored)
+      assert.ok(r.body.equals(BYTES), ignored)
+    }
+  })
+
+  test('conditional requests: If-None-Match / If-Modified-Since -> 304; If-Range honoured only when it matches', async () => {
+    const v = await productWithVideo({ letter: '6' })
+    const first = await get(publicRoute.GET, v.mp4)
+    const etag = first.res.headers.get('etag')!
+    const lastModified = first.res.headers.get('last-modified')!
+
+    for (const inm of [etag, `W/${etag}`, `"zzz", ${etag}`, '*']) {
+      const r = await get(publicRoute.GET, v.mp4, { 'if-none-match': inm })
+      assert.strictEqual(r.res.status, 304, inm)
+      assert.strictEqual(r.body.length, 0)
+      assert.strictEqual(r.res.headers.get('etag'), etag)
+      assert.strictEqual(r.res.headers.get('cache-control'), PUBLIC_IMAGE_CACHE_CONTROL)
+    }
+    assert.strictEqual((await get(publicRoute.GET, v.mp4, { 'if-none-match': '"other"' })).res.status, 200)
+    assert.strictEqual((await get(publicRoute.GET, v.mp4, { 'if-modified-since': lastModified })).res.status, 304)
+    // If-None-Match wins over If-Modified-Since.
+    assert.strictEqual(
+      (await get(publicRoute.GET, v.mp4, { 'if-none-match': '"other"', 'if-modified-since': lastModified })).res.status,
+      200,
+    )
+
+    const ranged = (ifRange: string) => get(publicRoute.GET, v.mp4, { range: 'bytes=0-1', 'if-range': ifRange })
+    assert.strictEqual((await ranged(etag)).res.status, 206)
+    assert.strictEqual((await ranged(lastModified)).res.status, 206)
+    const stale = await ranged('"different"')
+    assert.strictEqual(stale.res.status, 200)
+    assert.ok(stale.body.equals(BYTES))
+    assert.strictEqual((await ranged(`W/${etag}`)).res.status, 200, 'If-Range needs a strong match')
+    assert.strictEqual((await ranged('Mon, 01 Jan 2001 00:00:00 GMT')).res.status, 200)
+
+    // An unpublished product is still a plain 404, even with a matching ETag.
+    await prisma.product.update({ where: { id: v.product.id }, data: { published: false } })
+    assert.strictEqual((await get(publicRoute.GET, v.mp4, { 'if-none-match': etag })).res.status, 404)
   })
 
   test('unpublished product, hidden category, no slug, PROCESSING or FAILED: 404 for video and poster', async () => {

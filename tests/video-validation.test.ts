@@ -22,7 +22,7 @@ import {
   parseUploadStart,
   sniffVideoContainer,
 } from '../src/lib/website/video-validation'
-import { buildPosterArgs, buildProbeArgs, buildTranscodeArgs, planTranscode } from '../src/lib/website/video-process'
+import { buildPosterArgs, buildProbeArgs, buildTranscodeArgs, checkOutput, planTranscode } from '../src/lib/website/video-process'
 import { parseRangeHeader } from '../src/lib/website/video-range'
 
 const HEX = 'a'.repeat(32)
@@ -173,8 +173,19 @@ describe('checkProbe', () => {
   test('a 5 s portrait clip is accepted with its display size', () => {
     assert.deepStrictEqual(checkProbe(probe(), 'mp4'), {
       ok: true,
-      data: { width: 1080, height: 1920, durationMs: 5000, fps: 30 },
+      data: { width: 1080, height: 1920, durationMs: 5000, fps: 30, hdr: null },
     })
+  })
+
+  test('HDR transfer is detected: HLG (arib-std-b67) and PQ (smpte2084)', () => {
+    const hdr = (color_transfer: string) =>
+      checkProbe(
+        probe({ streams: [{ codec_type: 'video', width: 1080, height: 1920, avg_frame_rate: '30/1', color_transfer, pix_fmt: 'yuv420p10le' }] }),
+        'mov',
+      )
+    assert.strictEqual((hdr('arib-std-b67') as { data: { hdr: string } }).data.hdr, 'arib-std-b67')
+    assert.strictEqual((hdr('smpte2084') as { data: { hdr: string } }).data.hdr, 'smpte2084')
+    assert.strictEqual((hdr('bt709') as { data: { hdr: string | null } }).data.hdr, null)
   })
 
   test('rotation metadata (phones) swaps the display size', () => {
@@ -218,6 +229,14 @@ describe('checkProbe', () => {
     assert.strictEqual(checkProbe(probe(), 'webm').ok, false)
     const huge = probe({ streams: [{ codec_type: 'video', width: 20000, height: 20000, avg_frame_rate: '30/1' }] })
     assert.strictEqual(checkProbe(huge, 'mp4').ok, false)
+    // At most 4K (3840x2160) in either orientation.
+    const sized = (width: number, height: number) =>
+      checkProbe(probe({ streams: [{ codec_type: 'video', width, height, avg_frame_rate: '30/1' }] }), 'mp4').ok
+    assert.strictEqual(sized(3840, 2160), true)
+    assert.strictEqual(sized(2160, 3840), true)
+    assert.strictEqual(sized(4096, 2160), false)
+    assert.strictEqual(sized(3000, 3000), false)
+    assert.strictEqual(sized(8192, 100), false)
     assert.strictEqual(checkProbe(null, 'mp4').ok, false)
     assert.strictEqual(checkProbe({ streams: 'x' }, 'mp4').ok, false)
   })
@@ -252,7 +271,7 @@ describe('transcode plan and arguments', () => {
     assert.strictEqual(after('-movflags'), '+faststart')
     assert.strictEqual(after('-map_metadata'), '-1')
     assert.ok(args.includes('-an'))
-    assert.match(after('-vf'), /^scale=720:1280,fps=30$/)
+    assert.match(after('-vf'), /^scale=720:1280,format=yuv420p,fps=30$/)
     assert.strictEqual(args.at(-1), 'out.mp4')
     // Bounded thread pools (memory): decoder and encoder.
     assert.deepStrictEqual(args.flatMap((a, i) => (a === '-threads' ? [args[i + 1]] : [])), ['2', '2'])
@@ -260,6 +279,60 @@ describe('transcode plan and arguments', () => {
     assert.deepStrictEqual(t1.flatMap((a, i) => (a === '-threads' ? [t1[i + 1]] : [])), ['1', '1'])
     assert.ok(!/[;&|`$]/.test(joined), 'nothing shell-like')
     assert.strictEqual(buildTranscodeArgs('a', 'b', { width: 2, height: 2, fps: null }, 'webm')[args.indexOf('-f') + 1], 'matroska')
+  })
+
+  test('output caps, decoder frame cap and SDR BT.709 tags', () => {
+    const args = buildTranscodeArgs('in.bin', 'out.mp4', { width: 720, height: 1280, fps: null }, 'mp4')
+    const after = (flag: string) => args[args.indexOf(flag) + 1]
+    const input = args.indexOf('-i')
+    assert.strictEqual(after('-t'), '30.5')
+    assert.ok(args.indexOf('-t') > input, '-t is an output option')
+    assert.strictEqual(after('-fs'), String(40 * 1024 * 1024))
+    assert.ok(args.indexOf('-max_pixels') < input, '-max_pixels bounds the decoder')
+    assert.strictEqual(after('-max_pixels'), String(3840 * 2160))
+    assert.strictEqual(after('-color_primaries'), 'bt709')
+    assert.strictEqual(after('-color_trc'), 'bt709')
+    assert.strictEqual(after('-colorspace'), 'bt709')
+    assert.ok(!after('-vf').includes('tonemap'), 'SDR input: no tone mapping')
+    assert.ok(buildProbeArgs('in', 'mp4').indexOf('-max_pixels') < buildProbeArgs('in', 'mp4').indexOf('-i'))
+  })
+
+  test('HDR (HLG/PQ) is tone-mapped to SDR BT.709: zscale + tonemap=hable, or a matrix conversion without zscale', () => {
+    const plan = { width: 720, height: 1280, fps: 30 }
+    for (const trc of ['arib-std-b67', 'smpte2084'] as const) {
+      const vf = (mode: 'zscale' | 'matrix') => {
+        const a = buildTranscodeArgs('in', 'out', plan, 'mov', 2, { hdr: trc, toneMap: mode })
+        return a[a.indexOf('-vf') + 1]
+      }
+      const z = vf('zscale')
+      assert.match(z, new RegExp(`zscale=tin=${trc}:pin=bt2020:min=bt2020nc:t=linear:npl=100`))
+      assert.match(z, /tonemap=tonemap=hable:desat=0/)
+      assert.match(z, /zscale=t=bt709:m=bt709:p=bt709:r=tv/)
+      assert.match(z, /format=yuv420p/)
+      assert.match(z, /fps=30/)
+      const m = vf('matrix')
+      assert.ok(!m.includes('zscale') && !m.includes('tonemap'))
+      assert.match(m, /in_color_matrix=bt2020/)
+      assert.match(m, /out_color_matrix=bt709/)
+      for (const chain of [z, m]) assert.match(chain, /setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709/)
+    }
+  })
+
+  test('checkOutput: the encoded file must be H.264, the planned size, at most 30.5 s and not longer than the input claimed', () => {
+    const out = (duration: string, extra: Record<string, unknown> = {}) => ({
+      format: { format_name: 'mov,mp4,m4a,3gp,3g2,mj2', duration },
+      streams: [{ codec_type: 'video', codec_name: 'h264', width: 720, height: 1280, ...extra }],
+    })
+    const plan = { width: 720, height: 1280, fps: null }
+    assert.deepStrictEqual(checkOutput(out('5.000'), plan, 5000), { ok: true, data: { durationMs: 5000 } })
+    // A WebM claiming 10 s but holding minutes: encoding stops at -t 30.5, far beyond the claim.
+    assert.match((checkOutput(out('30.500'), plan, 10_000) as { error: string }).error, /longer than/i)
+    assert.strictEqual(checkOutput(out('31.2'), plan, 31_000).ok, false)
+    assert.strictEqual(checkOutput(out('5', { codec_name: 'hevc' }), plan, 5000).ok, false)
+    assert.strictEqual(checkOutput(out('5', { width: 1080 }), plan, 5000).ok, false)
+    assert.strictEqual(checkOutput({ streams: [] }, plan, 5000).ok, false)
+    // Rounding: up to 1 s over the claim is fine.
+    assert.ok(checkOutput(out('5.9'), plan, 5000).ok)
   })
 
   test('ffprobe and poster arguments force the format and the file protocol', () => {
@@ -288,10 +361,15 @@ describe('parseRangeHeader', () => {
     assert.deepStrictEqual(parseRangeHeader('bytes=-5000', size), { kind: 'partial', start: 0, end: 999 })
     assert.deepStrictEqual(parseRangeHeader(' bytes = 10 - 20 ', size), { kind: 'partial', start: 10, end: 20 })
   })
-  test('unsatisfiable or malformed byte ranges are 416', () => {
-    for (const bad of ['bytes=1000-', 'bytes=1000-1001', 'bytes=5-4', 'bytes=-0', 'bytes=', 'bytes=a-b', 'bytes=0-1,5-6', 'bytes=--1', 'bytes=1.5-2', 'bytes=99999999999999999999-']) {
-      assert.deepStrictEqual(parseRangeHeader(bad, size), { kind: 'invalid' }, bad)
+  test('malformed, multi-range or overflowing headers are ignored: the whole file (RFC 9110)', () => {
+    for (const ignored of ['bytes=', 'bytes=a-b', 'bytes=0-1,5-6', 'bytes=--1', 'bytes=1.5-2', 'bytes=99999999999999999999-', 'bytes=5-4', 'garbage', '=0-1']) {
+      assert.deepStrictEqual(parseRangeHeader(ignored, size), { kind: 'full' }, ignored)
     }
-    assert.deepStrictEqual(parseRangeHeader('bytes=0-1', 0), { kind: 'invalid' })
+  })
+  test('a well-formed range that cannot be satisfied is 416', () => {
+    for (const bad of ['bytes=1000-', 'bytes=1000-1001', 'bytes=-0']) {
+      assert.deepStrictEqual(parseRangeHeader(bad, size), { kind: 'unsatisfiable' }, bad)
+    }
+    assert.deepStrictEqual(parseRangeHeader('bytes=0-1', 0), { kind: 'unsatisfiable' })
   })
 })

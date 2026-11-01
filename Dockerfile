@@ -49,11 +49,15 @@ WORKDIR /app
 # runs /usr/bin/ffmpeg and /usr/bin/ffprobe from PATH). Debian's package is
 # used instead of the ffmpeg-static npm binaries: it gets distro security
 # fixes on every rebuild (ffmpeg parses untrusted uploads), ships ffprobe, has
-# libx264, and needs no install-time download. See docs/storefront/videos.md.
+# libx264 and the zscale (libzimg) + tonemap filters used to turn iPhone HDR
+# into SDR, and needs no install-time download. The build fails if any is
+# missing. See docs/storefront/videos.md.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl ca-certificates ffmpeg \
   && rm -rf /var/lib/apt/lists/* \
   && ffmpeg -hide_banner -encoders | grep -q libx264 \
+  && ffmpeg -hide_banner -filters | grep -qw zscale \
+  && ffmpeg -hide_banner -filters | grep -qw tonemap \
   && ffprobe -version > /dev/null
 
 RUN groupadd --system --gid 1001 grace \
