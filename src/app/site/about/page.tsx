@@ -1,16 +1,21 @@
 import type { Metadata } from "next";
-import { AboutView } from "@/components/storefront/info/AboutView";
-import { buildAboutModel } from "@/components/storefront/info/info-model";
+import { FeedRoute } from "@/components/storefront/feed/FeedRoute";
+import { SITE_ROUTES } from "@/lib/storefront/paths";
+import { routeMetadata } from "@/lib/storefront/route-metadata";
 import { getShellData } from "@/lib/storefront/shell";
 
-// ZP-491: About VYRA. Copy and picture come from the site settings (cached,
-// tag storefront:settings, revalidated on save), so changes need no deploy.
-export const metadata: Metadata = {
-  title: "About",
-  description: "The story behind VYRA. WEAR DIFFERENT.",
-};
-
-export default async function AboutPage() {
+// ZP-514: /about folds into the feed with the menu open on About VYRA (the
+// whole story and picture live in the menu now).
+export async function generateMetadata(): Promise<Metadata> {
   const shell = await getShellData();
-  return <AboutView model={buildAboutModel({ settings: shell.settings, base: shell.base })} />;
+  const about = shell.settings.about;
+  return routeMetadata(SITE_ROUTES.about, {
+    title: "About",
+    description: about.headline ?? "The story behind VYRA. WEAR DIFFERENT.",
+    image: about.imageUrl ? { url: about.imageUrl, alt: "VYRA" } : null,
+  });
+}
+
+export default function AboutPage() {
+  return <FeedRoute route={{ route: "about" }} />;
 }

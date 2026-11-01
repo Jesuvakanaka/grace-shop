@@ -2,20 +2,15 @@
  * ZP-487: storefront shell, pure parts.
  * - Link prefixing for the two front doors (src/lib/storefront/paths.ts).
  * - The shell model built from public settings + categories (src/lib/storefront/shell-model.ts).
- * - The lookbook photo manifest (src/components/storefront/lookbook.ts).
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
-import sharp from 'sharp';
 import { SITE_ROUTES, siteBaseForHost, sitePath } from '../src/lib/storefront/paths';
 import { buildShellModel, formatOpeningHours, splitAddress } from '../src/lib/storefront/shell-model';
 import { toPublicSiteSettings } from '../src/lib/site-settings/dto';
 import { SITE_SETTINGS_DEFAULTS } from '../src/lib/site-settings/schema';
 import type { OpeningHours } from '../src/lib/site-settings/schema';
 import type { PublicCategory } from '../src/lib/storefront/dto';
-import { LOOKBOOK, LOOKBOOK_STEMS, lookbookImage, lookbookSrcSet } from '../src/components/storefront/lookbook';
 
 describe('sitePath: storefront links on both front doors', () => {
   test('admin/UAT host: everything under /site', () => {
@@ -214,45 +209,5 @@ describe('buildShellModel', () => {
     assert.strictEqual(m.holidayNote, 'Closed on public holidays');
     assert.strictEqual(m.phone, '+263 77 123 4567');
     assert.strictEqual(m.email, 'hello@vyra.example');
-  });
-});
-
-describe('lookbook manifest', () => {
-  test('the five owner photos, each with outfit alt text', () => {
-    assert.deepStrictEqual([...LOOKBOOK_STEMS].sort(), [
-      'bronze-pleated-set',
-      'chartreuse-fringe-knit-set',
-      'lime-pleated-dress',
-      'olive-print-jumpsuit',
-      'olive-print-pleated-dress',
-    ]);
-    for (const stem of LOOKBOOK_STEMS) {
-      assert.match(LOOKBOOK[stem].alt, /^Model in /, stem);
-    }
-  });
-
-  test('both files exist and the manifest sizes match the real files (honest srcset descriptors)', async () => {
-    for (const stem of LOOKBOOK_STEMS) {
-      const entry = LOOKBOOK[stem];
-      for (const variant of [entry.small, entry.large]) {
-        const file = path.join(process.cwd(), 'public', variant.src);
-        assert.ok(existsSync(file), file);
-        const meta = await sharp(file).metadata();
-        assert.deepStrictEqual([meta.width, meta.height], [variant.width, variant.height], variant.src);
-      }
-    }
-  });
-
-  test('srcset and image data', () => {
-    assert.strictEqual(
-      lookbookSrcSet('lime-pleated-dress'),
-      '/brand/lookbook/lime-pleated-dress-640.webp 640w, /brand/lookbook/lime-pleated-dress-1200.webp 1024w',
-    );
-    const img = lookbookImage('olive-print-jumpsuit');
-    assert.strictEqual(img.src, '/brand/lookbook/olive-print-jumpsuit-1200.webp');
-    assert.strictEqual(img.srcSet, lookbookSrcSet('olive-print-jumpsuit'));
-    assert.strictEqual(img.alt, LOOKBOOK['olive-print-jumpsuit'].alt);
-    assert.deepStrictEqual([img.width, img.height], [1024, 1536]);
-    assert.strictEqual(lookbookImage('olive-print-jumpsuit', { alt: '' }).alt, '');
   });
 });

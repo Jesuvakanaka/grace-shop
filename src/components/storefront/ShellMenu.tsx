@@ -44,6 +44,8 @@ type ShellMenuDialogProps = {
   current?: string;
   /** Runs when the dialog closes (Esc, close button or a link). */
   onClose: () => void;
+  /** ZP-514: the section open when the menu opens (/about, /visit land here). */
+  section?: "about" | "visit" | null;
 };
 
 /**
@@ -56,9 +58,16 @@ type ShellMenuDialogProps = {
  * (expanding rows), How to use VYRA (replays the guide), Chat on WhatsApp,
  * WEAR DIFFERENT. and the social icons.
  */
-export function ShellMenuDialog({ dialogRef, id, nav, whatsappHref, social = [], current, onClose }: ShellMenuDialogProps) {
+export function ShellMenuDialog({ dialogRef, id, nav, whatsappHref, social = [], current, onClose, section = null }: ShellMenuDialogProps) {
   const menu = useContext(MenuContext);
-  const closeMenu = () => dialogRef.current?.close();
+  // ZP-514: our own close controls also run onClose at once (the URL follows without
+  // waiting for the dialog's close event; onClose must be idempotent).
+  const closeMenu = () => {
+    const dialog = dialogRef.current;
+    if (!dialog?.open) return;
+    dialog.close();
+    onClose();
+  };
   return (
     <dialog
       ref={dialogRef}
@@ -75,7 +84,8 @@ export function ShellMenuDialog({ dialogRef, id, nav, whatsappHref, social = [],
           <Wordmark className="h-[18px] w-auto justify-self-center" title="" />
         </div>
         {menu ? (
-          <MenuContent menu={menu} onNavigate={closeMenu} />
+          // Keyed by the section: opening on About / Visit us starts with that row expanded.
+          <MenuContent key={section ?? "none"} menu={menu} onNavigate={closeMenu} section={section} />
         ) : (
           <FallbackNav nav={nav} whatsappHref={whatsappHref} social={social} current={current} onNavigate={closeMenu} />
         )}
@@ -84,7 +94,7 @@ export function ShellMenuDialog({ dialogRef, id, nav, whatsappHref, social = [],
   );
 }
 
-function MenuContent({ menu, onNavigate }: { menu: MenuModel; onNavigate: () => void }) {
+function MenuContent({ menu, onNavigate, section }: { menu: MenuModel; onNavigate: () => void; section: "about" | "visit" | null }) {
   return (
     <>
       <nav aria-labelledby="sf-menu-collections" className="px-6 pt-[18px]">
@@ -110,31 +120,45 @@ function MenuContent({ menu, onNavigate }: { menu: MenuModel; onNavigate: () => 
       </nav>
 
       <div className="flex flex-col px-6 pt-[26px]">
+        {/* ZP-514: the About and Visit us pages live here now (/about and /visit open the menu on them). */}
         {menu.about ? (
-          <Disclosure label="About VYRA">
-            <p className="text-sm leading-relaxed text-brand-ink-soft">{menu.about}</p>
-            <MoreLink href={menu.aboutHref} onClick={onNavigate}>
-              Our story
-            </MoreLink>
+          <Disclosure label="About VYRA" defaultOpen={section === "about"}>
+            {menu.about.headline ? (
+              <p className="m-0 font-serif text-2xl font-medium leading-tight text-brand-ink">{menu.about.headline}</p>
+            ) : null}
+            {menu.about.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- settings picture (public URL)
+              <img
+                src={menu.about.imageUrl}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className="my-1 block aspect-[4/5] w-full max-w-[320px] rounded-[2px] bg-brand-cream-200 object-cover"
+              />
+            ) : null}
+            {menu.about.paragraphs.map((p, i) => (
+              <p key={i} className="m-0 whitespace-pre-line text-sm leading-relaxed text-brand-ink-soft">
+                {p}
+              </p>
+            ))}
           </Disclosure>
-        ) : (
-          <Link href={menu.aboutHref} onClick={onNavigate} className={rowClass}>
-            About VYRA
-          </Link>
-        )}
+        ) : null}
 
         {menu.visit ? (
-          <Disclosure label="Visit us">
+          <Disclosure label="Visit us" defaultOpen={section === "visit"}>
             <VisitDetails visit={menu.visit} />
-            <MoreLink href={menu.visitHref} onClick={onNavigate}>
-              Visit us page
-            </MoreLink>
+            {menu.mapHref && menu.mapHref !== menu.visit.directionsHref ? (
+              <a
+                href={menu.mapHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="sf-focus sf-label inline-flex min-h-11 w-fit items-center rounded-[2px] text-brand-ink underline decoration-brand-ink/30 underline-offset-4 hover:decoration-brand-ink"
+              >
+                Open the map<span className="sr-only"> (opens in a new tab)</span>
+              </a>
+            ) : null}
           </Disclosure>
-        ) : (
-          <Link href={menu.visitHref} onClick={onNavigate} className={rowClass}>
-            Visit us
-          </Link>
-        )}
+        ) : null}
 
         <Link href={menu.guideHref} onClick={onNavigate} className={rowClass}>
           How to use VYRA
@@ -176,8 +200,8 @@ function MenuContent({ menu, onNavigate }: { menu: MenuModel; onNavigate: () => 
 }
 
 /** An expanding row: the button says whether it is open; the panel follows it. */
-function Disclosure({ label, children }: { label: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
+function Disclosure({ label, children, defaultOpen = false }: { label: string; children: ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
   const panelId = useId();
   return (
     <div>
@@ -189,18 +213,6 @@ function Disclosure({ label, children }: { label: string; children: ReactNode })
         {open ? children : null}
       </div>
     </div>
-  );
-}
-
-function MoreLink({ href, onClick, children }: { href: string; onClick: () => void; children: ReactNode }) {
-  return (
-    <Link
-      href={href}
-      onClick={onClick}
-      className="sf-focus sf-label inline-flex min-h-11 w-fit items-center rounded-[2px] text-brand-ink underline decoration-brand-ink/30 underline-offset-4 hover:decoration-brand-ink"
-    >
-      {children}
-    </Link>
   );
 }
 

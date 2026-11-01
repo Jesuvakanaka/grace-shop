@@ -9,7 +9,6 @@ import assert from 'node:assert';
 import { toPublicSiteSettings } from '../src/lib/site-settings/dto';
 import { SITE_SETTINGS_DEFAULTS, type OpeningHours, type SiteSettingsData } from '../src/lib/site-settings/schema';
 import {
-  aboutExcerpt,
   buildMenuModel,
   buildStoreVisit,
   GUIDE_PARAM,
@@ -66,24 +65,6 @@ describe('todayLine: today in the shop time zone', () => {
   });
 });
 
-describe('aboutExcerpt', () => {
-  test('first paragraph of the story', () => {
-    assert.strictEqual(aboutExcerpt(FULL.aboutStory), 'VYRA started with one rail of dresses.');
-  });
-  test('long text is cut at a word with an ellipsis', () => {
-    const long = 'word '.repeat(80).trim();
-    const out = aboutExcerpt(long) as string;
-    assert.ok(out.length <= 181, `length ${out.length}`);
-    assert.ok(out.endsWith('…'));
-    assert.ok(!out.includes('wor…'));
-  });
-  test('missing or placeholder story: null', () => {
-    assert.strictEqual(aboutExcerpt(null), null);
-    assert.strictEqual(aboutExcerpt('  '), null);
-    assert.strictEqual(aboutExcerpt('TBC'), null);
-  });
-});
-
 describe('buildStoreVisit', () => {
   test('week lines, address, directions, raw hours', () => {
     const v = buildStoreVisit(settings(FULL));
@@ -119,8 +100,6 @@ describe('buildMenuModel', () => {
     assert.strictEqual(m.collections[0].href, '/');
     assert.strictEqual(m.collections[1].href, '/?c=dresses');
     assert.strictEqual(m.guideHref, `/?${GUIDE_PARAM}=1`);
-    assert.strictEqual(m.aboutHref, '/about');
-    assert.strictEqual(m.visitHref, '/visit');
   });
   test('the guide link opens the landing page with ?guide=1', () => {
     const m = buildMenuModel({ settings: settings(FULL), tabs: TABS, base: '/site' });
@@ -135,13 +114,29 @@ describe('buildMenuModel', () => {
     const m = buildMenuModel({ settings: settings(), tabs: [{ id: 'new', label: 'New in', count: 0 }], base: '' });
     assert.deepStrictEqual(m.collections, [{ id: 'new', label: 'New in', href: '/', count: null }]);
   });
-  test('full settings: about excerpt, visit, WhatsApp general enquiry, socials, tagline', () => {
+  test('full settings: the whole about story (ZP-514), visit, WhatsApp general enquiry, socials, tagline', () => {
     const m = buildMenuModel({ settings: settings(FULL), tabs: TABS, base: '/site' });
-    assert.strictEqual(m.about, 'VYRA started with one rail of dresses.');
+    assert.deepStrictEqual(m.about, {
+      headline: null,
+      paragraphs: ['VYRA started with one rail of dresses.', 'Now it is a whole store.'],
+      imageUrl: null,
+    });
+    assert.strictEqual(m.mapHref, null);
     assert.ok(m.visit);
     assert.match(m.whatsappHref ?? '', /^https:\/\/wa\.me\/263771234567\?text=/);
     assert.deepStrictEqual(m.social.map((s) => s.icon), ['instagram']);
     assert.strictEqual(m.tagline, 'WEAR DIFFERENT.');
+  });
+  test('ZP-514: about headline and picture, and the map link (the old pages live in the menu)', () => {
+    const m = buildMenuModel({
+      settings: settings({ ...FULL, aboutHeadline: 'Be bold.', aboutImageKey: `products/${'a'.repeat(32)}.webp`, mapUrl: 'https://maps.app.goo.gl/abc' }),
+      tabs: TABS,
+      base: '/site',
+    });
+    assert.strictEqual(m.about?.headline, 'Be bold.');
+    assert.strictEqual(m.about?.imageUrl, `/api/images/public/${'a'.repeat(32)}.webp`);
+    assert.strictEqual(m.mapHref, 'https://maps.app.goo.gl/abc');
+    assert.ok(!('aboutHref' in m) && !('visitHref' in m), 'no links to the folded pages');
   });
   test('nothing set: about, visit and WhatsApp hidden', () => {
     const m = buildMenuModel({ settings: settings(), tabs: TABS, base: '/site' });

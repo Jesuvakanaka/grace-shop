@@ -1,68 +1,26 @@
-# About and Visit us pages (ZP-491)
+# About and Visit us (ZP-491 → ZP-514)
 
-Two storefront pages built from the public site settings
-(`docs/storefront/site-settings.md`). Brand rules: `docs/storefront/brand-refinements.md`.
+ZP-514 (owner): one view. The About and Visit us pages are folded into the
+feed's menu; their addresses keep working:
 
-| Route | File |
-|---|---|
-| `/about` (`/site/about` on UAT) | `src/app/site/about/page.tsx` |
-| `/visit` (`/site/visit` on UAT) | `src/app/site/visit/page.tsx` |
+- `/about`: the feed with the menu open on **About VYRA**, expanded: the
+  headline, the about picture and the whole story (paragraphs from the site
+  settings; `MenuAbout`, `aboutParagraphs`). No story: no row.
+- `/visit`: the feed with the menu open on **Visit us**, expanded: today's
+  hours (highlighted), the week, holiday note, address, Get directions and,
+  when the owner set one, "Open the map". The store's **LocalBusiness
+  JSON-LD** (`localBusinessJsonLd`: ClothingStore with name, URL, phone,
+  address, geo and grouped opening hours; missing parts left out) stays on
+  this address.
 
-Code in `src/components/storefront/info/`:
+After hydration the address becomes the feed's with `?o=about` / `?o=visit`
+pushed on top (closing the menu or back leaves the visitor on the feed).
+"Visit us" links inside the feed (the rail without WhatsApp, the end slide,
+the details card's footer) open the menu on Visit us instead of loading
+/visit. See docs/storefront/feed.md, "One view (ZP-514)".
 
-| File | What |
-|---|---|
-| `info-model.ts` | Pure: `buildAboutModel`, `buildVisitModel`, `weekHours`, `telHref`, `storyParagraphs` (re-exports the shared helpers below). |
-| `AboutView.tsx` | Split tile (headline + story on cream, photo beside it) and the "What WEAR DIFFERENT. means" block with the olive "Shop the collection" button. |
-| `VisitView.tsx` | Heading, action buttons, address, week hours, contact, socials, side photo. |
-| `MapEmbed.tsx` | Client: click-to-load Google map. |
-
-Shared with the home page (`home-model.ts`) and the shell footer (`shell-model.ts`):
-`src/lib/storefront/visit-model.ts` (pure, client-safe): `SHOP_TIME_ZONE`, `dayInTimeZone`,
-`meaningfulText`, `splitAddress`, `addressLines`, `settingsImageData`, `mapLink`,
-`directionsLink`, `mapEmbedUrl`. A placeholder address line or holiday note (`TBC`) is
-therefore hidden in the footer, the home teaser and Visit us alike, and the owner `mapUrl`
-is re-checked with `isHttpsUrl` (`src/lib/site-settings/validate.ts`) wherever it is
-rendered; a URL that fails falls back to the address or coordinates link.
-
-Tests: `tests/storefront-about-visit.test.ts` (pure, no database).
-
-## About
-
-- Headline: `aboutHeadline`, else "Be bold. Be you." (the brand board's campaign line).
-- Story: `aboutStory`, split into paragraphs on blank lines. Hidden when missing.
-- Photo: the settings about picture, else the lookbook `olive-print-pleated-dress` (VYRA sign). Eager (LCP).
-- "What WEAR DIFFERENT. means": fixed default copy (`DEFAULT_MEANING`); site settings have no field for it yet.
-- Blank values and placeholders (`TBC`, `TBA`, `TBD`, `Coming soon`, `-`, `...`) count as missing, so "TBC" never shows.
-
-## Visit us
-
-| Block | Source | Hidden when |
-|---|---|---|
-| Address | `address`, one line per row, placeholder lines dropped | not set, or only placeholders |
-| Opening hours | `openingHours`, Monday to Sunday, today marked (`aria-current="date"`, tinted row and a visible "Today" label) | not set |
-| Holiday note | `holidayNote` | not set |
-| Contact | `phone` (`tel:` digits only), `email` (`mailto:`) | each when not set |
-| WhatsApp us | `buildWhatsAppLink(settings)` (general enquiry) | no usable number |
-| Call us | `phone` | no phone |
-| Get directions | Google Maps directions to the coordinates or address, else the owner `mapUrl` | none of these |
-| Open in Google Maps | owner `mapUrl`, else a Google Maps search for the address, else the coordinates | none of these |
-| Show map | iframe `https://www.google.com/maps?q=…&output=embed`, only after a click. Coordinates or address only; the owner `mapUrl` is never framed | no address or coordinates |
-| Follow VYRA | `SocialIcons` (same list as the header and footer) | no profiles |
-
-The map iframe is sandboxed (`allow-scripts allow-same-origin allow-popups
-allow-popups-to-escape-sandbox`) with `referrerPolicy="strict-origin-when-cross-origin"`.
-The site sends no Content-Security-Policy today; any future CSP must allow
-`frame-src https://www.google.com` or the click-to-load map breaks.
-
-"Today" uses the shop time zone `Africa/Harare` (`SHOP_TIME_ZONE`; settings have no time
-zone field). The page renders per request, so "today" is current.
-
-With nothing set the page shows only the heading, the photo and an "Explore the collection" link.
-
-## Updating without a deploy
-
-Both pages read `getShellData()`, which uses the cached `getPublicSiteSettings()`
-(tags `storefront`, `storefront:settings`, 60 s backstop). `PUT /api/website/settings`
-revalidates the tag, so a change shows on the next request. Verified locally by changing
-`aboutHeadline` through the API and reloading `/site/about`.
+The shared visit helpers stay in `src/lib/storefront/visit-model.ts`
+(`dayInTimeZone`, `directionsLink`, `mapLink`, `mapEmbedUrl`,
+`addressLines`, `meaningfulText`), tested in
+`tests/storefront-about-visit.test.ts`. The old page views (`AboutView`,
+`VisitView`, `MapEmbed`, `info-model`) are gone.

@@ -1,43 +1,32 @@
 import type { Metadata } from "next";
-import { toImageData } from "@/components/storefront";
-import { ListingPage } from "@/components/storefront/collection/ListingPage";
-import { getPublishedCategory } from "@/lib/storefront";
-import { getListingView, listingMetadata } from "@/lib/storefront/listing-page";
+import { notFound } from "next/navigation";
+import { FeedRoute } from "@/components/storefront/feed/FeedRoute";
+import { getPublishedCategory, listPublishedProducts } from "@/lib/storefront";
 import { SITE_ROUTES } from "@/lib/storefront/paths";
+import { routeMetadata } from "@/lib/storefront/route-metadata";
 
-// ZP-489: one published category. Unknown or unpublished slug -> notFound()
-// (categories have no slug redirects in the data model).
-export async function generateMetadata(props: PageProps<"/site/collections/[slug]">): Promise<Metadata> {
+// ZP-514: one published collection folds into the feed on that collection
+// (?c= behaviour), with its own title, description, canonical and share
+// picture (the collection's hero picture, else its first piece's photo).
+// Unknown or unpublished slug -> 404.
+type Props = { params: Promise<{ slug: string }> };
+
+export async function generateMetadata(props: Props): Promise<Metadata> {
   const { slug } = await props.params;
   const category = await getPublishedCategory(slug);
   if (!category) return {};
-  return listingMetadata(SITE_ROUTES.collection(category.slug), {
+  const picture =
+    category.heroImage ?? (await listPublishedProducts({ categorySlug: category.slug, pageSize: 1 })).items[0]?.images[0] ?? null;
+  return routeMetadata(SITE_ROUTES.collection(category.slug), {
     title: category.name,
-    description: category.description,
+    description: category.description ?? `${category.name} at VYRA, one look at a time.`,
+    image: picture ? { url: picture.url, alt: picture.alt } : null,
   });
 }
 
-export default async function CollectionPage(props: PageProps<"/site/collections/[slug]">) {
+export default async function CollectionPage(props: Props) {
   const { slug } = await props.params;
-  const view = await getListingView({ kind: "category", slug }, SITE_ROUTES.collection(slug), await props.searchParams);
-  const category = view.category!;
-  return (
-    <ListingPage
-      base={view.shell.base}
-      eyebrow="Collection"
-      title={category.name}
-      description={category.description}
-      image={category.heroImage ? toImageData(category.heroImage) : null}
-      path={view.path}
-      query={view.query}
-      sortOptions={view.sortOptions}
-      chips={view.chips}
-      activeChip={view.activeChip}
-      items={view.page.items}
-      total={view.page.total}
-      page={view.page.page}
-      pageCount={view.page.pageCount}
-      whatsappHref={view.shell.whatsappHref}
-    />
-  );
+  const category = await getPublishedCategory(slug);
+  if (!category) notFound();
+  return <FeedRoute route={{ route: "collection", slug: category.slug }} />;
 }

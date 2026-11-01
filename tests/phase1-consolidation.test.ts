@@ -6,8 +6,6 @@ import { revalidateStorefront as realRevalidate, STOREFRONT_TAGS } from '../src/
 import * as shim from '../src/lib/website/revalidate'
 import { revalidateSiteSettings, settingsRevalidateScope } from '../src/lib/site-settings/revalidate'
 import { SITE_SETTINGS_DEFAULTS } from '../src/lib/site-settings/schema'
-import { CARD_SIZES, cardImages, toImageData } from '../src/components/storefront/product'
-import { products as previewProducts } from '../src/app/site/preview/preview-data'
 
 function recorder() {
   const calls: [string, unknown][] = []
@@ -77,28 +75,5 @@ describe('site settings revalidation', () => {
       ok: true,
       tags: ['storefront:settings', 'storefront:home'],
     })
-  })
-})
-
-describe('storefront cards use srcset', () => {
-  test('card sizes: 4 columns from 1024px, 3 from 768px, else 2', () => {
-    assert.strictEqual(CARD_SIZES, '(min-width: 1024px) 25vw, (min-width: 768px) 33vw, 50vw')
-  })
-
-  test('toImageData carries the DTO srcSet (empty means none)', () => {
-    const img = { url: '/api/images/public/a.webp', srcSet: '/api/images/public/a.webp?w=320 320w', alt: 'A', width: null, height: null }
-    assert.strictEqual(toImageData(img).srcSet, img.srcSet)
-    assert.strictEqual(toImageData({ ...img, srcSet: '' }).srcSet, undefined)
-  })
-
-  test('preview products have a derived srcSet on every photo, also the broken one', () => {
-    for (const p of previewProducts) {
-      for (const i of p.images) {
-        assert.ok(i.srcSet, `${p.slug}: ${i.url}`)
-        for (const candidate of i.srcSet.split(', ')) assert.match(candidate, /^\S+ \d+w$/)
-        assert.ok(i.srcSet.startsWith(i.url), 'candidates point at the same picture')
-      }
-      assert.ok(cardImages(p).primary?.srcSet)
-    }
   })
 })

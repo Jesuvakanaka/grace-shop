@@ -3,7 +3,7 @@
 import { NotFoundState, useSitePath } from "@/components/storefront";
 import { SITE_ROUTES } from "@/lib/storefront/paths";
 
-/** "This piece has moved on." with links to New Arrivals and Home for this host. */
+/** "This piece has moved on." with "Back to the looks" (the landing feed) for this host. */
 export function StorefrontNotFoundContent() {
   const to = useSitePath();
   return (
@@ -14,9 +14,8 @@ export function StorefrontNotFoundContent() {
       <title>Page not found – VYRA</title>
       <NotFoundState
         title="This piece has moved on."
-        message="It may have sold, or the link has changed. Take a look at what's new instead."
-        action={{ label: "See new arrivals", href: to(SITE_ROUTES.newArrivals) }}
-        secondaryAction={{ label: "Back to home", href: to(SITE_ROUTES.home) }}
+        message="It may have sold, or the link has changed. The newest looks are waiting."
+        action={{ label: "Back to the looks", href: to(SITE_ROUTES.home) }}
         className="sm:py-32"
       />
     </>

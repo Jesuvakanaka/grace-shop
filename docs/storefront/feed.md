@@ -507,4 +507,59 @@ exactly like `/?d=<slug>`:
   the header's product-top-bar rule. Kept: `ProductEnquiry` (provider,
   chips), `StoreVisitRow`, `useShare`, `LoveButton`, `Gallery` /
   `GalleryVideo` (the /site/preview component gallery), the public data
-  layer's `listRelatedProducts`.
+  layer's `listRelatedProducts`. (ZP-513 / ZP-514 later removed
+  `StoreVisitRow`, `Gallery` / `GalleryVideo` and /site/preview.)
+
+## One view (ZP-514)
+
+Owner: fold the duplicate pages into the feed and keep their addresses.
+Every storefront address now shows the feed (or, for three pages, a simple
+page):
+
+| Address | Feed state (`routeLanding`) | After hydration (`oneViewHistory`) |
+| --- | --- | --- |
+| `/`, `/?c=<slug>` | as before | as before |
+| `/shop`, `/new` | New in | `/` |
+| `/collections` | New in + collections sheet | `/` behind, `/?o=collections` on top |
+| `/collections/<slug>` | that collection (404 when unknown / unpublished) | `/?c=<slug>` |
+| `/about` | New in + menu on About VYRA | `/` behind, `/?o=about` on top |
+| `/visit` | New in + menu on Visit us | `/` behind, `/?o=visit` on top |
+| `/p/<slug>` | that look + details sheet (ZP-512) | `/` + `#look-` behind, `?d=` on top |
+| `/privacy`, `/review/<token>`, 404 | simple page with a top bar (wordmark + "Back to the looks") | – |
+
+(`/site/…` on UAT.) `/site/preview` is gone (404).
+
+- **Server**: each folded page renders `FeedRoute` (the landing page's
+  cached reads + `FlipFeed` with `route={{ overlay }}`) and keeps its own
+  metadata (`routeMetadata`: title, description, canonical = its address,
+  Open Graph / Twitter; `/collections/<slug>` with the collection's
+  picture); `/visit` keeps the LocalBusiness JSON-LD.
+- **Overlays by address** (`?o=collections|about|visit`, `overlayFromSearch`),
+  like the details sheet's `?d=`: the URL says which overlay is open (the
+  collections sheet, or the menu with that section expanded). The landing
+  writes the feed URL and pushes the overlay entry from a timer, after
+  Next.js patched history (`overlayHistoryState` marker; a reloaded `/?o=…`
+  gets the same treatment unless it is our own entry). Closing the menu or
+  sheet pops that entry (or removes `o` in place when nothing is behind);
+  browser back closes it; the feed stays. Opening the menu or the sheet from
+  the feed's own buttons writes no URL, as before.
+- **"Visit us" links inside the feed** (the rail without WhatsApp, the end
+  slide, the details card's footer) open the menu on Visit us (`?o=visit`)
+  instead of loading /visit (from the details card: the sheet closes first);
+  `visit_us` is tracked once.
+- **Frame**: the feed marks itself (`data-feed-page`), so every folded page
+  gets the full-screen feed frame and its 404 keeps the simple top bar. The
+  site has no header navigation and no footer any more; the menu holds the
+  collections, About, Visit us, the guide, WhatsApp, the shop rating and the
+  socials.
+- **Removed**: `src/components/storefront/home/*`, `collection/*`, `info/*`,
+  `Header`, `Footer`, `ProductCard`, `CategoryTile`, `ColourBlock`,
+  `FilterBar`, `Gallery`, `GalleryVideo`, `Hero`, `LookbookImage` and the
+  lookbook manifest, `SectionHeader`, `TrustStrip`, `EnquiryButton`, the card
+  helpers in `product.ts`, `listing-page.ts`, `listing-query.ts`, the menu's
+  `aboutExcerpt`, `/site/preview` (page, art route, gate, preview data), and
+  their tests. The UAT workflow still passes `GRACE_STOREFRONT_PREVIEW`
+  (now unused; harmless).
+- **Sitemap**: there is none yet (no `app/sitemap.ts`); when ZP-492 adds it,
+  list the landing page, `/collections/<slug>`, `/p/<slug>`, `/about`,
+  `/visit` and `/privacy`.

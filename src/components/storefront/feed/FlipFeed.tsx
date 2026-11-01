@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { track } from "@/lib/analytics/client";
 import { loadFeedAction, type FeedActionResult } from "@/lib/storefront/feed-actions";
 import {
@@ -36,11 +36,20 @@ import {
   sheetCloseReason,
   sheetHistoryState,
   sheetLocation,
+  isPlainClick,
   sheetSlugFromSearch,
   type SheetCloseReason,
 } from "@/lib/storefront/feed-sheet";
 import type { SheetExtras } from "@/lib/storefront/feed-sheet";
 import { FEED_DOCUMENT_TITLE, productLandingHistory } from "@/lib/storefront/product-landing";
+import {
+  isOwnOverlayEntry,
+  OVERLAY_PARAM,
+  overlayFromSearch,
+  overlayHistoryState,
+  oneViewHistory,
+  type FeedOverlay,
+} from "@/lib/storefront/one-view";
 import { Wordmark } from "../Brand";
 import { cn } from "../cn";
 import { ShellMenuDialog } from "../ShellMenu";
@@ -78,6 +87,12 @@ export type FlipFeedProps = {
    * `extras` from the server, as the action only knows published pieces).
    */
   landing?: { slug: string; mode: "product" | "preview"; extras?: SheetExtras | null };
+  /**
+   * ZP-514: this feed is a folded address (/shop, /new, /collections[/<slug>],
+   * /about, /visit). After hydration the URL becomes the feed's and, with an
+   * overlay, the overlay entry (?o=…) is pushed on top (oneViewHistory).
+   */
+  route?: { overlay: FeedOverlay | null };
 };
 
 type Mode = "replace" | "append";
@@ -136,6 +151,7 @@ export function FlipFeed({
   hasWhatsApp,
   menu,
   landing,
+  route,
 }: FlipFeedProps) {
   /** The tab of the items on screen (changes only together with them). */
   const [tab, setTab] = useState(initialTab);
@@ -174,13 +190,20 @@ export function FlipFeed({
   // Review: once a /p/<slug> landing's address has become the feed's, the tab
   // title is the feed's too (after the router has applied the page metadata).
   useEffect(() => {
-    if (landing?.mode !== "product" || pathname.includes("/p/")) return;
+    // ZP-514: a folded address (/about, /shop, …) too, once it has become the feed URL.
+    const left = (landing?.mode === "product" && !pathname.includes("/p/")) || (route !== undefined && pathname === links.home);
+    if (!left) return;
     const timer = setTimeout(() => {
       document.title = FEED_DOCUMENT_TITLE;
     }, 50);
     return () => clearTimeout(timer);
-  }, [pathname, searchParams, landing?.mode]);
-  const urlTab = resolveFeedTab(searchParams.get(FEED_TAB_PARAM), tabs);
+  }, [pathname, searchParams, landing?.mode, route, links.home]);
+  // ZP-514: a folded address (/collections/<slug>) carries its tab in the path, not in ?c=,
+  // until the landing rewrites it to the feed URL: until then the route's tab is the URL's.
+  const urlTab =
+    route && !searchParams.has(FEED_TAB_PARAM) && pathname !== links.home
+      ? initialTab
+      : resolveFeedTab(searchParams.get(FEED_TAB_PARAM), tabs);
   // ZP-510: the details sheet is open while the URL has ?d=<slug> of a loaded look.
   const urlSheetSlug = sheetSlugFromSearch(searchParams.toString());
   /**
@@ -207,6 +230,16 @@ export function FlipFeed({
   const shownSheet = useRef<string | null>(null);
   /** ZP-513: a look the sheet was closed for ("You may also like"); shown once the sheet is closed. */
   const pendingLook = useRef<string | null>(null);
+  /** ZP-514: an overlay to open once the details sheet has closed ("Visit us" in its footer). */
+  const pendingOverlay = useRef<FeedOverlay | null>(null);
+  /** ZP-514: the latest openOverlay (called from the close effect). */
+  const openOverlayRef = useRef<(overlay: FeedOverlay) => void>(() => {});
+  /** ZP-514: the feed entry is right behind the overlay entry (?o=; close = history.back()). */
+  const overlayEntryBehind = useRef(false);
+  /** ZP-514: a close of an overlay entry is under way (until ?o= has left the URL). */
+  const overlayClosing = useRef(false);
+  /** ZP-514: the overlay the URL opened (so a URL change only closes what it opened). */
+  const urlOpened = useRef<FeedOverlay | null>(null);
   /** ZP-513: the latest showLook (called from the close effect). */
   const showLookRef = useRef<(slug: string) => void>(() => {});
   /** ZP-512: a /p/<slug> landing's look, until its sheet open is tracked (from: "shared"). */
@@ -446,7 +479,7 @@ export function FlipFeed({
     const guideTimer = isGuideReplay(search)
       ? undefined
       : setTimeout(() => {
-          if (landingFirst === "push" || landingFirst === "wait") setGuide("done");
+          if (landingFirst === "push" || landingFirst === "wait" || route?.overlay || overlayFromSearch(search)) setGuide("done");
           else decideGuide();
         });
     const settle = (found: boolean, loadable: boolean) => {
@@ -633,6 +666,131 @@ export function FlipFeed({
     scroller.current?.focus({ preventScroll: true });
   };
 
+  // --------------------------------------- ZP-514: overlays by address (?o=)
+
+  /** The menu's section to start expanded (About / Visit us). */
+  const [menuSection, setMenuSection] = useState<"about" | "visit" | null>(null);
+  const urlOverlay = overlayFromSearch(searchParams.toString());
+
+  /** Open an overlay through the URL (pushes ?o=; back closes it). */
+  const openOverlay = useCallback((overlay: FeedOverlay) => {
+    const { pathname, search, hash } = window.location;
+    const params = new URLSearchParams(search);
+    params.set(OVERLAY_PARAM, overlay);
+    try {
+      window.history.pushState(overlayHistoryState(overlay), "", `${pathname}?${params.toString()}${hash}`);
+      overlayEntryBehind.current = true;
+    } catch {
+      // History blocked: open it without the URL.
+      if (overlay === "collections") sheetRef.current?.showModal();
+      else {
+        setMenuSection(overlay);
+        dialogRef.current?.showModal();
+      }
+    }
+  }, []);
+  useEffect(() => {
+    openOverlayRef.current = openOverlay;
+  }, [openOverlay]);
+
+  /** The menu or collections sheet closed itself: drop ?o= (pop our entry, or remove it in place). */
+  const closeOverlayUrl = () => {
+    urlOpened.current = null;
+    // Idempotent: the close controls call it at once and the close event again.
+    if (overlayClosing.current || !overlayFromSearch(window.location.search)) return;
+    overlayClosing.current = true;
+    const back = overlayEntryBehind.current;
+    overlayEntryBehind.current = false;
+    try {
+      if (back) window.history.back();
+      else {
+        const { pathname, search, hash } = window.location;
+        const params = new URLSearchParams(search);
+        params.delete(OVERLAY_PARAM);
+        const query = params.toString();
+        window.history.replaceState(customHistoryState(window.history.state), "", `${pathname}${query ? `?${query}` : ""}${hash}`);
+      }
+    } catch {
+      // Ignore: the overlay is closed; the URL keeps o until the next write.
+    }
+  };
+
+  // The URL says which overlay is open: open it (the collections sheet, or the
+  // menu on About / Visit us), or close the one it opened (browser back).
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const menu = dialogRef.current;
+      const sheet = sheetRef.current;
+      if (urlOverlay === "collections") {
+        if (menu?.open) menu.close();
+        if (sheet && !sheet.open) {
+          sheet.showModal();
+          sheet.querySelector<HTMLButtonElement>('[aria-current="true"]')?.focus();
+        }
+      } else if (urlOverlay) {
+        if (sheet?.open) sheet.close();
+        setMenuSection(urlOverlay);
+        if (menu && !menu.open) menu.showModal();
+      } else if (urlOpened.current) {
+        if (urlOpened.current === "collections") sheet?.close();
+        else menu?.close();
+      }
+      urlOpened.current = urlOverlay;
+      if (!urlOverlay) overlayClosing.current = false;
+      if (urlOverlay && !overlayEntryBehind.current && isOwnOverlayEntry(window.history.state, urlOverlay)) overlayEntryBehind.current = true;
+    });
+    return () => clearTimeout(timer);
+  }, [urlOverlay]);
+
+  // A folded address (/about, /collections/<slug>, …), or a reloaded /?o=…:
+  // the feed URL behind, the overlay entry on top (after Next.js patched history).
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const { search } = window.location;
+      const landed = overlayFromSearch(search);
+      try {
+        if (route) {
+          const h = oneViewHistory({ homePath: links.home, search, tab: initialTab, overlay: route.overlay });
+          window.history.replaceState(customHistoryState(window.history.state), "", h.replace);
+          if (h.push && route.overlay) {
+            window.history.pushState(overlayHistoryState(route.overlay), "", h.push);
+            overlayEntryBehind.current = true;
+          }
+        } else if (landed && !isOwnOverlayEntry(window.history.state, landed)) {
+          const h = oneViewHistory({ homePath: window.location.pathname, search, tab: initialTab, overlay: landed });
+          window.history.replaceState(customHistoryState(window.history.state), "", h.replace);
+          if (h.push) {
+            window.history.pushState(overlayHistoryState(landed), "", h.push);
+            overlayEntryBehind.current = true;
+          }
+        }
+      } catch {
+        // History blocked or rate-limited: the overlay still opens; closing removes o in place.
+      }
+    });
+    return () => clearTimeout(timer);
+    // Mount only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * "Visit us" links inside the feed (rail without WhatsApp, end slide, the
+   * sheet's footer) open the menu on Visit us instead of loading /visit
+   * (which would show the same thing). Other clicks (new tab) keep the link.
+   */
+  const onVisitLinkCapture = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!isPlainClick(event)) return;
+    const link = (event.target as Element).closest("a");
+    if (!link || link.getAttribute("href") !== links.visit) return;
+    event.preventDefault();
+    event.stopPropagation();
+    track("visit_us", { screen: "feed" });
+    if (detailsRef.current?.open) {
+      pendingOverlay.current = "visit";
+      requestCloseDetails("button");
+    } else openOverlay("visit");
+  };
+
   const openMenu = () => dialogRef.current?.showModal();
   const openSheet = () => {
     const sheet = sheetRef.current;
@@ -641,7 +799,10 @@ export function FlipFeed({
     // Focus starts on the current collection.
     sheet.querySelector<HTMLButtonElement>("[aria-current=\"true\"]")?.focus();
   };
-  const onSheetClose = () => pillButton.current?.focus();
+  const onSheetClose = () => {
+    closeOverlayUrl();
+    pillButton.current?.focus();
+  };
 
   const toggleDetails = () => {
     const next = !details;
@@ -654,7 +815,10 @@ export function FlipFeed({
       // Storage blocked (private mode, settings): the choice lasts for this page only.
     }
   };
-  const onMenuClose = () => menuButton.current?.focus();
+  const onMenuClose = () => {
+    closeOverlayUrl();
+    menuButton.current?.focus();
+  };
 
   // --------------------------------------------- ZP-510: details sheet
 
@@ -719,7 +883,10 @@ export function FlipFeed({
       // ZP-513: closed for a "You may also like" piece: go to its look (after the URL lost d).
       const look = pendingLook.current;
       pendingLook.current = null;
-      if (look) showLookRef.current(look);
+      const overlay = pendingOverlay.current;
+      pendingOverlay.current = null;
+      if (overlay) openOverlayRef.current(overlay);
+      else if (look) showLookRef.current(look);
       else if (opener?.isConnected) opener.focus({ preventScroll: true });
       else scroller.current?.focus({ preventScroll: true });
     }
@@ -778,7 +945,7 @@ export function FlipFeed({
 
   return (
     // FEED_PAGE_ATTR: the storefront frame becomes the full-screen feed frame for any page that renders this.
-    <div data-feed-page="" className="flex h-full w-full items-center justify-center gap-6 bg-brand-cream">
+    <div data-feed-page="" className="flex h-full w-full items-center justify-center gap-6 bg-brand-cream" onClickCapture={onVisitLinkCapture}>
       {/* Keeps the column centred against the step buttons on computers. */}
       <span aria-hidden="true" className="hidden w-12 md:block" />
 
@@ -938,6 +1105,7 @@ export function FlipFeed({
         social={menu.social}
         current={menu.current}
         onClose={onMenuClose}
+        section={menuSection}
       />
     </div>
   );

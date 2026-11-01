@@ -1,5 +1,12 @@
 # Storefront shell (ZP-487)
 
+> ZP-514: one view. Every storefront address renders the feed (see
+> docs/storefront/feed.md, "One view"); only /privacy, /review/<token> and
+> the 404 are pages, with a simple top bar (`SimpleTopBar`: wordmark +
+> "Back to the looks"). The header, its nav and the footer are gone; the
+> menu (`ShellMenu`) holds the navigation. Notes below about the header and
+> footer describe the pre-ZP-514 shell.
+
 The frame every public VYRA page renders in: header, nav, footer, the
 storefront 404 and error pages, the privacy page, and the shared plumbing
 the page builders (home ZP-488, collections ZP-489, product ZP-490,
@@ -10,8 +17,8 @@ about/visit ZP-491) use. Brand rules: `docs/storefront/brand-refinements.md`
 
 | File | What |
 |---|---|
-| `src/app/site/layout.tsx` | The shell. Skip link, `<Header>`, `<main id="main">`, `<Footer>` (landmarks: banner, main, contentinfo). Cream ground. Fonts and `globals.css` come from the root layout. `robots: noindex` until launch. Wraps the page in `<SiteBaseProvider>`. |
-| `src/app/site/not-found.tsx` (+ `not-found-content.tsx`) | Storefront 404, "This piece has moved on.", links to New Arrivals and Home (base from `useSitePath()`). Note: in Next 16.4.3 any `notFound()` page (also the admin's) is sent as a 404 whose body React renders on the client, so the 404 needs JavaScript to show; unmatched admin URLs still server-render the root 404. |
+| `src/app/site/layout.tsx` | The shell. Skip link, the simple top bar (only shown on pages that are not the feed, ZP-514), `<main id="main">`. Cream ground. Fonts and `globals.css` come from the root layout. `robots: noindex` until launch. Wraps the page in `<SiteBaseProvider>`. |
+| `src/app/site/not-found.tsx` (+ `not-found-content.tsx`) | Storefront 404, "This piece has moved on.", "Back to the looks" (ZP-514) (base from `useSitePath()`). Note: in Next 16.4.3 any `notFound()` page (also the admin's) is sent as a 404 whose body React renders on the client, so the 404 needs JavaScript to show; unmatched admin URLs still server-render the root 404. |
 | `src/app/site/[...missing]/page.tsx` | Calls `notFound()`, so an unknown storefront URL gets the storefront 404 inside the shell (not the admin 404). Real pages are static segments and always win over it. |
 | `src/app/site/error.tsx` | Client error boundary. Never shows the message, digest or stack. "Try again" (`retry()`) and "Back to home". |
 | `src/app/site/privacy/page.tsx` | Short privacy notice; contact details from settings. |

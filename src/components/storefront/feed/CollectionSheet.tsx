@@ -26,7 +26,13 @@ export function CollectionSheet({ dialogRef, id, tabs, current, onPick, onClose 
   const headingId = useId();
   /** The pointer went down on the backdrop (not a drag that started inside the sheet). */
   const downOnBackdrop = useRef(false);
-  const close = () => dialogRef.current?.close();
+  // ZP-514: onClose runs at once too (idempotent; the close event follows).
+  const close = () => {
+    const dialog = dialogRef.current;
+    if (!dialog?.open) return;
+    dialog.close();
+    onClose();
+  };
   // The dialog box itself (outside the sheet content) is the backdrop. Close
   // only when both pointerdown and click happened there.
   const onPointerDown = (event: PointerEvent<HTMLDialogElement>) => {

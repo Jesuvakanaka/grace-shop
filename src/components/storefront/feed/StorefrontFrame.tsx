@@ -62,17 +62,17 @@ function useVisibleViewportHeight(active: boolean, pathname: string) {
  * Home: the full-screen flip feed, so no header and no footer, and the frame
  * is exactly one small viewport high with no document scroll (the feed
  * scrolls inside itself; on iOS the URL bar then never collapses or jumps).
- * Every other page: header, main, footer as before.
+ * Every other page (ZP-514: privacy, the review form, the 404): the simple
+ * top bar and main.
  */
 export function StorefrontFrame({
   skipLink,
   header,
-  footer,
   children,
 }: {
   skipLink: ReactNode;
+  /** ZP-514: the simple top bar of the pages that are not the feed. */
   header: ReactNode;
-  footer: ReactNode;
   children: ReactNode;
 }) {
   const segment = useSelectedLayoutSegment();
@@ -103,7 +103,6 @@ export function StorefrontFrame({
       <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
         {children}
       </main>
-      <div className="sf-page-chrome">{footer}</div>
     </div>
   );
 }
