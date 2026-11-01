@@ -16,7 +16,7 @@ datasource db {
 model User {
   id        Int      @id @default(autoincrement())
   username  String   @unique
-  password  String   // bcrypt hashed
+  password  String // bcrypt hashed
   fullName  String
   role      String   @default("STAFF") // OWNER or STAFF
   active    Boolean  @default(true)
@@ -28,7 +28,7 @@ model User {
 
 model ExchangeRate {
   id            Int      @id @default(autoincrement())
-  rmbToUsd      Float    // e.g. 0.14 means 1 RMB = 0.14 USD
+  rmbToUsd      Float // e.g. 0.14 means 1 RMB = 0.14 USD
   effectiveDate DateTime
   notes         String?
   createdBy     String?
@@ -38,30 +38,30 @@ model ExchangeRate {
 // ─── Products & Stock ──────────────────────────────────────────────────────────
 
 model Product {
-  id               Int      @id @default(autoincrement())
-  itemNumber       String   @unique
-  productName      String
-  imageUrl         String?  // Path to product image
-  unitCostRmb      Float    @default(0)
-  unitCostUsd      Float    @default(0)
-  sellingPriceRmb  Float    @default(0)
-  sellingPriceUsd  Float    @default(0)
+  id                   Int      @id @default(autoincrement())
+  itemNumber           String   @unique
+  productName          String
+  imageUrl             String? // Path to product image
+  unitCostRmb          Float    @default(0)
+  unitCostUsd          Float    @default(0)
+  sellingPriceRmb      Float    @default(0)
+  sellingPriceUsd      Float    @default(0)
   // Wholesale (ZP-475). Float to match the other money columns. No default:
   // NULL means "not set yet", which must not be confused with a price of 0.
   wholesalePriceUsd    Float?
   // Minimum quantity at which wholesalePriceUsd applies (>= 1 when set).
   wholesaleMinQuantity Int?
-  openingQuantity  Int      @default(0)
-  currentQuantity  Int      @default(0)
-  notes            String?
-  sourceImportId   Int?
-  sourceFilename   String?
-  sourceSheetName  String?
-  sourceRowNumber  Int?
-  createdBy        String?
-  updatedBy        String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  openingQuantity      Int      @default(0)
+  currentQuantity      Int      @default(0)
+  notes                String?
+  sourceImportId       Int?
+  sourceFilename       String?
+  sourceSheetName      String?
+  sourceRowNumber      Int?
+  createdBy            String?
+  updatedBy            String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   // ─── Storefront / VYRA website (ZP-482). See docs/storefront/data-model.md.
   // None of these touch stock or cost. Only published products are public.
@@ -99,21 +99,21 @@ enum ProductVideoStatus {
 }
 
 model ProductVideo {
-  id         Int                @id @default(autoincrement())
-  productId  Int                @unique
-  status     ProductVideoStatus @default(PROCESSING)
+  id              Int                @id @default(autoincrement())
+  productId       Int                @unique
+  status          ProductVideoStatus @default(PROCESSING)
   // Storage keys, e.g. videos/<32 hex>.mp4 and videos/<32 hex>.webp; null
   // until a first video is READY. A replacement does not touch them (nor the
   // READY status) until the new video is stored, so the public video never
   // has a gap; a failed replacement leaves them as they were.
-  videoKey   String?
-  posterKey  String?
-  width      Int?
-  height     Int?
-  durationMs Int?
-  sizeBytes  Int?
+  videoKey        String?
+  posterKey       String?
+  width           Int?
+  height          Int?
+  durationMs      Int?
+  sizeBytes       Int?
   // Owner-facing reason when status is FAILED.
-  error      String?
+  error           String?
   // Processing lock (any instance): the upload being processed right now and
   // when it started. Set for first uploads (status PROCESSING) AND
   // replacements (status stays READY); a second upload while it is set and
@@ -122,9 +122,9 @@ model ProductVideo {
   // meanwhile is never brought back.
   uploadId        String?
   uploadStartedAt DateTime?
-  createdBy  String?
-  createdAt  DateTime           @default(now())
-  updatedAt  DateTime           @updatedAt
+  createdBy       String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
@@ -190,11 +190,11 @@ model StockMovement {
   id             Int      @id @default(autoincrement())
   productId      Int
   movementDate   DateTime
-  movementType   String   // OPENING_BALANCE, SALE, PURCHASE, RETURN, ADJUSTMENT
-  quantity        Int      // positive for in, negative for out
+  movementType   String // OPENING_BALANCE, SALE, PURCHASE, RETURN, ADJUSTMENT
+  quantity       Int // positive for in, negative for out
   openingBalance Int      @default(0)
   closingBalance Int      @default(0)
-  referenceType  String?  // SALE, EXPENSE, IMPORT, MANUAL
+  referenceType  String? // SALE, EXPENSE, IMPORT, MANUAL
   referenceId    Int?
   notes          String?
   sourceImportId Int?
@@ -209,7 +209,7 @@ model StockMovement {
 model Sale {
   id            Int      @id @default(autoincrement())
   saleDate      DateTime
-  paymentType   String   // CASH, CREDIT, MIXED
+  paymentType   String // CASH, CREDIT, MIXED
   customerName  String?
   customerPhone String?
   totalAmount   Float    @default(0)
@@ -253,37 +253,37 @@ model Expense {
 // ─── Cash Position ─────────────────────────────────────────────────────────────
 
 model CashPosition {
-  id                    Int      @id @default(autoincrement())
-  cashDate              DateTime @unique
-  openingCash           Float    @default(0)
-  cashSales             Float    @default(0)
-  debtorPaymentsReceived Float   @default(0)
-  otherCashIn           Float    @default(0)
-  expensesPaid          Float    @default(0)
-  creditorPaymentsMade  Float    @default(0)
-  expectedClosingCash   Float    @default(0)
-  actualCountedCash     Float?
-  variance              Float?
-  notes                 String?
-  createdBy             String?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                     Int      @id @default(autoincrement())
+  cashDate               DateTime @unique
+  openingCash            Float    @default(0)
+  cashSales              Float    @default(0)
+  debtorPaymentsReceived Float    @default(0)
+  otherCashIn            Float    @default(0)
+  expensesPaid           Float    @default(0)
+  creditorPaymentsMade   Float    @default(0)
+  expectedClosingCash    Float    @default(0)
+  actualCountedCash      Float?
+  variance               Float?
+  notes                  String?
+  createdBy              String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 }
 
 // ─── Debtors (Credit Sales) ────────────────────────────────────────────────────
 
 model Debtor {
-  id                Int      @id @default(autoincrement())
-  customerName      String
-  phoneNumber       String?
-  totalCreditAmount Float    @default(0)
-  totalPaid         Float    @default(0)
-  outstandingBalance Float   @default(0)
-  status            String   @default("OPEN") // OPEN, PART_PAID, PAID
-  notes             String?
-  createdBy         String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                 Int      @id @default(autoincrement())
+  customerName       String
+  phoneNumber        String?
+  totalCreditAmount  Float    @default(0)
+  totalPaid          Float    @default(0)
+  outstandingBalance Float    @default(0)
+  status             String   @default("OPEN") // OPEN, PART_PAID, PAID
+  notes              String?
+  createdBy          String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   transactions DebtorTransaction[]
 }
@@ -292,9 +292,9 @@ model DebtorTransaction {
   id              Int      @id @default(autoincrement())
   debtorId        Int
   transactionDate DateTime
-  transactionType String   // CREDIT_SALE, PAYMENT
+  transactionType String // CREDIT_SALE, PAYMENT
   amount          Float
-  referenceType   String?  // SALE, MANUAL
+  referenceType   String? // SALE, MANUAL
   referenceId     Int?
   notes           String?
   createdBy       String?
@@ -306,19 +306,19 @@ model DebtorTransaction {
 // ─── Creditors (Suppliers) ─────────────────────────────────────────────────────
 
 model Creditor {
-  id                Int      @id @default(autoincrement())
-  creditorName      String
-  phoneNumber       String?
-  description       String?
-  totalAmountOwed   Float    @default(0)
-  totalPaid         Float    @default(0)
-  outstandingBalance Float   @default(0)
-  dueDate           DateTime?
-  status            String   @default("OPEN") // OPEN, PART_PAID, PAID
-  notes             String?
-  createdBy         String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                 Int       @id @default(autoincrement())
+  creditorName       String
+  phoneNumber        String?
+  description        String?
+  totalAmountOwed    Float     @default(0)
+  totalPaid          Float     @default(0)
+  outstandingBalance Float     @default(0)
+  dueDate            DateTime?
+  status             String    @default("OPEN") // OPEN, PART_PAID, PAID
+  notes              String?
+  createdBy          String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   transactions CreditorTransaction[]
 }
@@ -327,7 +327,7 @@ model CreditorTransaction {
   id              Int      @id @default(autoincrement())
   creditorId      Int
   transactionDate DateTime
-  transactionType String   // PURCHASE, PAYMENT
+  transactionType String // PURCHASE, PAYMENT
   amount          Float
   referenceType   String?
   referenceId     Int?
@@ -341,59 +341,59 @@ model CreditorTransaction {
 // ─── Day Closing ───────────────────────────────────────────────────────────────
 
 model DayClosing {
-  id                    Int      @id @default(autoincrement())
-  closingDate           DateTime @unique
-  openingCash           Float    @default(0)
-  totalCashSales        Float    @default(0)
-  totalCreditSales      Float    @default(0)
-  totalExpenses         Float    @default(0)
-  debtorPaymentsReceived Float   @default(0)
-  creditorPaymentsMade  Float    @default(0)
-  expectedClosingCash   Float    @default(0)
-  actualCountedCash     Float?
-  cashVariance          Float?
-  totalItemsSold        Int      @default(0)
-  stockNotes            String?
-  signOffName           String?
-  closingNotes          String?
-  status                String   @default("DRAFT") // DRAFT, CLOSED
-  closedBy              String?
-  createdBy             String?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                     Int      @id @default(autoincrement())
+  closingDate            DateTime @unique
+  openingCash            Float    @default(0)
+  totalCashSales         Float    @default(0)
+  totalCreditSales       Float    @default(0)
+  totalExpenses          Float    @default(0)
+  debtorPaymentsReceived Float    @default(0)
+  creditorPaymentsMade   Float    @default(0)
+  expectedClosingCash    Float    @default(0)
+  actualCountedCash      Float?
+  cashVariance           Float?
+  totalItemsSold         Int      @default(0)
+  stockNotes             String?
+  signOffName            String?
+  closingNotes           String?
+  status                 String   @default("DRAFT") // DRAFT, CLOSED
+  closedBy               String?
+  createdBy              String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 }
 
 // ─── Import System ─────────────────────────────────────────────────────────────
 
 model ImportDocument {
-  id           Int       @id @default(autoincrement())
-  filename     String
-  documentType String    // PRODUCT_LIST, OPENING_STOCK, BUSINESS_CONTROL
-  status       String    @default("DRAFT") // DRAFT, COMPLETED, FAILED, CANCELLED
-  importedBy   String?
-  totalRows    Int       @default(0)
-  importedRows Int       @default(0)
-  skippedRows  Int       @default(0)
-  errorRows    Int       @default(0)
+  id               Int       @id @default(autoincrement())
+  filename         String
+  documentType     String // PRODUCT_LIST, OPENING_STOCK, BUSINESS_CONTROL
+  status           String    @default("DRAFT") // DRAFT, COMPLETED, FAILED, CANCELLED
+  importedBy       String?
+  totalRows        Int       @default(0)
+  importedRows     Int       @default(0)
+  skippedRows      Int       @default(0)
+  errorRows        Int       @default(0)
   exchangeRateUsed Float?
-  createdAt    DateTime  @default(now())
-  completedAt  DateTime?
+  createdAt        DateTime  @default(now())
+  completedAt      DateTime?
 
   rows   ImportRow[]
   errors ImportError[]
 }
 
 model ImportRow {
-  id                Int      @id @default(autoincrement())
-  importDocumentId  Int
-  sheetName         String?
-  rowNumber         Int
+  id                 Int      @id @default(autoincrement())
+  importDocumentId   Int
+  sheetName          String?
+  rowNumber          Int
   detectedRecordType String?
-  rawData           String?  // JSON string of raw row data
-  mappedData        String?  // JSON string of mapped data
-  status            String   @default("PENDING") // PENDING, READY, WARNING, ERROR, IMPORTED, SKIPPED
-  errorMessage      String?
-  createdAt         DateTime @default(now())
+  rawData            String? // JSON string of raw row data
+  mappedData         String? // JSON string of mapped data
+  status             String   @default("PENDING") // PENDING, READY, WARNING, ERROR, IMPORTED, SKIPPED
+  errorMessage       String?
+  createdAt          DateTime @default(now())
 
   importDocument ImportDocument @relation(fields: [importDocumentId], references: [id])
   errors         ImportError[]
@@ -403,7 +403,7 @@ model ImportError {
   id               Int      @id @default(autoincrement())
   importDocumentId Int
   importRowId      Int?
-  errorType        String   // MISSING_FIELD, INVALID_NUMBER, DUPLICATE, VALIDATION
+  errorType        String // MISSING_FIELD, INVALID_NUMBER, DUPLICATE, VALIDATION
   errorMessage     String
   createdAt        DateTime @default(now())
 
@@ -466,4 +466,145 @@ model SiteSettings {
   updatedBy String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ─── First-party analytics (ZP-493) ────────────────────────────────────────────
+// Anonymous: no names, phone numbers, accounts, IP addresses or user agents.
+// visitId (sessionStorage) and deviceId (localStorage) are random UUIDs made
+// in the browser. Raw events are kept 90 days, the daily rollups 25 months
+// (npm run analytics:rollup). No foreign keys on purpose: deleting a product
+// never blocks on analytics, and old rows keep their numbers.
+// See docs/storefront/analytics.md (event catalogue, columns, retention).
+
+/// One event from the storefront tracker (POST /api/public/events).
+model AnalyticsEvent {
+  id         BigInt   @id @default(autoincrement())
+  /// When it happened (client clock; replaced by receivedAt when more than 24 h back or 5 min ahead).
+  occurredAt DateTime
+  receivedAt DateTime @default(now())
+  /// Analytics day of occurredAt in Africa/Harare. Retention and rollups go by this.
+  day        DateTime @db.Date
+  visitId    String   @db.Uuid
+  /// Null when the browser blocks localStorage.
+  deviceId   String?  @db.Uuid
+  /// One of ANALYTICS_EVENT_TYPES (src/lib/analytics/events.ts).
+  type       String   @db.VarChar(32)
+  /// The piece, when the event is about one (checked against published pieces at ingest).
+  slug       String?  @db.VarChar(80)
+  /// Product.id resolved from slug at ingest, so a later slug change keeps history together.
+  productId  Int?
+  /// Path without query string or /site prefix, e.g. "/" or "/p/linen-dress".
+  page       String?  @db.VarChar(200)
+  /// Feed tab: "new" or a category slug.
+  collection String?  @db.VarChar(80)
+  /// Type-specific props, validated against EVENT_SPECS.
+  props      Json     @default("{}")
+
+  @@index([day, type])
+  @@index([productId, day])
+  @@index([visitId])
+}
+
+/// One row per analytics day: the whole site.
+model AnalyticsDailyVisits {
+  day             DateTime @id @db.Date
+  /// Visits that started this day (visit_start).
+  visits          Int      @default(0)
+  /// Distinct device ids among them (null ids not counted).
+  devices         Int      @default(0)
+  /// Visits whose device had visited before.
+  returningVisits Int      @default(0)
+  /// Visits with at least one visit_end (the rest closed without one).
+  endedVisits     Int      @default(0)
+  /// Ended under 5 visible seconds having seen at most one look.
+  bounces         Int      @default(0)
+  /// Sum of visible seconds (latest visit_end of each visit).
+  totalSeconds    Float    @default(0)
+  /// Sum of looks seen per visit.
+  looksSeen       Int      @default(0)
+  /// Visits with at least one whatsapp_enquire.
+  enquiringVisits Int      @default(0)
+  updatedAt       DateTime @default(now()) @updatedAt
+}
+
+/// Visits per day by referrer bucket, device class and campaign tag.
+model AnalyticsDailySource {
+  day             DateTime @db.Date
+  /// instagram | tiktok | whatsapp | facebook | google | direct | other
+  source          String   @db.VarChar(16)
+  /// phone | tablet | desktop
+  deviceClass     String   @db.VarChar(16)
+  /// ?src= / utm tag, "" when none.
+  campaign        String   @default("") @db.VarChar(64)
+  visits          Int      @default(0)
+  bounces         Int      @default(0)
+  enquiringVisits Int      @default(0)
+  totalSeconds    Float    @default(0)
+
+  @@id([day, source, deviceClass, campaign])
+}
+
+/// Per piece per day (ZP-505 Insights, ZP-506 ranking). Keyed by productId; slug is the latest seen.
+model AnalyticsDailyPiece {
+  day             DateTime @db.Date
+  productId       Int
+  slug            String   @db.VarChar(80)
+  /// look_view events / distinct visits with one.
+  views           Int      @default(0)
+  viewers         Int      @default(0)
+  /// Sum and number of look_dwell events (average = dwellSeconds / dwellCount).
+  dwellSeconds    Float    @default(0)
+  dwellCount      Int      @default(0)
+  photoViews      Int      @default(0)
+  videoStarts     Int      @default(0)
+  detailsShows    Int      @default(0)
+  productOpens    Int      @default(0)
+  sizeSelects     Int      @default(0)
+  colourSelects   Int      @default(0)
+  galleryZooms    Int      @default(0)
+  enquiries       Int      @default(0)
+  restockRequests Int      @default(0)
+  shares          Int      @default(0)
+  loveOn          Int      @default(0)
+  loveOff         Int      @default(0)
+  /// Visits whose last look (latest visit_end of the day) was this piece.
+  exits           Int      @default(0)
+
+  @@id([day, productId])
+  @@index([productId, day])
+}
+
+/// Per photo per day: photo index (1-based) and image file name ("" when not sent).
+model AnalyticsDailyPhoto {
+  day          DateTime @db.Date
+  productId    Int
+  photoIndex   Int
+  image        String   @default("") @db.VarChar(64)
+  slug         String   @db.VarChar(80)
+  views        Int      @default(0)
+  viewers      Int      @default(0)
+  dwellSeconds Float    @default(0)
+  dwellCount   Int      @default(0)
+
+  @@id([day, productId, photoIndex, image])
+  @@index([productId, day])
+}
+
+/// Per product video per day.
+model AnalyticsDailyVideo {
+  day          DateTime @db.Date
+  productId    Int
+  slug         String   @db.VarChar(80)
+  starts       Int      @default(0)
+  /// Distinct visits that started it.
+  viewers      Int      @default(0)
+  replays      Int      @default(0)
+  reached25    Int      @default(0)
+  reached50    Int      @default(0)
+  reached75    Int      @default(0)
+  reached100   Int      @default(0)
+  watchSeconds Float    @default(0)
+
+  @@id([day, productId])
+  @@index([productId, day])
 }

@@ -6,6 +6,7 @@
 #       seed:    npm run init             (node scripts/init-system.js)
 #       other:   node scripts/<script>.js
 #       import:  npm run import:august -- gs://<bucket>/<object> [--dry-run]
+#       analytics rollup (ZP-493, nightly): npm run analytics:rollup [-- --date YYYY-MM-DD]
 # Migrations are NOT applied at web start. No secrets are needed to build;
 # DATABASE_URL / DIRECT_URL / JWT_SECRET are supplied at runtime.
 

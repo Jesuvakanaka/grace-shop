@@ -5,6 +5,7 @@ import { NavMemory } from "@/components/storefront/product/NavMemory";
 import { ShellMenuProvider } from "@/components/storefront/ShellMenu";
 import { getMenuData } from "@/lib/storefront/menu-data";
 import { getShellData } from "@/lib/storefront/shell";
+import { AnalyticsProvider } from "@/lib/analytics/provider";
 
 // ZP-487: the VYRA storefront shell. Served at /site/** on the admin/UAT host
 // and at clean paths on a storefront host (src/proxy.ts). It sits outside
@@ -36,6 +37,8 @@ export default async function StorefrontLayout({
   const [shell, menu] = await Promise.all([getShellData(), getMenuData()]);
   return (
     <SiteBaseProvider base={shell.base}>
+      {/* ZP-493: first-party, anonymous analytics (visit_start / visit_end). See /privacy. */}
+      <AnalyticsProvider />
       {/* ZP-503: the menu's content for the header and the landing feed; NavMemory feeds the product page's back button. */}
       <ShellMenuProvider menu={menu}>
         <NavMemory />
