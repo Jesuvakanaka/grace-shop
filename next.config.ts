@@ -13,6 +13,16 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: projectRoot,
   },
+  experimental: {
+    // ZP-504: src/proxy.ts runs on every /api route (host routing must 404
+    // private APIs on the storefront host, so uploads stay in its matcher).
+    // A body passing through the proxy is buffered only up to this size and
+    // silently TRUNCATED beyond it (Next default 10 MB). 16 MiB holds the
+    // largest single-request upload: a photo of IMAGE_MAX_UPLOAD_BYTES (15 MiB)
+    // plus multipart framing; videos are sent in 8 MiB chunks.
+    // tests/upload-body-limit.test.ts keeps the two in step.
+    proxyClientMaxBodySize: 16 * 1024 * 1024,
+  },
   images: {
     // ZP-484: resized variants are cached for max(minimumCacheTTL, upstream
     // max-age) and cannot be invalidated. 300 s matches the public image

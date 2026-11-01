@@ -265,7 +265,7 @@ export default function WebsiteSettingsPage() {
   const previewNumber = form.whatsappNumber ? normalizeE164(form.whatsappNumber) : null;
   const preview = buildWhatsAppLink(
     { contacts: { whatsappNumber: previewNumber, enquiryTemplate: form.enquiryTemplate, generalEnquiryMessage: form.generalEnquiryMessage } },
-    { product: 'Silk Wrap Dress', url: 'https://vyra.example/p/silk-wrap-dress' },
+    { product: 'Silk Wrap Dress', url: 'https://vyra.example/p/silk-wrap-dress', ref: 'V-0099' },
   );
 
   return (
@@ -296,7 +296,7 @@ export default function WebsiteSettingsPage() {
           label="Product enquiry message"
           name="enquiryTemplate"
           error={errors.enquiryTemplate}
-          hint="Use {product} and {url}; {colour} and {size} are optional."
+          hint="Use {product} and {url}; {colour}, {size} and {ref} are optional. The piece's reference (ref V-0099) is added at the end unless you place {ref}."
         >
           {input('enquiryTemplate', { maxLength: MAX_LENGTH.enquiryTemplate })}
         </Field>

@@ -87,6 +87,7 @@ describe('public product DTO', () => {
       'isNew',
       'name',
       'priceUsd',
+      'ref', // ZP-504: "V-0099" from the id, see tests/whatsapp-enquiry-ref.test.ts
       'sizes',
       'slug',
       'video', // ZP-501: { src, poster, width, height } | null, see tests/video-dto.test.ts

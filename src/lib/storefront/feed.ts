@@ -194,8 +194,8 @@ export function toFeedItem(p: PublicProduct, ctx: FeedItemContext): FeedItem {
   const soldOut = p.availability === 'SOLD_OUT'
   const url = ctx.productUrl(p.slug)
   const enquireHref = soldOut
-    ? buildWhatsAppLink({ contacts: { ...ctx.contacts, enquiryTemplate: RESTOCK_TEMPLATE } }, { product: p.name, url })
-    : productEnquiryHref({ contacts: ctx.contacts }, { name: p.name, url })
+    ? buildWhatsAppLink({ contacts: { ...ctx.contacts, enquiryTemplate: RESTOCK_TEMPLATE } }, { product: p.name, url, ref: p.ref })
+    : productEnquiryHref({ contacts: ctx.contacts }, { name: p.name, url, ref: p.ref })
   return {
     slug: p.slug,
     name: p.name,

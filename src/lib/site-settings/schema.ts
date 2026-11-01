@@ -102,7 +102,7 @@ export const SITE_SETTINGS_DEFAULTS: Readonly<SiteSettingsData> = Object.freeze(
 export const EDITABLE_FIELDS = Object.freeze(Object.keys(SITE_SETTINGS_DEFAULTS) as SiteSettingsField[])
 
 /** Placeholders the enquiry template may use (see buildWhatsAppLink). */
-export const TEMPLATE_PLACEHOLDERS = ['product', 'url', 'colour', 'size'] as const
+export const TEMPLATE_PLACEHOLDERS = ['product', 'url', 'colour', 'size', 'ref'] as const
 
 export const FEW_LEFT_MIN = 1
 export const FEW_LEFT_MAX = 50

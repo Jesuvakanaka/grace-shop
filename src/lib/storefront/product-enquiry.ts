@@ -12,6 +12,8 @@ export type ProductEnquiryInput = {
   url: string | null
   colour?: string | null
   size?: string | null
+  /** ZP-504: the public ref (PublicProduct.ref, "V-0099"); the message ends with "(ref V-0099)". */
+  ref?: string | null
 }
 
 /** wa.me link for this product, or null when no WhatsApp number is set (hide the button). */
@@ -24,6 +26,7 @@ export function productEnquiryHref(
     url: input.url,
     colour: input.colour ?? null,
     size: input.size ?? null,
+    ref: input.ref ?? null,
   })
 }
 
