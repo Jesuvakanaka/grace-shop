@@ -7,21 +7,31 @@ import { describe, test, before, after } from 'node:test'
 import assert from 'node:assert'
 import prisma from '../src/lib/db'
 import { createStorefront, type CacheFn } from '../src/lib/storefront/cached'
-import { loadListing, parseListingQuery } from '../src/lib/storefront/listing-query'
+import { collectionsWithProducts, loadListing, parseListingQuery, sortForScope } from '../src/lib/storefront/listing-query'
 
 async function cleanup() {
   await prisma.product.deleteMany({ where: { itemNumber: { startsWith: 'ZP489C-' } } })
   await prisma.category.deleteMany({ where: { slug: { startsWith: 'zp489c-' } } })
 }
 
-function recordingCache() {
-  const keys = new Set<string>()
+/**
+ * A memoising stand-in for unstable_cache: one stored value per key (key
+ * parts + arguments, as unstable_cache keys entries). `loads` counts calls to
+ * the underlying loaders, i.e. cache misses that would hit the database.
+ */
+function memoCache() {
+  const store = new Map<string, Promise<unknown>>()
+  let loads = 0
   const cache: CacheFn = (fn, keyParts) =>
     (async (...args: unknown[]) => {
-      keys.add(JSON.stringify([keyParts, args]))
-      return fn(...(args as []))
+      const key = JSON.stringify([keyParts, args])
+      if (!store.has(key)) {
+        loads += 1
+        store.set(key, fn(...(args as [])))
+      }
+      return store.get(key)
     }) as unknown as typeof fn
-  return { cache, keys }
+  return { cache, entries: () => store.size, loads: () => loads }
 }
 
 describe('collection page data (DB)', () => {
@@ -52,8 +62,7 @@ describe('collection page data (DB)', () => {
   })
 
   test('unknown and unpublished categories are notFound; a published one lists its public products', async () => {
-    const rec = recordingCache()
-    const sf = createStorefront({ db: prisma, cache: rec.cache })
+    const sf = createStorefront({ db: prisma, cache: memoCache().cache })
     const q = parseListingQuery({})
     assert.deepStrictEqual(await loadListing(sf, { kind: 'category', slug: 'zp489c-nope' }, q, '/x'), { kind: 'notFound' })
     assert.deepStrictEqual(await loadListing(sf, { kind: 'category', slug: 'zp489c-hidden' }, q, '/x'), { kind: 'notFound' })
@@ -68,12 +77,61 @@ describe('collection page data (DB)', () => {
     assert.ok(all.kind === 'ok')
     assert.ok(!all.page.items.some((p) => p.slug === 'zp489c-4' || p.slug === 'zp489c-3'))
 
-    const before = rec.keys.size
-    for (let i = 0; i < 50; i++) {
-      await loadListing(sf, { kind: 'category', slug: `zp489c-x${i}` }, parseListingQuery({ page: String(i + 1), sort: 'newest' }), '/x')
-      await loadListing(sf, { kind: 'all' }, parseListingQuery({ page: String(i + 1), soldout: 'hide' }), '/x')
+  })
+
+  test('every listing query is answered from the same two cached loads (no per-request DB work)', async () => {
+    // Count the database calls the loaders make, through a proxy over prisma.
+    let dbCalls = 0
+    const counted = new Proxy(prisma, {
+      get(target, prop, receiver) {
+        const model = Reflect.get(target, prop, receiver)
+        if (typeof prop !== 'string' || prop.startsWith('$') || typeof model !== 'object' || model === null) return model
+        return new Proxy(model, {
+          get(m, method, r) {
+            const value = Reflect.get(m, method, r)
+            if (typeof value !== 'function') return value
+            return (...args: unknown[]) => {
+              dbCalls += 1
+              return value.apply(m, args)
+            }
+          },
+        })
+      },
+    })
+    const memo = memoCache()
+    const sf = createStorefront({ db: counted, cache: memo.cache })
+    const queries = [
+      {},
+      { sort: 'newest' },
+      { sort: 'price-asc', soldout: 'hide' },
+      { sort: 'price-desc', page: '2' },
+      { page: '999' },
+      { page: 'abc', sort: 'bogus' },
+    ]
+    const scopes = [
+      { kind: 'all' },
+      { kind: 'new' },
+      { kind: 'category', slug: 'zp489c-pub' },
+      { kind: 'category', slug: 'zp489c-hidden' },
+      { kind: 'category', slug: 'zp489c-nope' },
+    ] as const
+    await loadListing(sf, { kind: 'all' }, parseListingQuery({}), '/x')
+    await loadListing(sf, { kind: 'category', slug: 'zp489c-pub' }, parseListingQuery({}), '/x')
+    assert.strictEqual(memo.loads(), 2, 'warm: catalogue + categories')
+    const warmDbCalls = dbCalls
+    assert.ok(warmDbCalls > 0, 'the proxy sees the loaders’ queries')
+
+    for (const scope of scopes) {
+      for (const query of queries) {
+        const parsed = parseListingQuery(query)
+        await loadListing(sf, scope, parsed, '/x')
+        await sortForScope(sf, scope, parsed)
+      }
     }
-    assert.strictEqual(rec.keys.size, before, 'no new cache entries')
-    assert.strictEqual(before, 2)
+    await collectionsWithProducts(sf, await sf.listPublishedCategories())
+
+    assert.strictEqual(memo.loads(), 2, 'no further loader calls')
+    assert.strictEqual(memo.entries(), 2, 'no further cache entries')
+    assert.strictEqual(dbCalls, warmDbCalls, 'no further database calls')
   })
 })

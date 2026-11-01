@@ -17,7 +17,10 @@ import {
   parseListingQuery,
   requestOrigin,
   resolvePage,
+  sortForScope,
   sortOptionsFor,
+  collectionsWithProducts,
+  MAX_LISTING_PAGE,
   type ListingSource,
 } from '../src/lib/storefront/listing-query'
 
@@ -98,7 +101,7 @@ describe('parseListingQuery', () => {
     for (const q of ['soldout=show', 'soldout=1', 'soldout=', 'soldout=HIDE']) {
       assert.strictEqual(parseListingQuery(sp(q)).hideSoldOut, false, q)
     }
-    for (const q of ['page=0', 'page=-1', 'page=1.5', 'page=abc', 'page=', 'page=1e3', 'page=+2', 'page=99999999999']) {
+    for (const q of ['page=0', 'page=-1', 'page=1.5', 'page=abc', 'page=', 'page=1e3', 'page=+2']) {
       assert.strictEqual(parseListingQuery(sp(q)).page, 1, q)
     }
   })
@@ -336,5 +339,45 @@ describe('loadListing', () => {
     )
     assert.ok(setsHidden.kind === 'ok')
     assert.strictEqual(setsHidden.allPriced, true)
+  })
+})
+
+describe('review fixes', () => {
+  test('page above the maximum is clamped to it, so it redirects to the last page', async () => {
+    assert.strictEqual(MAX_LISTING_PAGE, 1000)
+    for (const q of ['page=1001', 'page=5000', 'page=99999999999', `page=${'9'.repeat(30)}`]) {
+      assert.strictEqual(parseListingQuery(sp(q)).page, MAX_LISTING_PAGE, q)
+    }
+    assert.strictEqual(parseListingQuery(sp(`page=${'9'.repeat(40)}`)).page, 1, 'absurdly long -> default')
+    assert.strictEqual(parseListingQuery(sp('page=1000')).page, 1000)
+    const rows = Array.from({ length: 30 }, (_, i) => row({ slug: `q-${i}` }))
+    const r = await loadListing(source(rows), { kind: 'all' }, parseListingQuery(sp('page=99999999999&soldout=hide')), '/shop')
+    assert.deepStrictEqual(r, { kind: 'redirect', to: '/shop?soldout=hide&page=2' })
+  })
+
+  test('chip links drop a price sort the target listing does not allow', async () => {
+    const sets = { slug: 'sets', name: 'Sets', published: true }
+    const rows = [
+      row({ slug: 'priced-set', category: sets, sellingPriceUsd: 30 }),
+      row({ slug: 'priced-dress', sellingPriceUsd: 20 }),
+      row({ slug: 'ask-dress', priceDisplay: 'ASK_FOR_PRICE' }),
+    ]
+    const src = source(rows)
+    const priceAsc = parseListingQuery(sp('sort=price-asc'))
+    assert.strictEqual(await sortForScope(src, { kind: 'category', slug: 'sets' }, priceAsc), 'price-asc')
+    assert.strictEqual(await sortForScope(src, { kind: 'category', slug: 'dresses' }, priceAsc), 'featured')
+    assert.strictEqual(await sortForScope(src, { kind: 'all' }, priceAsc), 'featured')
+    assert.strictEqual(await sortForScope(src, { kind: 'new' }, parseListingQuery(sp('sort=newest'))), 'newest')
+    // Non-price sorts never need a lookup.
+    const before = src.calls.length
+    await sortForScope(src, { kind: 'all' }, parseListingQuery(sp('sort=newest')))
+    assert.strictEqual(src.calls.length, before)
+  })
+
+  test('/collections index leaves out categories with no public products', async () => {
+    const rows = [row({ slug: 'd1' }), row({ slug: 'd2' }), row({ slug: 's1', category: { slug: 'sets', name: 'Sets', published: true } })]
+    const out = await collectionsWithProducts(source(rows), CATEGORIES)
+    assert.deepStrictEqual(out.map((c) => [c.category.slug, c.count]), [['dresses', 2], ['sets', 1]])
+    assert.deepStrictEqual(await collectionsWithProducts(source([]), CATEGORIES), [])
   })
 })

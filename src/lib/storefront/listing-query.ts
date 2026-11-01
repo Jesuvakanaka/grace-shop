@@ -27,8 +27,9 @@ export type ListingQuery = { sort: ListingSort; hideSoldOut: boolean; page: numb
 
 export const DEFAULT_LISTING_QUERY: Readonly<ListingQuery> = Object.freeze({ sort: 'featured', hideSoldOut: false, page: 1 })
 
-/** Pages beyond this are treated as page 1 (and then redirected if out of range). */
-const MAX_PAGE = 1000
+/** Larger page numbers are clamped to this (and then redirected to the last page). */
+export const MAX_LISTING_PAGE = 1000
+const MAX_PAGE = MAX_LISTING_PAGE
 
 /** Next's page `searchParams` value, or URLSearchParams. */
 export type ListingSearchParams = Record<string, string | string[] | undefined> | URLSearchParams
@@ -48,11 +49,14 @@ function isListingSort(value: string | null): value is ListingSort {
 export function parseListingQuery(params: ListingSearchParams): ListingQuery {
   const sort = first(params, 'sort')
   const page = first(params, 'page')
-  const n = page !== null && /^[1-9]\d{0,3}$/.test(page) ? Number(page) : 1
+  // A positive whole number; anything above MAX_PAGE (however many digits) is
+  // clamped to MAX_PAGE, so it takes the out-of-range redirect to the last page.
+  const valid = page !== null && page.length <= 32 && /^[1-9]\d*$/.test(page)
+  const n = !valid ? 1 : page.length > 4 ? MAX_PAGE : Math.min(Number(page), MAX_PAGE)
   return {
     sort: isListingSort(sort) ? sort : 'featured',
     hideSoldOut: first(params, 'soldout') === 'hide',
-    page: n <= MAX_PAGE ? n : 1,
+    page: n,
   }
 }
 
@@ -127,6 +131,39 @@ export type ListingSource = {
   getPublishedCategory(slug: string): Promise<PublicCategory | null>
 }
 
+function scopeOptions(scope: ListingScope, hideSoldOut: boolean): CatalogueListOptions {
+  return {
+    categorySlug: scope.kind === 'category' ? scope.slug : undefined,
+    newOnly: scope.kind === 'new' || undefined,
+    hideSoldOut: hideSoldOut || undefined,
+  }
+}
+
+/**
+ * The sort a link to another listing (a category chip) should carry: the
+ * current sort, unless it is a price sort the target listing does not allow
+ * (some product there hides its price); then the default (featured).
+ */
+export async function sortForScope(source: ListingSource, scope: ListingScope, query: ListingQuery): Promise<ListingSort> {
+  if (!isPriceSort(query.sort)) return query.sort
+  const { allPriced } = await source.listPublishedProducts({ ...scopeOptions(scope, query.hideSoldOut), pageSize: 1 })
+  return effectiveSort(query.sort, allPriced)
+}
+
+/** The /collections index: categories (in order) with their public product count, leaving out empty ones. */
+export async function collectionsWithProducts(
+  source: Pick<ListingSource, 'listPublishedProducts'>,
+  categories: readonly PublicCategory[],
+): Promise<{ category: PublicCategory; count: number }[]> {
+  const counted = await Promise.all(
+    categories.map(async (category) => ({
+      category,
+      count: (await source.listPublishedProducts({ categorySlug: category.slug, pageSize: 1 })).total,
+    })),
+  )
+  return counted.filter((c) => c.count > 0)
+}
+
 export type ListingResult =
   | { kind: 'notFound' }
   | { kind: 'redirect'; to: string }
@@ -160,9 +197,7 @@ export async function loadListing(
     if (!category) return { kind: 'notFound' }
   }
   const options = (sort: ListingSort, page: number): CatalogueListOptions => ({
-    categorySlug: category?.slug,
-    newOnly: scope.kind === 'new' || undefined,
-    hideSoldOut: query.hideSoldOut || undefined,
+    ...scopeOptions(category ? { kind: 'category', slug: category.slug } : scope, query.hideSoldOut),
     sort,
     page,
     pageSize: LISTING_PAGE_SIZE,

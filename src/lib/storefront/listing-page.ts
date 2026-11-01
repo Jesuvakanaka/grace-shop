@@ -12,6 +12,7 @@ import {
   loadListing,
   parseListingQuery,
   requestOrigin,
+  sortForScope,
   type ListingQuery,
   type ListingScope,
   type ListingSearchParams,
@@ -79,15 +80,29 @@ export async function getListingView(
   if (result.kind === 'notFound') notFound()
   if (result.kind === 'redirect') redirect(result.to)
 
-  // Chips keep the current sort and filter (a price sort that is not allowed
-  // on the target listing falls back to featured there).
-  const keep = { sort: result.query.sort, hideSoldOut: result.query.hideSoldOut }
-  const to = (r: string) => listingHref(sitePath(shell.base, r), keep)
-  const chips: ListingChip[] = [
-    { label: 'All', value: CHIP_ALL, href: to(SITE_ROUTES.shop) },
-    { label: 'New arrivals', value: CHIP_NEW, href: to(SITE_ROUTES.newArrivals) },
-    ...shell.categories.map((c) => ({ label: c.name, value: chipForCategory(c.slug), href: to(SITE_ROUTES.collection(c.slug)) })),
+  // Chips keep the current filter, and the current sort unless it is a price
+  // sort the target listing does not allow (in memory, from the cached catalogue).
+  const source = { listPublishedProducts, getPublishedCategory }
+  const targets: { label: string; value: string; route: string; scope: ListingScope }[] = [
+    { label: 'All', value: CHIP_ALL, route: SITE_ROUTES.shop, scope: { kind: 'all' } },
+    { label: 'New arrivals', value: CHIP_NEW, route: SITE_ROUTES.newArrivals, scope: { kind: 'new' } },
+    ...shell.categories.map((c) => ({
+      label: c.name,
+      value: chipForCategory(c.slug),
+      route: SITE_ROUTES.collection(c.slug),
+      scope: { kind: 'category', slug: c.slug } as const,
+    })),
   ]
+  const chips: ListingChip[] = await Promise.all(
+    targets.map(async (t) => ({
+      label: t.label,
+      value: t.value,
+      href: listingHref(sitePath(shell.base, t.route), {
+        sort: await sortForScope(source, t.scope, result.query),
+        hideSoldOut: result.query.hideSoldOut,
+      }),
+    })),
+  )
   const activeChip =
     scope.kind === 'all' ? CHIP_ALL : scope.kind === 'new' ? CHIP_NEW : chipForCategory(result.category?.slug ?? '')
 

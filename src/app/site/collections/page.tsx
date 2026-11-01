@@ -5,6 +5,7 @@ import { ListingEmpty } from "@/components/storefront/collection/ListingEmpty";
 import { ListingHeader } from "@/components/storefront/collection/ListingHeader";
 import { listPublishedProducts } from "@/lib/storefront";
 import { listingMetadata } from "@/lib/storefront/listing-page";
+import { collectionsWithProducts } from "@/lib/storefront/listing-query";
 import { SITE_ROUTES, sitePath } from "@/lib/storefront/paths";
 import { getShellData } from "@/lib/storefront/shell";
 
@@ -18,15 +19,14 @@ export function generateMetadata(): Promise<Metadata> {
 
 export default async function CollectionsIndexPage() {
   const shell = await getShellData();
-  const tiles = await Promise.all(
-    shell.categories.map(async (c) => ({
-      slug: c.slug,
-      name: c.name,
-      href: sitePath(shell.base, SITE_ROUTES.collection(c.slug)),
-      heroImage: c.heroImage,
-      count: (await listPublishedProducts({ categorySlug: c.slug, pageSize: 1 })).total,
-    })),
-  );
+  // Categories with no public products are left out (never an empty tile).
+  const tiles = (await collectionsWithProducts({ listPublishedProducts }, shell.categories)).map(({ category: c, count }) => ({
+    slug: c.slug,
+    name: c.name,
+    href: sitePath(shell.base, SITE_ROUTES.collection(c.slug)),
+    heroImage: c.heroImage,
+    count,
+  }));
 
   return (
     <>
