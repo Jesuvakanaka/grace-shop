@@ -501,6 +501,50 @@ export default function WebsiteSettingsPage() {
         </div>
       </Section>
 
+      <Section
+        id="feed-order"
+        title="Feed order"
+        hint="How the looks are ordered on the landing page. Sold-out pieces are always last."
+      >
+        <fieldset className="space-y-3" aria-describedby={errors.feedRanking ? 'error-feedRanking' : undefined}>
+          <legend className="sr-only">Feed order</legend>
+          {(
+            [
+              {
+                value: 'AUTO',
+                label: 'Rank automatically',
+                hint: 'Popular looks move up, recalculated every night from how people browse. New pieces get a boost for their first week, and the top 6 are Featured automatically.',
+              },
+              {
+                value: 'NEWEST',
+                label: 'Newest first',
+                hint: 'Emergency fallback: newest pieces first. Featured is then set by hand in each product.',
+              },
+            ] as const
+          ).map((o) => (
+            <label key={o.value} className="flex items-start gap-3 text-sm text-slate-700">
+              <input
+                type="radio"
+                name="feedRanking"
+                value={o.value}
+                checked={form.feedRanking === o.value}
+                onChange={() => set('feedRanking', o.value)}
+                data-testid={`input-feedRanking-${o.value}`}
+              />
+              <span>
+                {o.label}
+                <span className="block text-xs text-slate-500">{o.hint}</span>
+              </span>
+            </label>
+          ))}
+          {errors.feedRanking && (
+            <span id="error-feedRanking" className="text-xs text-rose-700" role="alert" data-testid="error-feedRanking">
+              {errors.feedRanking}
+            </span>
+          )}
+        </fieldset>
+      </Section>
+
       <div className="flex justify-end pb-nav lg:pb-0">
         <button type="submit" className="btn btn-primary w-full sm:w-auto" disabled={saving || uploading !== null} data-testid="settings-save">
           {saving ? 'Saving…' : 'Save settings'}

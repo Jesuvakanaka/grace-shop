@@ -47,7 +47,7 @@ storefront host (`/api/...` and `insights` are blocked there by
 | # | Report | Source | Notes |
 |---|---|---|---|
 | 1 | Overview | Visits, Journey, Piece | visits, new vs returning, looks seen per visit (mean, over visits with a `visit_end`), time on site (mean visible seconds), WhatsApp taps (all taps of the visits, also from the menu), visits that tapped, restock requests, bounce rate, top sources |
-| 2 | Top looks | Piece | views, mean dwell, photo-swipe rate (visits that reached a 2nd photo / viewers), Show details per view, opens per view, WhatsApp taps, shares; sortable; cover thumbnail; **Score** column is empty until ZP-506 fills `popularity` |
+| 2 | Top looks | Piece | views, mean dwell, photo-swipe rate (visits that reached a 2nd photo / viewers), Show details per view, opens per view, WhatsApp taps, shares; sortable; cover thumbnail; **Score** (ZP-506 popularity, 100 = average look, with today's feed position; tap for the parts) |
 | 3 | Top photos per piece | Photo, Piece | mean seconds per photo, reach (photo viewers / the piece's viewers, or the most-seen photo's viewers when higher), "Best cover photo" when another photo holds people longer than the cover |
 | 4 | Top videos | Video | starts, share of starts reaching 25/50/75/100 %, mean seconds watched per start, replays |
 | 5 | Funnel + drop-off | Journey | landed → saw a 2nd look → Show details → opened a piece → chose a size → WhatsApp; % lost per step; by device and by source |
@@ -139,8 +139,12 @@ events are kept 90 days):
 
 - **Hearts (ZP-507):** the looks table shows a "Hearts" column (`loveOn −
   loveOff`) only when the range has any heart events (`looks.hasHearts`).
-- **Popularity (ZP-506):** fill `LookRow.popularity` in
-  `src/lib/insights/report.ts`; the Score column already renders it.
+- **Popularity (ZP-506):** done. `LookRow.popularity` / `rank` /
+  `scoreParts` come from `ProductPopularity` (latest nightly run, last 28
+  days, not the selected range); the Score column is sortable and opens
+  "why it ranks there"; `looks.ranking` says whether the feed is ranked.
+  The best cover photo has "Use as first photo" (`bestCover.imageId`, the
+  gallery reorder API). See `docs/storefront/ranking.md`.
 - **Reviews (ZP-508):** done: the Reviews section reads the small `Review`
   table directly (one grouped query + one count), not the analytics rollups.
 

@@ -48,6 +48,7 @@ export const {
   listPublishedCategories,
   getPublishedCategory,
   getReviewsIndex,
+  getFeedRanking,
 } = storefront
 export type { PublicReview } from './dto'
 export type { PublicReviewsIndex, PieceReviews } from './reviews'

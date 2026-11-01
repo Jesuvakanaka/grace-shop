@@ -414,6 +414,8 @@ npm run analytics:rollup -- --no-prune
 - Then retention: `AnalyticsEvent` rows with `day` older than 90 days, and
   rollup rows older than 25 months, are deleted.
 - Prints one JSON line of counts; exit code 1 on failure.
+- ZP-506: then the **popularity ranking** step (scores, today's feed order,
+  automatic Featured; `docs/storefront/ranking.md`), unless `--no-rank`.
 
 ### Scheduling (orchestrator, not done in this change)
 

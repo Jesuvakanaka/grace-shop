@@ -1,5 +1,6 @@
 // ZP-483: a product's website fields. OWNER only.
 // GET: fields, gallery, readiness. PATCH: allow-listed fields and the slug.
+// ZP-506: `featured` only while the feed is "Newest first" (else read-only).
 // Publishing is NOT done here: see ./publish (publishProduct).
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db'
@@ -8,6 +9,8 @@ import { badRequest, errorResponse, notFound, readJson } from '@/lib/website/htt
 import { getWebsiteProduct, updateWebsiteFields } from '@/lib/website/products'
 import { revalidateStorefront } from '@/lib/website/revalidate'
 import { parseIdParam, parseProductWebsitePatch } from '@/lib/website/validation'
+import { featuredPatchCheck } from '@/lib/ranking/featured'
+import { isAutoRanking } from '@/lib/ranking/job'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -32,7 +35,20 @@ export async function PATCH(request: Request, { params }: Ctx) {
   const parsed = parseProductWebsitePatch(await readJson(request))
   if (!parsed.ok) return badRequest(parsed.error, parsed.field)
   try {
-    const { oldSlug, slug } = await updateWebsiteFields(prisma, id, parsed.data)
+    // ZP-506: while the feed ranks automatically, Featured is set by popularity
+    // (nightly) and cannot be changed here; the same value is accepted and ignored.
+    let patch = parsed.data
+    if (patch.featured !== undefined) {
+      const [auto, current] = await Promise.all([
+        isAutoRanking(prisma),
+        prisma.product.findUnique({ where: { id }, select: { featured: true } }),
+      ])
+      if (!current) return notFound()
+      const check = featuredPatchCheck(patch, { auto, current: current.featured })
+      if (!check.ok) return badRequest(check.error, check.field)
+      patch = check.data
+    }
+    const { oldSlug, slug } = await updateWebsiteFields(prisma, id, patch)
     revalidateStorefront({ productSlugs: [oldSlug, slug] })
     return NextResponse.json(await getWebsiteProduct(prisma, id))
   } catch (error) {

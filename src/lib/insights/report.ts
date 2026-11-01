@@ -14,6 +14,7 @@ import { addDays, ANALYTICS_TIME_ZONE, analyticsDay, dayToDate, DEVICE_CLASSES }
 import { MAX_DEPTH } from '@/lib/analytics/rollup'
 import { displayName } from '@/lib/storefront-model'
 import { imageUrlForKey, isValidImageKey } from '@/lib/storage/keys'
+import { loadPopularity, loadRankingStatus } from '@/lib/ranking/read'
 import {
   liveDay,
   type DepthSums,
@@ -263,10 +264,21 @@ type ProductInfo = {
   askForPrice: boolean
   coverKey: string | undefined
   keyByFile: Map<string, string>
+  /** ZP-506: gallery image id per stored file name ("Use as first photo"). */
+  idByFile: Map<string, number>
 }
 
 function removed(id: number): ProductInfo {
-  return { id, name: `Removed piece #${id}`, slug: '', soldOut: false, askForPrice: false, coverKey: undefined, keyByFile: new Map() }
+  return {
+    id,
+    name: `Removed piece #${id}`,
+    slug: '',
+    soldOut: false,
+    askForPrice: false,
+    coverKey: undefined,
+    keyByFile: new Map(),
+    idByFile: new Map(),
+  }
 }
 
 async function productInfo(db: Db, ids: number[]): Promise<Map<number, ProductInfo>> {
@@ -280,7 +292,7 @@ async function productInfo(db: Db, ids: number[]): Promise<Map<number, ProductIn
       slug: true,
       currentQuantity: true,
       priceDisplay: true,
-      images: { select: { imageKey: true, isPrimary: true }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+      images: { select: { id: true, imageKey: true, isPrimary: true }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
     },
   })
   return new Map(
@@ -296,6 +308,7 @@ async function productInfo(db: Db, ids: number[]): Promise<Map<number, ProductIn
           askForPrice: p.priceDisplay === 'ASK_FOR_PRICE',
           coverKey: cover?.imageKey,
           keyByFile: new Map(p.images.map((i) => [fileName(i.imageKey), i.imageKey])),
+          idByFile: new Map(p.images.map((i) => [fileName(i.imageKey), i.id])),
         },
       ]
     }),
@@ -318,7 +331,12 @@ async function buildReport(
   for (const r of photos) ids.add(r.productId)
   for (const r of videos) ids.add(r.productId)
   for (const r of options) ids.add(r.productId)
-  const info = await productInfo(db, [...ids])
+  // ZP-506: the stored popularity (latest nightly run) of the same pieces; one query.
+  const [info, popularity, rankingStatus] = await Promise.all([
+    productInfo(db, [...ids]),
+    loadPopularity(db, [...ids]),
+    loadRankingStatus(db),
+  ])
   const product = (id: number) => info.get(id) ?? removed(id)
 
   // ---- overview
@@ -394,7 +412,11 @@ async function buildReport(
       shares: s.shares,
       restockRequests: s.restockRequests,
       hearts: s.loveOn - s.loveOff,
-      popularity: null,
+      popularity: popularity.get(s.productId)?.score ?? null,
+      rank: popularity.get(s.productId)?.rank ?? null,
+      scoreParts: popularity.get(s.productId)?.parts ?? null,
+      coldStart: popularity.get(s.productId)?.coldStart ?? false,
+      autoFeatured: popularity.get(s.productId)?.featured ?? false,
       enough: s.views >= THRESHOLDS.lookViews,
     }
   })
@@ -453,7 +475,16 @@ async function buildReport(
       slug: p.slug,
       viewers,
       photos: rows,
-      bestCover: suggest && best ? { image: best.image, index: best.index, url: best.url, meanSeconds: best.meanSeconds ?? 0 } : null,
+      bestCover:
+        suggest && best
+          ? {
+              image: best.image,
+              index: best.index,
+              url: best.url,
+              meanSeconds: best.meanSeconds ?? 0,
+              imageId: (best.image && p.idByFile.get(best.image)) || null,
+            }
+          : null,
     }
   })
   photoReport.sort((a, b) => b.viewers - a.viewers || a.name.localeCompare(b.name))
@@ -608,7 +639,7 @@ async function buildReport(
     },
     thresholds: THRESHOLDS,
     overview,
-    looks: { rows: lookRowsWithData, hasHearts },
+    looks: { rows: lookRowsWithData, hasHearts, ranking: rankingStatus },
     photos: photoReport,
     videos: videoRows,
     funnel,

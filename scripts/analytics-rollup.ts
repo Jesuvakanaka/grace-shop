@@ -5,15 +5,19 @@
 //   npm run analytics:rollup -- --date 2026-11-01            # one day again (idempotent)
 //   npm run analytics:rollup -- --from 2026-11-01 --to 2026-11-30   # backfill (last 90 days only)
 //   npm run analytics:rollup -- --no-prune                   # skip retention deletes
+//   npm run analytics:rollup -- --no-rank                    # skip the ZP-506 ranking step
 //
+// After the rollups it runs the popularity ranking (ZP-506, src/lib/ranking/job.ts).
 // Needs DATABASE_URL. Prints only counts. Exit code 1 on failure.
 // Scheduling: docs/storefront/analytics.md ("Rollup job").
 import { PrismaClient } from '@prisma/client'
 import { parseRollupArgs, runRollup } from '../src/lib/analytics/rollup'
 import { runReviewPhotoCleanup } from '../src/lib/reviews/cleanup-job'
+import { runRanking, splitRankArg } from '../src/lib/ranking/job'
 
 async function main() {
-  const plan = parseRollupArgs(process.argv.slice(2))
+  const { rank, rest } = splitRankArg(process.argv.slice(2))
+  const plan = { ...parseRollupArgs(rest), rank }
   const prisma = new PrismaClient()
   try {
     const started = Date.now()
@@ -29,6 +33,23 @@ async function main() {
         ms: Date.now() - started,
       }),
     )
+    // ZP-506: popularity scores, today's feed ranks and the automatic Featured
+    // set, from the rollups just written. Idempotent; its failure fails the job
+    // (exit 1) after the rollup has been written.
+    if (plan.rank) {
+      const ranking = await runRanking(prisma)
+      console.log(
+        JSON.stringify({
+          job: 'ranking',
+          day: ranking.day,
+          mode: ranking.mode,
+          pieces: ranking.pieces,
+          totalViews: ranking.totalViews,
+          ranked: ranking.ranked,
+          featuredChanged: ranking.featuredChanged.length,
+        }),
+      )
+    }
     // ZP-508: the nightly review-photo sweep rides on this job. Its failure
     // fails the job (exit 1) after the rollup has been written.
     console.log(JSON.stringify({ job: 'reviews-cleanup', ...(await runReviewPhotoCleanup(prisma)) }))

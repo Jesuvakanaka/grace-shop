@@ -8,6 +8,7 @@
 import { ASK_FOR_PRICE, formatPriceUsd } from '@/components/storefront/product'
 import { feedRatingText, ratingLabel, type RatingSummary } from '@/lib/reviews/aggregate'
 import { buildWhatsAppLink, type WhatsAppContactSettings } from '@/lib/site-settings/whatsapp'
+import { orderFeedByRanking, type FeedRanking } from '@/lib/ranking/feed-order'
 import { isValidSlug } from '@/lib/storefront-model/slug'
 import type { PublicCategory, PublicProduct, PublicVideo } from './dto'
 import { pickVideo } from './feed-media'
@@ -53,9 +54,19 @@ export function orderFeed<T extends Pick<PublicProduct, 'featured' | 'availabili
     .map((e) => e.p)
 }
 
-/** The feed is photo-first: pieces without a photo are left out, the rest in feed order. */
-export function feedProducts<T extends Pick<PublicProduct, 'featured' | 'availability' | 'images'>>(newestFirst: readonly T[]): T[] {
-  return orderFeed(newestFirst.filter((p) => p.images.length > 0))
+/**
+ * The feed is photo-first: pieces without a photo are left out, the rest in
+ * feed order. ZP-506: with a `ranking` (the landing feed always passes one)
+ * the order is the popularity ranking (src/lib/ranking/feed-order.ts):
+ * Featured no longer has precedence, it follows the ranking. Without one
+ * (counts only, e.g. the menu) the legacy orderFeed is used.
+ */
+export function feedProducts<T extends Pick<PublicProduct, 'slug' | 'featured' | 'availability' | 'images'>>(
+  newestFirst: readonly T[],
+  ranking?: FeedRanking,
+): T[] {
+  const withPhotos = newestFirst.filter((p) => p.images.length > 0)
+  return ranking ? orderFeedByRanking(withPhotos, ranking) : orderFeed(withPhotos)
 }
 
 // ------------------------------------------------------------------- tabs

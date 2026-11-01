@@ -6,6 +6,7 @@
 // errors, so the allow-list is EDITABLE_FIELDS. Every error is collected, keyed
 // by field name ("openingHours.mon" for one day of the week, "_form" for the
 // body as a whole).
+import { FEED_RANKING_MODES } from '@/lib/ranking/feed-order'
 import { isValidImageKey } from '@/lib/storage/keys'
 import {
   DAYS,
@@ -233,6 +234,9 @@ const CHECKS: Record<Exclude<SiteSettingsField, 'openingHours'>, Check> = {
       ? { value: v }
       : fail(`Must be a whole number from ${FEW_LEFT_MIN} to ${FEW_LEFT_MAX}.`),
   showItemNumber: (v) => (typeof v === 'boolean' ? { value: v } : fail('Must be on or off.')),
+  // ZP-506
+  feedRanking: (v) =>
+    (FEED_RANKING_MODES as readonly unknown[]).includes(v) ? { value: v } : fail('Choose "Rank automatically" or "Newest first".'),
 }
 
 export function validateSiteSettingsInput(input: unknown): ValidationResult {

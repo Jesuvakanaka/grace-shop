@@ -6,6 +6,7 @@ import React, { useMemo, useState } from 'react';
 import { ProductPicture } from '@/components/ProductPicture';
 import type { InsightsReport, LookRow } from '@/lib/insights/types';
 import { Bar, Empty, fmt, ScrollTable, Section, StaleNote, Stat, td, tdNum, th, thNum, TooFew } from './parts';
+import { RankingNote, ScoreBreakdown, UseAsCoverButton } from './ranking';
 
 type Csv = (name: string) => string;
 
@@ -68,7 +69,7 @@ export function OverviewReport({ r, csv }: { r: InsightsReport; csv: Csv }) {
 
 // ------------------------------------------------------------------ 2. top looks
 
-type SortKey = 'views' | 'meanDwell' | 'photoSwipeRate' | 'detailsRate' | 'openRate' | 'whatsapp' | 'shares' | 'hearts' | 'name';
+type SortKey = 'views' | 'meanDwell' | 'photoSwipeRate' | 'detailsRate' | 'openRate' | 'whatsapp' | 'shares' | 'hearts' | 'popularity' | 'name';
 
 const LOOK_COLUMNS: { key: SortKey; label: string; title: string; render: (r: LookRow) => string }[] = [
   { key: 'views', label: 'Views', title: 'Times the look was the current slide', render: (r) => fmt.num(r.views) },
@@ -83,6 +84,8 @@ const LOOK_COLUMNS: { key: SortKey; label: string; title: string; render: (r: Lo
 export function LooksReport({ r, csv }: { r: InsightsReport; csv: Csv }) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'views', dir: -1 });
   const [all, setAll] = useState(false);
+  // ZP-506: the look whose score breakdown is open.
+  const [openScore, setOpenScore] = useState<number | null>(null);
   const columns = useMemo(
     () =>
       r.looks.hasHearts
@@ -113,6 +116,7 @@ export function LooksReport({ r, csv }: { r: InsightsReport; csv: Csv }) {
       csv={[csv('looks')]}
     >
       <StaleNote days={r.range.notRecalculated} what="photo-swipe rates" />
+      <RankingNote status={r.looks.ranking} />
       {rows.length === 0 ? (
         <Empty>No looks were seen in this range.</Empty>
       ) : (
@@ -133,14 +137,18 @@ export function LooksReport({ r, csv }: { r: InsightsReport; csv: Csv }) {
                     </button>
                   </th>
                 ))}
-                <th className={thNum} title="Popularity score – filled in by the ranking (ZP-506)">
-                  Score
+                <th className={thNum} aria-sort={aria('popularity')} title="Popularity score: 100 = an average look (last 28 days). Tap a score to see why.">
+                  <button type="button" onClick={() => sortBy('popularity')} className="uppercase" data-testid="sort-popularity">
+                    Score
+                    {sort.key === 'popularity' ? (sort.dir === 1 ? ' ↑' : ' ↓') : ''}
+                  </button>
                 </th>
               </tr>
             </thead>
             <tbody>
               {shown.map((x) => (
-                <tr key={x.productId} className={x.enough ? '' : 'text-slate-500'} data-testid="look-row">
+                <React.Fragment key={x.productId}>
+                <tr className={x.enough ? '' : 'text-slate-500'} data-testid="look-row">
                   <td className={`${td} sticky left-0 bg-white`}>
                     <div className="flex items-center gap-2 min-w-[150px] max-w-[220px]">
                       <Thumb src={x.thumbnail} alt="" />
@@ -155,10 +163,32 @@ export function LooksReport({ r, csv }: { r: InsightsReport; csv: Csv }) {
                       {c.render(x)}
                     </td>
                   ))}
-                  <td className={tdNum} title="Coming with the popularity ranking (ZP-506)">
-                    {x.popularity === null ? '–' : fmt.dec(x.popularity, 2)}
+                  <td className={tdNum}>
+                    {x.popularity === null ? (
+                      <span title="Not scored yet">–</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="underline decoration-dotted underline-offset-2"
+                        aria-expanded={openScore === x.productId}
+                        aria-label={`Score ${Math.round(x.popularity)}${x.rank ? `, number ${x.rank} in today's feed` : ''}. Show why`}
+                        onClick={() => setOpenScore((id) => (id === x.productId ? null : x.productId))}
+                        data-testid="score-button"
+                      >
+                        {fmt.dec(x.popularity, 0)}
+                        {x.rank ? <span className="ml-1 text-[10px] text-slate-500">#{x.rank}</span> : null}
+                      </button>
+                    )}
                   </td>
                 </tr>
+                {openScore === x.productId ? (
+                  <tr data-testid="score-row">
+                    <td colSpan={columns.length + 2} className={`${td} bg-slate-50`}>
+                      <ScoreBreakdown row={x} />
+                    </td>
+                  </tr>
+                ) : null}
+                </React.Fragment>
               ))}
             </tbody>
           </ScrollTable>
@@ -202,6 +232,7 @@ export function PhotosReport({ r, csv }: { r: InsightsReport; csv: Csv }) {
                   <p className="mt-2 text-sm rounded-lg bg-brand-olive-50 border border-brand-olive-200 text-brand-olive-800 px-2.5 py-1.5" data-testid="best-cover">
                     Best cover photo: photo {p.bestCover.index} holds people {fmt.secs(p.bestCover.meanSeconds)} on average
                     {cover?.meanSeconds != null ? ` (the cover now: ${fmt.secs(cover.meanSeconds)})` : ''}.
+                    {p.bestCover.imageId ? <UseAsCoverButton productId={p.productId} imageId={p.bestCover.imageId} index={p.bestCover.index} /> : null}
                   </p>
                 ) : null}
                 <ul className="mt-2 space-y-2">

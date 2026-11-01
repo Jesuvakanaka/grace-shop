@@ -4,6 +4,7 @@
 // The defaults here must equal the column defaults in prisma/schema.prisma
 // (the migration seeds the row from those). tests/migration-site-settings.test.ts
 // checks that the seeded row equals SITE_SETTINGS_DEFAULTS.
+import type { FeedRankingMode } from '@/lib/ranking/feed-order'
 
 export const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
 export type Day = (typeof DAYS)[number]
@@ -63,6 +64,8 @@ export type SiteSettingsData = {
   showItemNumber: boolean
   // Reviews (ZP-508): "Review us on Google" on the review thank-you screen; null hides it.
   googleReviewUrl: string | null
+  // ZP-506: feed order. AUTO = by popularity (also sets Featured automatically); NEWEST = newest first (emergency switch).
+  feedRanking: FeedRankingMode
 }
 
 export type SiteSettingsField = keyof SiteSettingsData
@@ -99,6 +102,7 @@ export const SITE_SETTINGS_DEFAULTS: Readonly<SiteSettingsData> = Object.freeze(
   fewLeftThreshold: 3,
   showItemNumber: false,
   googleReviewUrl: null,
+  feedRanking: 'AUTO',
 })
 
 /** The PUT allow-list. Anything else in a request body is rejected. */
