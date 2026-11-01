@@ -1,10 +1,12 @@
 "use client";
 
-import { useId, useState } from "react";
+import Link from "next/link";
+import { useId, useState, type ReactNode } from "react";
 import { cn } from "./cn";
 import { ChevronDownIcon } from "./icons";
 
-export type FilterChip = { label: string; value: string };
+/** With `href` the chip is a link (e.g. to a collection page) instead of a button. */
+export type FilterChip = { label: string; value: string; href?: string };
 export type SortOption = { label: string; value: string };
 
 type FilterBarProps = {
@@ -17,6 +19,8 @@ type FilterBarProps = {
   onSortChange?: (value: string) => void;
   /** e.g. "24 pieces". */
   resultLabel?: string;
+  /** Extra control shown beside the sort (e.g. a "Hide sold out" toggle). */
+  extra?: ReactNode;
   className?: string;
 };
 
@@ -32,12 +36,14 @@ export function FilterBar({
   sort,
   onSortChange,
   resultLabel,
+  extra,
   className,
 }: FilterBarProps) {
   const sortId = useId();
   const [localChip, setLocalChip] = useState(activeChip ?? chips[0]?.value);
   const [localSort, setLocalSort] = useState(sort ?? sortOptions[0]?.value);
-  const current = onChipChange ? activeChip : localChip;
+  // Link chips are controlled by the page (the URL), like onChipChange.
+  const current = onChipChange || chips.some((c) => c.href) ? activeChip : localChip;
   const currentSort = onSortChange ? sort : localSort;
 
   return (
@@ -46,32 +52,40 @@ export function FilterBar({
         <ul className="flex w-max gap-2 lg:w-auto lg:flex-wrap">
           {chips.map((chip) => {
             const active = chip.value === current;
+            const chipClass = cn(
+              "sf-focus sf-label inline-flex min-h-11 items-center whitespace-nowrap rounded-[2px] border px-4 transition-colors lg:px-3.5 duration-200",
+              active
+                ? "border-brand-ink! bg-brand-ink text-brand-cream"
+                : "border-brand-ink/20! bg-white text-brand-ink hover:border-brand-ink!",
+            );
             return (
               <li key={chip.value}>
-                <button
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => (onChipChange ? onChipChange(chip.value) : setLocalChip(chip.value))}
-                  className={cn(
-                    "sf-focus sf-label inline-flex min-h-11 items-center whitespace-nowrap rounded-[2px] border px-4 transition-colors lg:px-3.5 duration-200",
-                    active
-                      ? "border-brand-ink! bg-brand-ink text-brand-cream"
-                      : "border-brand-ink/20! bg-white text-brand-ink hover:border-brand-ink!",
-                  )}
-                >
-                  {chip.label}
-                </button>
+                {chip.href ? (
+                  <Link href={chip.href} aria-current={active ? "page" : undefined} className={chipClass}>
+                    {chip.label}
+                  </Link>
+                ) : (
+                  <button
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => (onChipChange ? onChipChange(chip.value) : setLocalChip(chip.value))}
+                    className={chipClass}
+                  >
+                    {chip.label}
+                  </button>
+                )}
               </li>
             );
           })}
         </ul>
       </div>
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
         {resultLabel ? (
           <p className="whitespace-nowrap text-sm text-brand-ink-soft" aria-live="polite">
             {resultLabel}
           </p>
         ) : null}
+        {extra}
         <div className="flex min-w-0 items-center gap-3">
           <label htmlFor={sortId} className="sf-label text-brand-ink-soft">
             Sort

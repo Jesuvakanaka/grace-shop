@@ -12,7 +12,8 @@ import { isValidSlug } from '@/lib/storefront-model/slug'
 import { STOREFRONT_PREFIX } from '@/lib/host-routing'
 import type { PublishedProductResult } from './catalogue'
 import type { PublicProduct } from './dto'
-import { SITE_ROUTES, sitePath } from './paths'
+import { SITE_ROUTES } from './paths'
+import { absoluteSiteUrl, primaryStorefrontHost } from './public-url'
 
 export type ProductRouteDecision =
   | { kind: 'product'; product: PublicProduct }
@@ -79,21 +80,6 @@ export function isProductPreviewRequest(pathname: string, searchParams: URLSearc
 
 // ─── Absolute product URL (for the enquiry message and Share) ───────────────
 
-/** host[:port]: DNS name or IPv4, or a bracketed IPv6 address; port 1-65535. */
-const HOST = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*|\[[0-9a-f:.]+\])(?::(\d{1,5}))?$/
-const LOCAL = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$|\.localhost(?::\d+)?$/
-
-function cleanHost(host: string | null | undefined): string | null {
-  const h = (host ?? '').trim().toLowerCase()
-  const m = HOST.exec(h)
-  if (!m) return null
-  if (m[1] !== undefined) {
-    const port = Number(m[1])
-    if (port < 1 || port > 65535) return null
-  }
-  return h
-}
-
 /**
  * The public URL of a product page, or null.
  *
@@ -104,6 +90,8 @@ function cleanHost(host: string | null | undefined): string | null {
  *   X-Forwarded-Proto are never read.
  * - Anything malformed gives null, and the enquiry message simply leaves the
  *   URL out.
+ * Built on the shared absoluteSiteUrl (./public-url), also used for the
+ * listing pages' canonical URLs (ZP-489).
  */
 export function productAbsoluteUrl(input: {
   slug: string
@@ -111,10 +99,7 @@ export function productAbsoluteUrl(input: {
   host: string | null | undefined
 }): string | null {
   if (!isValidSlug(input.slug)) return null
-  const path = SITE_ROUTES.product(input.slug)
-  const configured = input.storefrontHosts.map(cleanHost).find((h): h is string => h !== null)
-  if (configured) return `https://${configured}${sitePath('', path)}`
-  const host = cleanHost(input.host)
-  if (!host) return null
-  return `${LOCAL.test(host) ? 'http' : 'https'}://${host}${sitePath(STOREFRONT_PREFIX, path)}`
+  // A shared link always prefers the public storefront, even from UAT.
+  const base = primaryStorefrontHost(input.storefrontHosts) ? '' : STOREFRONT_PREFIX
+  return absoluteSiteUrl({ base, path: SITE_ROUTES.product(input.slug), storefrontHosts: input.storefrontHosts, host: input.host })
 }

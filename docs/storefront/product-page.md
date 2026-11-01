@@ -116,6 +116,9 @@ now `true`, so the button reads "Preview on site".
    `X-Forwarded-Host` and `X-Forwarded-Proto` are never read.
 3. Anything malformed: no URL; the template's "({url})" is dropped.
 
+Built on the shared `absoluteSiteUrl` / `cleanHost` in `src/lib/storefront/public-url.ts`
+(also used for the listing pages' canonical URLs, ZP-489).
+
 A preview never puts the token in the URL it shares or sends.
 
 ## Related products
