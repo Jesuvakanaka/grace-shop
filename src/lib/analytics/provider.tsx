@@ -6,12 +6,19 @@
 // components with track() / useDwell() from @/lib/analytics/client.
 // Renders nothing of its own. Disabled for GPC / DNT, automated browsers
 // and preview pages (see src/lib/analytics/client-core.ts).
+// ZP-508: never started on the one-time review page (/review/<token>): its
+// URL holds a live token. Any event that still happens there (an analytics
+// client started on an earlier page) records the page as "/review" only.
+import { usePathname } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 import { initAnalytics } from "./client";
+import { isPrivatePagePath } from "./events";
 
 export function AnalyticsProvider({ children }: { children?: ReactNode }) {
+  const pathname = usePathname();
+  const skip = isPrivatePagePath(pathname ?? "");
   useEffect(() => {
-    initAnalytics();
-  }, []);
+    if (!skip) initAnalytics();
+  }, [skip]);
   return children ?? null;
 }

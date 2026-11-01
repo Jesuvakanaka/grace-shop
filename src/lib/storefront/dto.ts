@@ -203,6 +203,7 @@ export type PublicReview = {
 export type PublicReviewRow = {
   id: number
   inviteId: number
+  shopOnly: boolean
   productId: number | null
   stars: number
   shopStars: number | null

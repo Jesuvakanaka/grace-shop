@@ -9,6 +9,8 @@ import { NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { authorize, OWNER_ONLY } from '@/lib/api-auth'
 import { deleteReview, moderateReview } from '@/lib/reviews/moderation'
+import { deletePhotoIfUnreferenced } from '@/lib/reviews/photos'
+import { getImageStorage } from '@/lib/storage/images'
 import { parseModerationAction } from '@/lib/reviews/rules'
 import { badRequest, errorResponse, notFound, readJson } from '@/lib/website/http'
 import { revalidateStorefront } from '@/lib/website/revalidate'
@@ -42,8 +44,11 @@ export async function DELETE(request: Request, { params }: Ctx) {
   const id = parseId((await params).id)
   if (id === null) return notFound('Review')
   try {
-    if (!(await deleteReview(prisma, id))) return notFound('Review')
+    const deleted = await deleteReview(prisma, id)
+    if (!deleted) return notFound('Review')
     revalidateStorefront({ reviews: true })
+    // The customer's photo goes too, unless the same picture is used elsewhere.
+    await deletePhotoIfUnreferenced(prisma, getImageStorage(), deleted.photoKey)
     return NextResponse.json({ ok: true })
   } catch (error) {
     return errorResponse(error, 'delete review')

@@ -24,6 +24,7 @@ interface OwnerReview {
   flagged: boolean;
   ownerReply: string | null;
   privateNote: string | null;
+  shopOnly: boolean;
   productId: number | null;
   productName: string | null;
   createdAt: string;
@@ -87,7 +88,9 @@ function ReviewCard({ review, onChange }: { review: OwnerReview; onChange: () =>
             ⚠ Check the wording
           </span>
         ) : null}
-        <span className="text-slate-500">{review.productName ?? 'Shop review'}</span>
+        <span className="text-slate-500">
+          {review.shopOnly ? 'Shop review' : (review.productName ?? 'Piece removed (counts towards the shop rating only)')}
+        </span>
         <span className="ml-auto text-xs text-slate-500">{day(review.createdAt)}</span>
       </div>
       <div className="flex gap-3">
@@ -98,7 +101,7 @@ function ReviewCard({ review, onChange }: { review: OwnerReview; onChange: () =>
         <div className="min-w-0 space-y-1">
           <p className="text-brand-olive-700 tracking-wider" aria-label={`${review.stars} out of 5 stars`}>
             {stars(review.stars)}
-            {review.productId !== null && review.shopStars !== null ? (
+            {!review.shopOnly && review.shopStars !== null ? (
               <span className="ml-2 text-xs text-slate-500">Shop: {review.shopStars}/5</span>
             ) : null}
           </p>
@@ -106,7 +109,7 @@ function ReviewCard({ review, onChange }: { review: OwnerReview; onChange: () =>
           <p className="text-sm font-medium text-slate-700">{review.displayName} <span className="text-xs font-normal text-slate-500">· verified buyer</span></p>
           {review.photoUrl ? (
             <p className="text-xs text-slate-500">
-              {review.photoConsent ? 'Photo: the customer agreed it may be shown.' : 'Photo: NOT for the website (no consent). Never shown publicly.'}
+              {review.photoConsent ? 'Photo: the customer agreed it may be shown.' : 'Photo: no consent. Never shown; deleted by the nightly clean-up.'}
             </p>
           ) : null}
           {review.ownerReply && mode !== 'reply' ? (

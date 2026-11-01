@@ -24,6 +24,7 @@
     "init:fresh": "node scripts/init-system.js --reset",
     "import:august": "tsx scripts/import-august-trip.ts",
     "analytics:rollup": "tsx scripts/analytics-rollup.ts",
+    "reviews:cleanup": "tsx scripts/reviews-cleanup.ts",
     "user:set": "node scripts/set-user.js"
   },
   "dependencies": {

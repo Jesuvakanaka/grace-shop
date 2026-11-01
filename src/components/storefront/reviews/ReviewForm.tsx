@@ -15,6 +15,7 @@ import {
   REVIEW_COMMENT_MIN,
   REVIEW_NAME_MAX,
   REVIEW_PHOTO_MAX_BYTES,
+  REVIEW_TOKEN_HEADER,
   deriveDisplayName,
   normaliseComment,
 } from "@/lib/reviews/rules";
@@ -120,10 +121,14 @@ export function ReviewForm({ token, piece, nameHint, googleReviewUrl, homeHref }
     const local = URL.createObjectURL(file);
     setPhoto({ kind: "uploading", preview: local });
     const body = new FormData();
-    body.set("token", token);
     body.set("file", file);
     try {
-      const res = await fetch("/api/public/reviews/photo", { method: "POST", body, credentials: "same-origin" });
+      const res = await fetch("/api/public/reviews/photo", {
+        method: "POST",
+        body,
+        credentials: "same-origin",
+        headers: { [REVIEW_TOKEN_HEADER]: token },
+      });
       const data = await res.json().catch(() => ({}));
       if (res.ok) setPhoto({ kind: "ready", preview: local });
       else {
@@ -141,6 +146,12 @@ export function ReviewForm({ token, piece, nameHint, googleReviewUrl, homeHref }
     setPhoto({ kind: "none" });
     setConsent(false);
     if (fileRef.current) fileRef.current.value = "";
+    // Delete it on the server too (best effort; an unused photo is also swept nightly).
+    fetch("/api/public/reviews/photo", {
+      method: "DELETE",
+      credentials: "same-origin",
+      headers: { [REVIEW_TOKEN_HEADER]: token },
+    }).catch(() => {});
   }
 
   async function submit(e: FormEvent) {
@@ -354,7 +365,9 @@ export function ReviewForm({ token, piece, nameHint, googleReviewUrl, homeHref }
                 VYRA may show this photo with my review on the website.
               </label>
             ) : null}
-            <span className={hintClass}>Location and camera details are removed from the photo.</span>
+            <span className={hintClass}>
+              Location and camera details are removed from the photo. Without the tick, the photo is deleted when you send your review.
+            </span>
           </div>
         ) : null}
 

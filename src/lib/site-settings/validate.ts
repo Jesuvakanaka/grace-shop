@@ -12,7 +12,8 @@ import {
   EDITABLE_FIELDS,
   FEW_LEFT_MAX,
   FEW_LEFT_MIN,
-  GOOGLE_REVIEW_DOMAINS,
+  GOOGLE_MAPS_HOSTS,
+  GOOGLE_REVIEW_HOSTS,
   MAX_LENGTH,
   SOCIAL_DOMAINS,
   TEMPLATE_PLACEHOLDERS,
@@ -150,6 +151,16 @@ const httpsUrl = (domains?: readonly string[]): Check =>
     return { value: href }
   })
 
+/** ZP-508: an https link on GOOGLE_REVIEW_HOSTS (any path) or GOOGLE_MAPS_HOSTS under /maps. Exact hosts only. */
+export function isGoogleReviewUrl(value: string): boolean {
+  if (!isHttpsUrl(value)) return false
+  const url = new URL(value)
+  if (url.port) return false
+  const host = url.hostname.toLowerCase()
+  if ((GOOGLE_REVIEW_HOSTS as readonly string[]).includes(host)) return true
+  return (GOOGLE_MAPS_HOSTS as readonly string[]).includes(host) && (url.pathname === '/maps' || url.pathname.startsWith('/maps/'))
+}
+
 const template: Check = (v) => {
   const r = requiredText(MAX_LENGTH.enquiryTemplate)(v)
   if ('error' in r) return r
@@ -196,7 +207,13 @@ const CHECKS: Record<Exclude<SiteSettingsField, 'openingHours'>, Check> = {
   instagramUrl: httpsUrl(SOCIAL_DOMAINS.instagramUrl),
   facebookUrl: httpsUrl(SOCIAL_DOMAINS.facebookUrl),
   tiktokUrl: httpsUrl(SOCIAL_DOMAINS.tiktokUrl),
-  googleReviewUrl: httpsUrl(GOOGLE_REVIEW_DOMAINS),
+  googleReviewUrl: (v) => {
+    const r = httpsUrl()(v)
+    if ('error' in r || r.value === null) return r
+    return isGoogleReviewUrl(r.value as string)
+      ? r
+      : fail('Use your Google review link: g.page/r/…, search.google.com/…, maps.app.goo.gl/… or google.com/maps/….')
+  },
   aboutHeadline: text(MAX_LENGTH.aboutHeadline),
   aboutStory: text(MAX_LENGTH.aboutStory),
   aboutImageKey: imageKey,

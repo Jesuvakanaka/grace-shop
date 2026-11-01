@@ -11,7 +11,9 @@ import { NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { readReviewInvite, submitReview } from '@/lib/reviews/invites'
 import { LINK_MESSAGES, validateReviewSubmission } from '@/lib/reviews/rules'
+import { deletePhotoIfUnreferenced } from '@/lib/reviews/photos'
 import { isSameOriginRequest } from '@/lib/reviews/same-origin'
+import { getImageStorage } from '@/lib/storage/images'
 import { TokenBucketLimiter, clientKey } from '@/lib/storefront/rate-limit'
 
 export const dynamic = 'force-dynamic'
@@ -57,6 +59,8 @@ export async function POST(request: Request) {
     if (!valid.ok) return json({ error: 'Please check the form.', errors: valid.errors }, 400)
     const result = await submitReview(prisma, token, valid.value)
     if (!result.ok) return json({ error: LINK_MESSAGES[result.state], reason: result.state }, 410)
+    // A photo sent without consent (or removed before sending) is not kept.
+    await deletePhotoIfUnreferenced(prisma, getImageStorage(), result.discardedPhotoKey)
     return json({ ok: true, firstName: valid.value.firstName }, 201)
   } catch (error) {
     console.error('[reviews] submit failed:', error instanceof Error ? error.message : error)

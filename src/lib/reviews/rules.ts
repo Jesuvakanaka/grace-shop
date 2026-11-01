@@ -19,6 +19,10 @@ export const REVIEW_INVITE_DAYS = 30
 
 /** Phone photos are 2-8 MB; a bigger review photo is refused before decoding. */
 export const REVIEW_PHOTO_MAX_BYTES = 10 * 1024 * 1024
+/** Photo uploads one review link may make (each replaces the previous one). */
+export const REVIEW_PHOTO_MAX_UPLOADS = 5
+/** The review photo endpoint takes the link's token in this header (checked before the body is read). */
+export const REVIEW_TOKEN_HEADER = 'x-review-token'
 
 /** What the public page and API say about a link that is not open. */
 export const LINK_MESSAGES = {

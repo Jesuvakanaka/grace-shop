@@ -202,6 +202,22 @@ export function isPagePath(value: unknown): value is string {
   return typeof value === 'string' && value.length <= PAGE_MAX_LENGTH && PATH.test(value)
 }
 
+/**
+ * ZP-508: paths that carry a secret. /review/<token> (one-time review link,
+ * also under /site) is stored as "/review" only, on the client (normalizePage)
+ * AND again on the server (validateEvent), so a live token never reaches
+ * AnalyticsEvent, whatever a client sends.
+ */
+const PRIVATE_PATH = /^(?:\/site)?\/review(?:[/?#]|$)/i
+
+export function isPrivatePagePath(pathname: string): boolean {
+  return PRIVATE_PATH.test(pathname)
+}
+
+export function redactPrivatePath(path: string): string {
+  return isPrivatePagePath(path) ? '/review' : path
+}
+
 /** Feed collection keys: "new" (New in) or a category slug. */
 export function isCollectionKey(value: unknown): value is string {
   return typeof value === 'string' && (value === 'new' || isValidSlug(value))
@@ -272,7 +288,7 @@ function checkField(field: Field, value: unknown): PropValue | undefined {
     case 'bool':
       return typeof value === 'boolean' ? value : undefined
     case 'path':
-      return isPagePath(value) ? value : undefined
+      return isPagePath(value) ? redactPrivatePath(value) : undefined
     case 'host':
       return typeof value === 'string' && HOST.test(value) ? value : undefined
     case 'lang':
@@ -310,7 +326,7 @@ export function validateEvent(raw: unknown, now: Date): ValidEvent | string {
   let page: string | null = null
   if (raw.page !== undefined) {
     if (!isPagePath(raw.page)) return `${where}: bad page`
-    page = raw.page
+    page = redactPrivatePath(raw.page)
   }
 
   let slug: string | null = null

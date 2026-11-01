@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { decideHostRouting, hostRoutingConfigFromEnv } from '@/lib/host-routing';
 import { isProductPreviewRequest, PREVIEW_RESPONSE_HEADERS } from '@/lib/storefront/product-route';
+import { isReviewPagePath, REVIEW_RESPONSE_HEADERS } from '@/lib/reviews/route-headers';
 
 /**
  * ZP-485: host-based routing. The decision lives in src/lib/host-routing.ts.
@@ -47,6 +48,10 @@ export function proxy(request: NextRequest) {
 function withPreviewHeaders(request: NextRequest, response: NextResponse): NextResponse {
   if (isProductPreviewRequest(request.nextUrl.pathname, request.nextUrl.searchParams)) {
     for (const [name, value] of Object.entries(PREVIEW_RESPONSE_HEADERS)) response.headers.set(name, value);
+  }
+  // ZP-508: /review/<token> must not leak the token (Referer) or be cached.
+  if (isReviewPagePath(request.nextUrl.pathname)) {
+    for (const [name, value] of Object.entries(REVIEW_RESPONSE_HEADERS)) response.headers.set(name, value);
   }
   return response;
 }

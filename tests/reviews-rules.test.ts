@@ -225,9 +225,9 @@ describe('aggregates', () => {
   })
   test('shop rating: shop stars of piece reviews plus stars of shop-only reviews', () => {
     const stars = shopRatingStars([
-      { productId: 1, stars: 2, shopStars: 5 },
-      { productId: 1, stars: 3, shopStars: null },
-      { productId: null, stars: 4, shopStars: null },
+      { shopOnly: false, stars: 2, shopStars: 5 },
+      { shopOnly: false, stars: 3, shopStars: null },
+      { shopOnly: true, stars: 4, shopStars: null },
     ])
     assert.deepStrictEqual(stars.sort(), [4, 5])
   })
@@ -240,7 +240,11 @@ describe('aggregates', () => {
     assert.strictEqual(shopRatingLine({ average: 5, count: 1 }), 'Rated 5.0 out of 5 by 1 verified customer')
     assert.strictEqual(ratingLabel(s), 'Rated 4.8 out of 5 from 12 reviews')
     assert.strictEqual(starsText(4.4), '★★★★☆')
-    assert.strictEqual(starsText(4.5), '★★★★★')
+    // The picture never shows more than the number: 4.5 and 4.8 are four full stars.
+    assert.strictEqual(starsText(4.5), '★★★★☆')
+    assert.strictEqual(starsText(4.8), '★★★★☆')
+    assert.strictEqual(starsText(5), '★★★★★')
+    assert.strictEqual(starsText(1), '★☆☆☆☆')
     assert.strictEqual(feedRatingText(null), null)
     assert.strictEqual(shopRatingLine(null), null)
   })
@@ -269,6 +273,7 @@ const HEX = 'a'.repeat(32)
 const baseRow: PublicReviewRow = {
   id: 7,
   inviteId: 9,
+  shopOnly: false,
   productId: 3,
   stars: 5,
   shopStars: 4,
@@ -316,12 +321,13 @@ describe('public review DTO (allow-list)', () => {
 })
 
 describe('reviews index (approved only, public products only)', () => {
+  const velvet = { slug: 'velvet', name: 'Velvet', isPublic: true }
   const rows = [
-    { ...baseRow, id: 1, productId: 1, stars: 5, shopStars: 5, product: { slug: 'velvet', name: 'Velvet' } },
-    { ...baseRow, id: 2, productId: 1, stars: 4, shopStars: null, product: { slug: 'velvet', name: 'Velvet' } },
-    { ...baseRow, id: 3, productId: 1, stars: 1, status: 'PENDING' as const, product: { slug: 'velvet', name: 'Velvet' } },
-    { ...baseRow, id: 4, productId: null, stars: 3, shopStars: null, photoKey: null, product: null },
-    { ...baseRow, id: 5, productId: 2, stars: 2, shopStars: 2, status: 'HIDDEN' as const, product: { slug: 'lime', name: 'Lime' } },
+    { ...baseRow, id: 1, productId: 1, stars: 5, shopStars: 5, product: velvet },
+    { ...baseRow, id: 2, productId: 1, stars: 4, shopStars: null, product: velvet },
+    { ...baseRow, id: 3, productId: 1, stars: 1, status: 'PENDING' as const, product: velvet },
+    { ...baseRow, id: 4, shopOnly: true, productId: null, stars: 3, shopStars: null, photoKey: null, product: null },
+    { ...baseRow, id: 5, productId: 2, stars: 2, shopStars: 2, status: 'HIDDEN' as const, product: { slug: 'lime', name: 'Lime', isPublic: true } },
   ]
   test('aggregates and lists only APPROVED reviews', () => {
     const index = buildReviewsIndex(rows)
@@ -330,6 +336,19 @@ describe('reviews index (approved only, public products only)', () => {
     assert.strictEqual(index.products.lime, undefined)
     // shop: 5 (shopStars of #1) + 3 (shop-only #4); #2 gave no shop stars; pending/hidden ignored
     assert.deepStrictEqual(index.shop, { average: 4, count: 2 })
+  })
+  test('owner decision: unpublished or deleted pieces still count towards the shop rating, but are not listed', () => {
+    const index = buildReviewsIndex([
+      ...rows,
+      // Unpublished piece: shop stars 1 count; the piece is not listed.
+      { ...baseRow, id: 6, productId: 3, stars: 2, shopStars: 1, product: { slug: 'draft', name: 'Draft', isPublic: false } },
+      // Deleted piece (productId SET NULL, not shop-only): shop stars 2 count; its piece stars (5) never do.
+      { ...baseRow, id: 7, productId: null, stars: 5, shopStars: 2, product: null },
+    ])
+    assert.strictEqual(index.products.draft, undefined)
+    assert.deepStrictEqual(Object.keys(index.products), ['velvet'])
+    // shop: 5 + 3 + 1 + 2 = 11 / 4
+    assert.deepStrictEqual(index.shop, { average: 2.8, count: 4 })
   })
   test('no approved reviews: no summaries at all', () => {
     const index = buildReviewsIndex(rows.filter((r) => r.status !== 'APPROVED'))
@@ -379,7 +398,7 @@ describe('menu shop rating', () => {
     const menu = buildMenuModel({ settings, tabs: [], base: '', shopRating: { average: 4.8, count: 36 } })
     assert.deepStrictEqual(menu.shopRating, {
       average: '4.8',
-      stars: '★★★★★',
+      stars: '★★★★☆',
       line: 'Rated 4.8 out of 5 by 36 verified customers',
     })
   })
@@ -465,6 +484,22 @@ describe('site setting googleReviewUrl', () => {
     assert.ok(!validateSiteSettingsInput({ googleReviewUrl: 'http://g.page/r/abc' }).ok)
     assert.ok(!validateSiteSettingsInput({ googleReviewUrl: 'https://evil.example/review' }).ok)
     assert.ok(!validateSiteSettingsInput({ googleReviewUrl: 'javascript:alert(1)' }).ok)
+    // Exact hosts only; google.com only under /maps.
+    for (const ok of ['https://maps.app.goo.gl/AbC123', 'https://www.google.com/maps/place/VYRA', 'https://google.com/maps']) {
+      assert.ok(validateSiteSettingsInput({ googleReviewUrl: ok }).ok, ok)
+    }
+    for (const bad of [
+      'https://www.google.com/search?q=vyra',
+      'https://google.com/mapsevil',
+      'https://evil.g.page/r/x',
+      'https://goo.gl/abc',
+      'https://maps.google.co.zw/x',
+      'https://docs.google.com/maps/x',
+      'https://g.page.evil.example/r/x',
+      'https://g.page:8443/r/x',
+    ]) {
+      assert.ok(!validateSiteSettingsInput({ googleReviewUrl: bad }).ok, bad)
+    }
     assert.ok(validateSiteSettingsInput({ googleReviewUrl: null }).ok)
     const pub = toPublicSiteSettings({ ...SITE_SETTINGS_DEFAULTS, googleReviewUrl: 'https://g.page/r/abc/review' })
     assert.strictEqual(pub.reviews.googleReviewUrl, 'https://g.page/r/abc/review')

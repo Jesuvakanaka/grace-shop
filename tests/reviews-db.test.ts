@@ -20,7 +20,8 @@ process.env.GRACE_IMAGE_DIR = IMAGE_DIR
 import prisma from '../src/lib/db'
 import { createToken } from '../src/lib/auth'
 import { getImageStorage } from '../src/lib/storage/images'
-import { REVIEW_INVITE_DAYS } from '../src/lib/reviews/rules'
+import { REVIEW_INVITE_DAYS, REVIEW_PHOTO_MAX_UPLOADS, REVIEW_TOKEN_HEADER } from '../src/lib/reviews/rules'
+import { cleanupReviewPhotos, deletePhotoIfUnreferenced, isImageKeyReferenced } from '../src/lib/reviews/photos'
 import { hashReviewToken } from '../src/lib/reviews/token'
 import { createReviewInvite, readReviewInvite, submitReview } from '../src/lib/reviews/invites'
 import { loadPublicReviews } from '../src/lib/storefront/reviews'
@@ -39,6 +40,13 @@ let ownerToken = ''
 let staffToken = ''
 const DAY = 86_400_000
 const ORIGIN = { origin: 'http://localhost:3455', host: 'localhost:3455' }
+/** Same-origin photo request with the token header and a fresh client address (the per-IP limiter never interferes). */
+let photoIp = 0
+const photoHeaders = (token: string | null): Record<string, string> => ({
+  ...ORIGIN,
+  'x-forwarded-for': `10.8.${Math.floor(++photoIp / 250)}.${photoIp % 250}`,
+  ...(token ? { [REVIEW_TOKEN_HEADER]: token } : {}),
+})
 
 async function call(
   fn: unknown,
@@ -49,8 +57,14 @@ async function call(
   const token = opts.token === undefined ? ownerToken : opts.token
   if (token) headers.cookie = `auth-token=${token}`
   let body: BodyInit | undefined
-  if (opts.form) body = opts.form
-  else if (opts.body !== undefined) {
+  if (opts.form) {
+    // Serialise like a browser does, so Content-Length is set (the photo route requires it).
+    const encoded = new Response(opts.form)
+    const bytes = new Uint8Array(await encoded.arrayBuffer())
+    headers['content-type'] = encoded.headers.get('content-type') as string
+    headers['content-length'] = String(bytes.byteLength)
+    body = bytes
+  } else if (opts.body !== undefined) {
     headers['Content-Type'] = 'application/json'
     body = JSON.stringify(opts.body)
   }
@@ -227,15 +241,15 @@ describe('reviews (database)', () => {
       assert.strictEqual((await readReviewInvite(prisma, token)).state, 'open')
     })
 
-    test('photo upload: token-gated, re-encoded without metadata, kept on the invite', async () => {
+    test('photo upload: token in a header, re-encoded without metadata, kept on the invite', async () => {
       const form = new FormData()
-      form.set('token', token)
       form.set('file', new Blob([new Uint8Array(await jpeg())], { type: 'image/jpeg' }), 'me.jpg')
-      const r = await call(photoRoute.POST, 'POST', { token: null, form, headers: ORIGIN })
+      const r = await call(photoRoute.POST, 'POST', { token: null, form, headers: photoHeaders(token) })
       assert.strictEqual(r.status, 200, JSON.stringify(r.json))
       assert.deepStrictEqual(Object.keys(r.json).sort(), ['ok'])
       const invite = await prisma.reviewInvite.findUniqueOrThrow({ where: { tokenHash: hashReviewToken(token) } })
       assert.match(invite.photoKey ?? '', /^products\/[a-f0-9]{32}\.webp$/)
+      assert.strictEqual(invite.photoUploads, 1)
       const stored = await getImageStorage().get(invite.photoKey as string)
       assert.ok(stored)
       const bytes = Buffer.from(await new Response(stored.stream).arrayBuffer())
@@ -243,19 +257,81 @@ describe('reviews (database)', () => {
       assert.strictEqual(meta.format, 'webp')
       assert.strictEqual(meta.exif, undefined)
       assert.ok(!bytes.includes(Buffer.from('secret-artist')))
-      // Bad token, not a picture, cross-site: refused.
-      const f2 = new FormData()
-      f2.set('token', 'y'.repeat(43))
-      f2.set('file', new Blob([new Uint8Array(await jpeg())]), 'x.jpg')
-      assert.strictEqual((await call(photoRoute.POST, 'POST', { token: null, form: f2, headers: ORIGIN })).status, 410)
-      const f3 = new FormData()
-      f3.set('token', token)
-      f3.set('file', new Blob([new TextEncoder().encode('<svg></svg>')]), 'x.svg')
-      assert.strictEqual((await call(photoRoute.POST, 'POST', { token: null, form: f3, headers: ORIGIN })).status, 400)
-      const f4 = new FormData()
-      f4.set('token', token)
-      f4.set('file', new Blob([new Uint8Array(await jpeg())]), 'x.jpg')
-      assert.strictEqual((await call(photoRoute.POST, 'POST', { token: null, form: f4, headers: { origin: 'https://evil.example', host: 'localhost:3455' } })).status, 403)
+    })
+
+    test('photo upload refusals: bad token, token only in the form, SVG, GIF, cross-site', async () => {
+      const file = async () => {
+        const f = new FormData()
+        f.set('file', new Blob([new Uint8Array(await jpeg())]), 'x.jpg')
+        return f
+      }
+      assert.strictEqual((await call(photoRoute.POST, 'POST', { token: null, form: await file(), headers: photoHeaders('y'.repeat(43)) })).status, 410)
+      const inForm = await file()
+      inForm.set('token', token)
+      assert.strictEqual((await call(photoRoute.POST, 'POST', { token: null, form: inForm, headers: photoHeaders(null) })).status, 410)
+      const svg = new FormData()
+      svg.set('file', new Blob([new TextEncoder().encode('<svg></svg>')]), 'x.svg')
+      assert.strictEqual((await call(photoRoute.POST, 'POST', { token: null, form: svg, headers: photoHeaders(token) })).status, 400)
+      const gif = new FormData()
+      const gifBytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#800' } }).gif().toBuffer()
+      gif.set('file', new Blob([new Uint8Array(gifBytes)]), 'x.gif')
+      assert.strictEqual((await call(photoRoute.POST, 'POST', { token: null, form: gif, headers: photoHeaders(token) })).status, 400)
+      const cross = await call(photoRoute.POST, 'POST', {
+        token: null,
+        form: await file(),
+        headers: { ...photoHeaders(token), origin: 'https://evil.example' },
+      })
+      assert.strictEqual(cross.status, 403)
+      // The refusals did not count as uploads.
+      assert.strictEqual((await prisma.reviewInvite.findUniqueOrThrow({ where: { tokenHash: hashReviewToken(token) } })).photoUploads, 1)
+    })
+
+    test('replace deletes the previous file; remove (DELETE) deletes it; uploads are capped per link', async () => {
+      const { token: t } = await createReviewInvite(prisma, { productId: pub.id, createdBy: 'zp508owner' })
+      const upload = (rgb: { r: number; g: number; b: number }) =>
+        sharp({ create: { width: 30, height: 40, channels: 3, background: rgb } })
+          .jpeg()
+          .toBuffer()
+          .then((b) => {
+            const f = new FormData()
+            f.set('file', new Blob([new Uint8Array(b)]), 'p.jpg')
+            return call(photoRoute.POST, 'POST', { token: null, form: f, headers: photoHeaders(t) })
+          })
+      const keyOf = async () => (await prisma.reviewInvite.findUniqueOrThrow({ where: { tokenHash: hashReviewToken(t) } })).photoKey
+      assert.strictEqual((await upload({ r: 10, g: 20, b: 30 })).status, 200)
+      const first = (await keyOf()) as string
+      assert.strictEqual((await upload({ r: 200, g: 20, b: 30 })).status, 200)
+      const second = (await keyOf()) as string
+      assert.notStrictEqual(first, second)
+      assert.strictEqual(await getImageStorage().exists(first), false, 'replaced photo deleted')
+      assert.strictEqual(await getImageStorage().exists(second), true)
+
+      const removed = await call(photoRoute.DELETE, 'DELETE', { token: null, headers: photoHeaders(t) })
+      assert.strictEqual(removed.status, 200)
+      assert.strictEqual(await keyOf(), null)
+      assert.strictEqual(await getImageStorage().exists(second), false, 'removed photo deleted')
+
+      for (let i = 3; i <= REVIEW_PHOTO_MAX_UPLOADS; i++) assert.strictEqual((await upload({ r: i * 20, g: 90, b: 90 })).status, 200)
+      const over = await upload({ r: 1, g: 2, b: 250 })
+      assert.strictEqual(over.status, 429)
+      assert.strictEqual(over.json.reason, 'limit')
+    })
+
+    test('a shared picture is never deleted while a product still uses it', async () => {
+      const { token: t } = await createReviewInvite(prisma, { productId: pub.id, createdBy: 'zp508owner' })
+      const bytes = await sharp({ create: { width: 33, height: 44, channels: 3, background: '#123456' } }).jpeg().toBuffer()
+      const f = new FormData()
+      f.set('file', new Blob([new Uint8Array(bytes)]), 'p.jpg')
+      assert.strictEqual((await call(photoRoute.POST, 'POST', { token: null, form: f, headers: photoHeaders(t) })).status, 200)
+      const key = (await prisma.reviewInvite.findUniqueOrThrow({ where: { tokenHash: hashReviewToken(t) } })).photoKey as string
+      // The owner happens to use the very same picture on a product.
+      const img = await prisma.productImage.create({ data: { productId: hidden.id, imageKey: key, isPrimary: true, sortOrder: 0 } })
+      assert.strictEqual((await call(photoRoute.DELETE, 'DELETE', { token: null, headers: photoHeaders(t) })).status, 200)
+      assert.strictEqual(await getImageStorage().exists(key), true, 'still used by a product')
+      await prisma.productImage.delete({ where: { id: img.id } })
+      assert.strictEqual(await isImageKeyReferenced(prisma, key), false)
+      assert.strictEqual(await deletePhotoIfUnreferenced(prisma, getImageStorage(), key), true)
+      assert.strictEqual(await getImageStorage().exists(key), false)
     })
 
     test('submit succeeds once; the second time is "used"', async () => {
@@ -275,6 +351,12 @@ describe('reviews (database)', () => {
       assert.strictEqual(review.displayName, 'Tendai M.')
       assert.ok(!JSON.stringify(review).includes('Moyo'))
       assert.ok(review.photoKey)
+      assert.strictEqual(review.photoConsent, true)
+      assert.strictEqual(review.shopOnly, false)
+      // The photo moved from the link to the review.
+      const invite = await prisma.reviewInvite.findUniqueOrThrow({ where: { tokenHash: hashReviewToken(token) } })
+      assert.strictEqual(invite.photoKey, null)
+      assert.strictEqual(await getImageStorage().exists(review.photoKey), true)
     })
 
     test('pending: nothing public (index, image route), count shows 1+', async () => {
@@ -329,18 +411,24 @@ describe('reviews (database)', () => {
       assert.strictEqual(index.products[pub.slug], undefined)
     })
 
-    test('reviews of an unpublished piece are not public', async () => {
+    test('reviews of an unpublished piece are not listed, but still count towards the shop rating', async () => {
       await call(reviewRoute.PATCH, 'PATCH', { params: { id: String(reviewId) }, body: { action: 'approve' } })
+      const shopBefore = (await loadPublicReviews(prisma)).shop
       await prisma.product.update({ where: { id: pub.id }, data: { published: false } })
-      assert.strictEqual((await loadPublicReviews(prisma)).products[pub.slug], undefined)
+      const unpublished = await loadPublicReviews(prisma)
+      assert.strictEqual(unpublished.products[pub.slug], undefined)
+      assert.deepStrictEqual(unpublished.shop, shopBefore, 'owner decision: shop stars count regardless')
       await prisma.product.update({ where: { id: pub.id }, data: { published: true } })
       assert.ok((await loadPublicReviews(prisma)).products[pub.slug])
     })
 
     test('delete removes it; unknown id 404; bad action 400', async () => {
       assert.strictEqual((await call(reviewRoute.PATCH, 'PATCH', { params: { id: String(reviewId) }, body: { action: 'publish-all' } })).status, 400)
+      const photoKey = (await prisma.review.findUniqueOrThrow({ where: { id: reviewId } })).photoKey as string
+      assert.strictEqual(await getImageStorage().exists(photoKey), true)
       assert.strictEqual((await call(reviewRoute.DELETE, 'DELETE', { params: { id: String(reviewId) } })).status, 200)
       assert.strictEqual(await prisma.review.count({ where: { id: reviewId } }), 0)
+      assert.strictEqual(await getImageStorage().exists(photoKey), false, "the customer's photo is deleted with the review")
       assert.strictEqual((await call(reviewRoute.DELETE, 'DELETE', { params: { id: String(reviewId) } })).status, 404)
       assert.strictEqual((await call(reviewRoute.PATCH, 'PATCH', { params: { id: 'abc' }, body: { action: 'approve' } })).status, 404)
       assert.strictEqual((await loadPublicReviews(prisma)).products[pub.slug], undefined)
@@ -353,7 +441,86 @@ describe('reviews (database)', () => {
       const review = await prisma.review.findFirstOrThrow({ where: { invite: { tokenHash: hashReviewToken(t) } } })
       assert.strictEqual(review.flagged, true)
       assert.strictEqual(review.productId, null)
+      assert.strictEqual(review.shopOnly, true)
       assert.strictEqual(review.shopStars, null)
+    })
+  })
+
+  describe('photo privacy and product deletion', () => {
+    async function parkPhoto(token: string, colour: string) {
+      const bytes = await sharp({ create: { width: 21, height: 28, channels: 3, background: colour } }).jpeg().toBuffer()
+      const f = new FormData()
+      f.set('file', new Blob([new Uint8Array(bytes)]), 'p.jpg')
+      const r = await call(photoRoute.POST, 'POST', { token: null, form: f, headers: photoHeaders(token) })
+      assert.strictEqual(r.status, 200, JSON.stringify(r.json))
+      return (await prisma.reviewInvite.findUniqueOrThrow({ where: { tokenHash: hashReviewToken(token) } })).photoKey as string
+    }
+
+    test('a photo sent WITHOUT consent is not kept: deleted at submit', async () => {
+      const { token } = await createReviewInvite(prisma, { productId: pub.id, createdBy: 'zp508owner' })
+      const key = await parkPhoto(token, '#445566')
+      const r = await call(submitRoute.POST, 'POST', { token: null, body: { token, ...goodReview, photo: true, photoConsent: false }, headers: photoHeaders(null) })
+      assert.strictEqual(r.status, 201)
+      const review = await prisma.review.findFirstOrThrow({ where: { invite: { tokenHash: hashReviewToken(token) } } })
+      assert.strictEqual(review.photoKey, null)
+      assert.strictEqual(review.photoConsent, false)
+      assert.strictEqual(await getImageStorage().exists(key), false)
+    })
+
+    test('a photo parked but not sent with the review (photo: false) is deleted at submit', async () => {
+      const { token } = await createReviewInvite(prisma, { productId: pub.id, createdBy: 'zp508owner' })
+      const key = await parkPhoto(token, '#556677')
+      assert.strictEqual((await call(submitRoute.POST, 'POST', { token: null, body: { token, ...goodReview }, headers: photoHeaders(null) })).status, 201)
+      assert.strictEqual(await getImageStorage().exists(key), false)
+    })
+
+    test('nightly sweep: photos of expired unused links and review photos without consent', async () => {
+      const { token } = await createReviewInvite(prisma, { productId: pub.id, createdBy: 'zp508owner' })
+      const expiredKey = await parkPhoto(token, '#667788')
+      await prisma.reviewInvite.update({ where: { tokenHash: hashReviewToken(token) }, data: { expiresAt: new Date(Date.now() - DAY) } })
+      // A legacy review photo without consent.
+      const { token: t2 } = await createReviewInvite(prisma, { productId: pub.id, createdBy: 'zp508owner' })
+      const legacyKey = await parkPhoto(t2, '#778899')
+      await call(submitRoute.POST, 'POST', { token: null, body: { token: t2, ...goodReview, photo: true, photoConsent: true }, headers: photoHeaders(null) })
+      const legacy = await prisma.review.findFirstOrThrow({ where: { invite: { tokenHash: hashReviewToken(t2) } } })
+      await prisma.review.update({ where: { id: legacy.id }, data: { photoConsent: false } })
+      // An open link's photo is left alone.
+      const { token: t3 } = await createReviewInvite(prisma, { productId: pub.id, createdBy: 'zp508owner' })
+      const openKey = await parkPhoto(t3, '#8899aa')
+
+      const result = await cleanupReviewPhotos(prisma, getImageStorage())
+      assert.ok(result.invites >= 1 && result.reviews >= 1 && result.deleted >= 2, JSON.stringify(result))
+      assert.strictEqual(await getImageStorage().exists(expiredKey), false)
+      assert.strictEqual(await getImageStorage().exists(legacyKey), false)
+      assert.strictEqual(await getImageStorage().exists(openKey), true)
+      assert.strictEqual((await prisma.review.findUniqueOrThrow({ where: { id: legacy.id } })).photoKey, null)
+      // Idempotent.
+      const again = await cleanupReviewPhotos(prisma, getImageStorage())
+      assert.strictEqual(again.deleted, 0)
+    })
+
+    test('deleting a product keeps its reviews (SET NULL): shop stars still count; open piece links stop working', async () => {
+      const temp = await prisma.product.create({ data: { itemNumber: 'ZP508-DEL', productName: 'ZP508 To delete' } })
+      const { token } = await createReviewInvite(prisma, { productId: temp.id, createdBy: 'zp508owner' })
+      await call(submitRoute.POST, 'POST', { token: null, body: { token, ...goodReview, stars: 1, shopStars: 5 }, headers: photoHeaders(null) })
+      const review = await prisma.review.findFirstOrThrow({ where: { invite: { tokenHash: hashReviewToken(token) } } })
+      await call(reviewRoute.PATCH, 'PATCH', { params: { id: String(review.id) }, body: { action: 'approve' } })
+      const { token: open } = await createReviewInvite(prisma, { productId: temp.id, createdBy: 'zp508owner' })
+      const before = (await loadPublicReviews(prisma)).shop
+
+      await prisma.product.delete({ where: { id: temp.id } })
+
+      const after = await prisma.review.findUniqueOrThrow({ where: { id: review.id } })
+      assert.strictEqual(after.productId, null)
+      assert.strictEqual(after.shopOnly, false)
+      assert.deepStrictEqual((await loadPublicReviews(prisma)).shop, before, 'the shop rating is unchanged')
+      assert.strictEqual((await readReviewInvite(prisma, open)).state, 'invalid')
+      const r = await call(submitRoute.POST, 'POST', { token: null, body: { token: open, ...goodReview }, headers: photoHeaders(null) })
+      assert.strictEqual(r.status, 410)
+      const list = await call(reviewsRoute.GET, 'GET')
+      const mine = list.json.reviews.find((x: any) => x.id === review.id)
+      assert.strictEqual(mine.productName, null)
+      assert.strictEqual(mine.shopOnly, false)
     })
   })
 })

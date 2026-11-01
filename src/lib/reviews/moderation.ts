@@ -24,7 +24,9 @@ export type OwnerReview = {
   flagged: boolean
   ownerReply: string | null
   privateNote: string | null
-  /** null = shop-only review. */
+  /** A shop-only review (no piece). */
+  shopOnly: boolean
+  /** null for a shop-only review, or after the piece was deleted. */
   productId: number | null
   productName: string | null
   productSlug: string | null
@@ -45,6 +47,7 @@ const OWNER_SELECT = {
   flagged: true,
   ownerReply: true,
   privateNote: true,
+  shopOnly: true,
   productId: true,
   createdAt: true,
   approvedAt: true,
@@ -68,6 +71,7 @@ function toOwnerReview(r: OwnerRow): OwnerReview {
     flagged: r.flagged || containsProfanity(`${r.comment} ${r.displayName}`),
     ownerReply: r.ownerReply,
     privateNote: r.privateNote,
+    shopOnly: r.shopOnly,
     productId: r.productId,
     productName: r.product ? productDisplayName(r.product) : null,
     productSlug: r.product?.slug ?? null,
@@ -123,8 +127,13 @@ export async function moderateReview(
   return toOwnerReview(row)
 }
 
-/** Delete a review for good. False when it did not exist. The link stays used. */
-export async function deleteReview(db: Db, id: number): Promise<boolean> {
+/**
+ * Delete a review for good. Null when it did not exist; else the photo key it
+ * had (the caller deletes the file once nothing references it). The link stays used.
+ */
+export async function deleteReview(db: Db, id: number): Promise<{ photoKey: string | null } | null> {
+  const row = await db.review.findUnique({ where: { id }, select: { photoKey: true } })
+  if (!row) return null
   const r = await db.review.deleteMany({ where: { id } })
-  return r.count === 1
+  return r.count === 1 ? { photoKey: row.photoKey } : null
 }

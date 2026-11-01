@@ -164,7 +164,7 @@ jobs:
             --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
             --set-cloudsql-instances="${CLOUD_SQL_CONNECTION}" \
             --set-secrets="${DB_SECRETS}" \
-            --set-env-vars=NODE_ENV=production \
+            --set-env-vars="^@^NODE_ENV=production@GRACE_IMAGE_STORAGE=gcs@GRACE_IMAGE_BUCKET=${IMAGES_BUCKET}" \
             --command=npm \
             --args=run,analytics:rollup \
             --tasks=1 \

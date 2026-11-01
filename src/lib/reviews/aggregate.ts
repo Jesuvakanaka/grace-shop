@@ -16,14 +16,15 @@ export function summarizeStars(stars: readonly number[]): RatingSummary | null {
 }
 
 /**
- * The stars that make up the SHOP rating: the optional shop stars of piece
- * reviews, plus the stars of shop-only reviews (no product). Pass approved
- * reviews only.
+ * The stars that make up the SHOP rating: the stars of shop-only reviews,
+ * plus the optional shop stars of piece reviews. Owner decision: ALL approved
+ * reviews count, whether or not the piece is still published (or exists).
+ * Pass approved reviews only.
  */
-export function shopRatingStars(reviews: readonly { productId: number | null; stars: number; shopStars: number | null }[]): number[] {
+export function shopRatingStars(reviews: readonly { shopOnly: boolean; stars: number; shopStars: number | null }[]): number[] {
   const out: number[] = []
   for (const r of reviews) {
-    if (r.productId === null) out.push(r.stars)
+    if (r.shopOnly) out.push(r.stars)
     else if (r.shopStars !== null) out.push(r.shopStars)
   }
   return out
@@ -31,9 +32,12 @@ export function shopRatingStars(reviews: readonly { productId: number | null; st
 
 const one = (n: number) => n.toFixed(1)
 
-/** "★★★★☆" for a (rounded) value. */
+/**
+ * "★★★★☆": full stars for the WHOLE part of the value (4.5 and 4.8 show four),
+ * so the picture never claims more than the number next to it says.
+ */
 export function starsText(value: number): string {
-  const full = Math.min(5, Math.max(0, Math.round(value)))
+  const full = Math.min(5, Math.max(0, Math.floor(value + 1e-9)))
   return '★'.repeat(full) + '☆'.repeat(5 - full)
 }
 

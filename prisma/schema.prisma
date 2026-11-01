@@ -634,19 +634,25 @@ model ReviewInvite {
   id           Int       @id @default(autoincrement())
   /// sha256(token) as 64 lowercase hex. The token itself is never stored.
   tokenHash    String    @unique
-  /// null = shop-only review link.
+  /// true = shop-only review link. A piece link whose product was deleted
+  /// (productId set to null) is NOT shop-only and no longer works.
+  shopOnly     Boolean   @default(false)
   productId    Int?
   /// Optional first name the owner typed, to prefill the form.
   customerHint String?
   expiresAt    DateTime
   /// Set atomically when the review is submitted (single use).
   usedAt       DateTime?
-  /// A photo the customer uploaded with this link but has not submitted yet.
+  /// A photo the customer uploaded with this link but has not submitted yet
+  /// (moved to the Review on submit; deleted when replaced, removed or unused).
   photoKey     String?
+  /// Photo uploads made with this link (capped, REVIEW_PHOTO_MAX_UPLOADS).
+  photoUploads Int       @default(0)
   createdBy    String
   createdAt    DateTime  @default(now())
 
-  product Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+  // SET NULL: deleting a product must never delete reviews (owner decision).
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
   review  Review?
 
   @@index([productId])
@@ -655,7 +661,10 @@ model ReviewInvite {
 model Review {
   id           Int          @id @default(autoincrement())
   inviteId     Int          @unique
-  /// null = shop-only review (then `stars` is the shop rating).
+  /// true = shop-only review: `stars` is the shop rating.
+  shopOnly     Boolean      @default(false)
+  /// The piece; null for a shop-only review, or after the product was deleted
+  /// (the review then only counts towards the shop rating).
   productId    Int?
   /// 1-5: the piece (or the shop for a shop-only review).
   stars        Int
@@ -665,6 +674,7 @@ model Review {
   comment      String
   /// "Tendai M.", derived from the name the customer typed (the full name is not stored).
   displayName  String
+  /// Only kept with consent (a photo sent without consent is deleted).
   photoKey     String?
   /// Shown publicly only when true AND the review is APPROVED.
   photoConsent Boolean      @default(false)
@@ -681,7 +691,7 @@ model Review {
   updatedAt    DateTime     @updatedAt
 
   invite  ReviewInvite @relation(fields: [inviteId], references: [id], onDelete: Cascade)
-  product Product?     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([status, productId])
   @@index([photoKey])

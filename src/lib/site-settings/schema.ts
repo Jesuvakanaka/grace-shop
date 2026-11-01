@@ -129,8 +129,13 @@ export const MAX_LENGTH = {
   seoDescription: 300,
 } as const
 
-/** ZP-508: hosts (and subdomains) a "Review us on Google" link may use (g.page/r/…, search.google.com/local/writereview…, maps.app.goo.gl/…). */
-export const GOOGLE_REVIEW_DOMAINS = ['google.com', 'g.page', 'goo.gl', 'google.co.zw'] as const
+/**
+ * ZP-508: a "Review us on Google" link may only be on these exact hosts (any
+ * path): g.page/r/…, search.google.com/local/writereview…, maps.app.goo.gl/…
+ */
+export const GOOGLE_REVIEW_HOSTS = ['g.page', 'search.google.com', 'maps.app.goo.gl'] as const
+/** ...or on these hosts under /maps only (google.com/maps/place/…). */
+export const GOOGLE_MAPS_HOSTS = ['www.google.com', 'google.com'] as const
 
 /** Allowed host names (and their subdomains) per social link. */
 export const SOCIAL_DOMAINS = {

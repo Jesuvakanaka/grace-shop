@@ -14,6 +14,8 @@ export type GcsFileLike = {
   getMetadata(): Promise<[{ size?: string | number; contentType?: string }, ...unknown[]]>
   createReadStream(): NodeJS.ReadableStream
   download(): Promise<[Buffer]>
+  /** ZP-508; optional so read-only test doubles need not implement it. */
+  delete?(options: { ignoreNotFound: boolean }): Promise<unknown>
 }
 export type GcsClientLike = { bucket(name: string): { file(name: string): GcsFileLike } }
 
@@ -54,6 +56,13 @@ export class GcsImageStorage implements ImageStorage {
       resumable: false,
       metadata: { cacheControl: 'private, max-age=86400' },
     })
+  }
+
+  /** Needs storage.objects.delete on the bucket for the runtime service account. */
+  async delete(key: string): Promise<void> {
+    const file = await this.file(key)
+    if (!file.delete) throw new Error('This storage client cannot delete objects')
+    await file.delete({ ignoreNotFound: true })
   }
 
   async get(key: string): Promise<StoredImage | null> {

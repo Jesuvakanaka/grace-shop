@@ -137,9 +137,13 @@ export default async function PrivacyPage() {
             If you bought from us, we may send you a one-time link to review your piece or our shop. The review form is
             the only place on this site that asks for your name. A review shows your first name and the initial of your
             last name (for example &ldquo;Tendai M.&rdquo;), your star rating, your words and the date; your full name
-            is not kept. A photo you add is only shown if you tick the box allowing it, and its location and camera
-            details are removed. Your phone number is never published. Every review is checked by us before it
-            appears. To change or remove your review, just ask us using the details below.
+            is not kept. Location and camera details are removed from a photo you add. The photo is only kept, and
+            only shown with your review, if you tick the box allowing it; otherwise it is deleted when you send the
+            review. A photo you remove or replace is deleted straight away, and a photo added to a link that is never
+            used is deleted within a day after the link expires (30 days). Your phone number is never published, and
+            the review page itself is not counted in our visit statistics. Every review is checked by us before it
+            appears. To change or remove your review, just ask us using the details below: deleting a review also
+            deletes its photo.
           </p>
         </Section>
 
