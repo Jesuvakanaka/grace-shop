@@ -15,8 +15,9 @@ pure model and tests stay).
 | `src/lib/storefront/feed.ts` | Pure: order, tabs, tab filter, paging, slide DTO, URL state. Tested in `tests/storefront-feed.test.ts`. |
 | `src/lib/storefront/feed-data.ts` | Server only: builds the feed from the cached catalogue, categories and settings. |
 | `src/lib/storefront/feed-actions.ts` | Server action `loadFeedAction` for "load more" and tab switches. |
-| `src/components/storefront/feed/FlipFeed.tsx` | Client: the feed, overlay, tabs, keyboard, end slide, URL state, menu. |
-| `src/components/storefront/feed/FeedSlide.tsx` | Client: one look (photos, progress bars, info, rail). |
+| `src/components/storefront/feed/FlipFeed.tsx` | Client: the feed, top bar, collection pill, clean view, keyboard, end slide, URL state, menu. |
+| `src/components/storefront/feed/FeedSlide.tsx` | Client: one look (photos, progress bars, "Show details" eye, caption, rail). |
+| `src/components/storefront/feed/CollectionSheet.tsx` | Client: the collections bottom sheet. |
 | `src/components/storefront/feed/StorefrontFrame.tsx` | Layout flag: no header/footer on the landing page. |
 | `src/components/storefront/ShellMenu.tsx` | The storefront menu dialog, moved out of `Header` so the feed opens the same menu (ZP-503 redesigns it). |
 | `src/components/storefront/product/useShare.ts` | Share logic (Web Share API, else copy link), shared by `ShareButton` and the feed. |
@@ -40,17 +41,30 @@ Input is the catalogue's "newest" sort (newest published first). Output:
 2. the other available pieces (newest first),
 3. sold-out pieces (featured first there too).
 
-## Tabs (`feedTabs`, `filterFeed`, `resolveFeedTab`)
+## Collections (`feedTabs`, `filterFeed`, `resolveFeedTab`)
 
-- **New in** (every piece, in feed order) plus one tab per published category
-  that has at least one piece, in category display order. The tabs row is
-  hidden when there is only New in.
+- **New in** (every piece, in feed order) plus one collection per published
+  category that has at least one piece, in category display order, each with
+  its number of looks (`looksLabel`: "1 look", "N looks").
+- There is no tab row on the photo. The top bar's right side is a small
+  rounded pill with the current collection's name and a chevron ("NEW IN ▾",
+  `aria-haspopup="dialog"`, named "Collection: New in. Change collection").
+  It opens a cream bottom sheet (`CollectionSheet`, a native modal dialog):
+  a "Collections" heading (which labels the dialog), one row per collection
+  with "N looks", the current one highlighted and `aria-current="true"`.
+  Opening it focuses the current row; focus stays in the sheet and returns
+  to the pill when it closes. Picking a row closes the sheet and switches the
+  feed. Escape closes it, and so does a tap on the backdrop (only when both
+  pointerdown and click land on the backdrop, so a drag that starts inside
+  the sheet never closes it). The pill is hidden when there is only New in.
+- Visit us is in the menu and on the end slide (and on the rail when no
+  WhatsApp number is set); the top bar no longer has the pin.
 - The tab is in the URL: `?c=<category-slug>` (none for New in). An unknown
   value falls back to New in.
-- Switching tabs is client-side: a server action returns the first page of
-  that tab and `history.replaceState` updates `?c=`. The pressed tab
-  changes only when its looks arrive, so tab and looks never disagree; if the
-  action fails, the page falls back to a full load of `/?c=<tab>`.
+- Switching collection is client-side: a server action returns the first page of
+  that collection and `history.replaceState` updates `?c=`. The pill and
+  the current row change only when the looks arrive, so collection and
+  looks never disagree; if the action fails, the page falls back to a full load of `/?c=<tab>`.
 - A soft navigation to the page (new server props, or `?c=` changed by a
   link) resets the feed to that tab and its first slide.
 
@@ -72,18 +86,54 @@ Input is the catalogue's "newest" sort (newest published first). Output:
 
 ## Slide
 
-- Photos side by side with horizontal scroll snap; thin progress bars when
-  there is more than one photo; on mouse devices, previous/next photo buttons.
-- Overlay: category label, serif name, price or "Ask for price", tag
-  (Sold out, else Few left, else New), "View details".
-- Rail: **Enquire** (wa.me link from `buildWhatsAppLink` with the owner's
+- Photos side by side with horizontal scroll snap; thin progress bars just
+  under the top bar (68px from the top) when there is more than one photo;
+  on mouse devices, previous/next photo buttons.
+- A look goes back to its first photo once it is fully off screen: each
+  slide has an IntersectionObserver, and when its intersection ratio drops
+  to 0 its own strip is set to `scrollLeft = 0` (instant) and its progress
+  bars reset. Nothing changes halfway through a swipe, and a swipe that
+  snaps back keeps the photo. Coming back to a look always starts on photo 1.
+  Switching collection remounts the slides (keyed per collection), so they
+  start on photo 1 too.
+- Top: a light scrim (130px, 50% ink at the top) behind the slim top bar
+  (menu, wordmark, collection pill), which always shows.
+
+### Clean view and "Show details"
+
+- The feed opens on the clothes alone: no caption, no rail, no bottom scrim.
+  An eye button at the bottom right reads **Show details**. Its accessible
+  name is always "Show details" and `aria-pressed` gives the state.
+  Tapping it shows the caption and the rail on every slide; the visible text
+  then reads **Hide** (`aria-pressed="true"`).
+- The choice is kept in `sessionStorage` (`vyra:feed:details`, "shown" or
+  "hidden"; read and written in try/catch, `parseDetailsPreference`), so it
+  holds while browsing and when coming back from a product page. A new
+  session starts in clean view.
+- In clean view each slide's first photo link is in the tab order and named
+  "<name>, <price>[, <tag>]. View details" (`photoLinkLabel`), and an
+  sr-only `<h2>` keeps the look's heading, so keyboard and screen reader
+  users still get the name, price and tag and reach the product page.
+- The first-slide swipe hint always shows (until the first scroll). While it
+  shows, the caption and the rail sit higher (48px from the bottom) so they
+  never touch it.
+
+### With details
+
+- Caption at the very bottom (16px from the left, clear of the rail): the
+  name on one line in serif (21px, ellipsis), then price or "Ask for price",
+  tag (Sold out, else Few left, else New) and "· Tap for details". The whole
+  caption is one link to the product page.
+- A light, short bottom scrim (190px, up to 72% ink; at least 62% behind the
+  caption, plus a text shadow).
+- Rail, above the eye: **Enquire** (wa.me link from `buildWhatsAppLink` with the owner's
   enquiry template, via `productEnquiryHref`), or **Restock** for sold-out
   pieces (`RESTOCK_TEMPLATE`: "Hi VYRA, please let me know when the
   {product} is back in stock. ({url})", also through `buildWhatsAppLink`).
   No WhatsApp number set: **Visit us** (link to `/visit`) instead. **Share**
   (Web Share API, else copy link; hidden when there is no absolute URL).
   **Details**.
-- The photo, "View details" and Details are real `<a href>` links to
+- The photos, the caption and Details are real `<a href>` links to
   `/p/<slug>` (via `sitePath`).
 
 ## End slide
@@ -98,7 +148,8 @@ The current slide is kept in the URL hash, `#look-<slug>` (each slide has
 that id), written with `history.replaceState` 250 ms after the slide stops
 changing (not for every slide crossed: Safari throws after 100 history calls
 in 10 seconds; the call is also wrapped in try/catch), and at once when the
-visitor opens a product page (no hash on the first slide). Browser back from a product page lands on
+visitor opens a product page (no hash on the first slide). Browser back
+from a product page lands on
 `/?c=<tab>#look-<slug>`; on mount the feed switches to that tab if needed,
 loads through that slug if it is beyond the first page, and jumps there
 without animation. A shared `/#look-<slug>` link opens on that look. The
@@ -108,8 +159,7 @@ scrolled to the anchor before hydration, which fires no scroll event).
 ## Phones and computers
 
 - Phones: the feed fills the screen. The frame is `100svh` high (`100vh`
-  where svh is unsupported) and the
-  document never scrolls (the feed scrolls inside itself and the page locks
+  where svh is unsupported) and the document never scrolls (the feed scrolls inside itself and the page locks
   `html` overflow while mounted), so on iOS the URL bar does not collapse
   and nothing jumps.
 - md (768px) and up: the same feed in a centred phone-shaped column (9:16,
@@ -117,7 +167,8 @@ scrolled to the anchor before hydration, which fires no scroll event).
 - Scroll snap: `scroll-snap-type: y mandatory` with
   `scroll-snap-stop: always` (one look per flick, wheel or trackpad).
 - Keyboard: the feed is focusable (`tabindex=0`, labelled region) and is
-  focused on load on computers (fine pointer, md and up) without scrolling. Up/Down,
+  focused on load on computers (fine pointer, md and up) without scrolling.
+  Up/Down,
   Page Up/Down, Space (on the feed itself), Home and End move between
   slides. Keys are handled on the feed element only (no global keydown).
 - `prefers-reduced-motion`: every programmatic scroll is instant.
@@ -134,16 +185,17 @@ menu button in the feed opens the same storefront menu (`ShellMenuDialog`).
 
 ## Accessibility
 
-The overlay (menu, wordmark, Visit us, tabs) comes before the feed in DOM
+The top bar (menu, wordmark, collection pill) comes before the feed in DOM
 and tab order, and is drawn on top. Each slide is an `<article>` labelled by
 its name (not a landmark), with "Look n of N" for screen readers; the end and
 loading slides are labelled groups. Photo links fall back to "<name>, photo
 n of N" when a photo has no alt text. Over the cream end slide (also with no
 pieces at all) the overlay turns ink. The wordmark is
-the page's `<h1>`. Tabs are buttons with `aria-pressed`. All controls are
-real links/buttons with the storefront focus ring. Scrims keep at least 65%
-ink behind every line of overlay text, so cream text is at least 4.5:1 on
-any photo.
+the page's `<h1>`. The eye button uses `aria-pressed`; the current
+collection row uses `aria-current`. All controls are real links/buttons with the storefront focus
+ring. Small text on the photo sits on at least 60% ink (the caption on the
+bottom scrim, the pill on the top scrim plus its own tint), so cream text
+stays at least 4.5:1 on light photos.
 
 ## Performance and SEO
 

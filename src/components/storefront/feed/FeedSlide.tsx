@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
-import { lookAnchorId, type FeedBadge, type FeedItem } from "@/lib/storefront/feed";
+import { useEffect, useRef, useState } from "react";
+import { lookAnchorId, photoLinkLabel, type FeedBadge, type FeedItem } from "@/lib/storefront/feed";
 import { cn } from "../cn";
 import { useShare } from "../product/useShare";
 import { ImageFallback, StorefrontImg } from "../StorefrontImage";
-import { ArrowIcon, ChevronIcon, DetailsIcon, EnquireIcon, PinIcon, ShareIcon } from "./feed-icons";
+import { ChevronIcon, DetailsIcon, EnquireIcon, EyeIcon, PinIcon, ShareIcon } from "./feed-icons";
 
 /** Phones: the full width; computers: the phone-shaped column (about 9/16 of the viewport height). */
 const SLIDE_SIZES = "(min-width: 768px) 57vh, 100vw";
@@ -17,38 +17,77 @@ const badgeTone: Record<FeedBadge["kind"], string> = {
   new: "border border-brand-cream-50/70 bg-brand-cream-50/20 text-brand-cream-50",
 };
 
-// The rail: a 50px round control with a small label under it.
+// The rail: round controls with a small label under them.
 const railItem = "sf-focus flex flex-col items-center gap-1.5 rounded-[2px] text-brand-cream-50";
 const railRing = "flex h-[50px] w-[50px] items-center justify-center rounded-full";
 const railQuiet = "border border-brand-cream-50/25 bg-[rgba(20,20,18,0.45)]";
-const railLabel = "text-[11px] font-medium tracking-[0.06em] [text-shadow:0_1px_2px_rgba(0,0,0,0.6)]";
+const railLabel = "text-[11px] font-medium tracking-[0.06em] [text-shadow:0_1px_3px_rgba(0,0,0,0.6)]";
 
 type FeedSlideProps = {
   item: FeedItem;
   index: number;
   total: number;
+  /** The first-slide swipe hint is showing: lift the caption and rail clear of it. */
+  lifted: boolean;
   /**
    * The first photo: "high" (first slide, the LCP: eager + fetchpriority
    * high), "eager" (second slide, ready for the first flick), else "lazy".
    */
   priority: "high" | "eager" | "lazy";
+  /** Caption and rail shown ("Show details"); otherwise the clean view (photos only). */
+  details: boolean;
+  onToggleDetails: () => void;
   visitHref: string;
   /** Remember this slide before the visitor leaves for its product page. */
   onLeave: (slug: string) => void;
 };
 
 /**
- * One look: its photos side by side (swipe sideways, thin progress bars), a
- * scrim with the category, serif name, price and tag, "View details", and
- * the rail (Enquire / Restock on WhatsApp or Visit us, Share, Details).
- * Every way into the product page is a real <a href>.
+ * One look: its photos side by side (swipe sideways, thin progress bars just
+ * under the top bar) and, at the bottom right, the "Show details" eye.
+ *
+ * Clean view (the default): the clothes alone. With details: a light bottom
+ * scrim, a slim caption (one-line serif name, price, tag, "Tap for details";
+ * the caption links to the product page) and the rail (Enquire / Restock on
+ * WhatsApp or Visit us, Share, Details). Every way into the product page is
+ * a real <a href>. In clean view the first photo link is in the tab order,
+ * named "<name>, <price>[, <tag>]. View details" (photoLinkLabel), and an
+ * sr-only <h2> keeps the look's heading.
  */
-export function FeedSlide({ item, index, total, priority, visitHref, onLeave }: FeedSlideProps) {
+export function FeedSlide({
+  item,
+  index,
+  total,
+  lifted,
+  priority,
+  details,
+  onToggleDetails,
+  visitHref,
+  onLeave,
+}: FeedSlideProps) {
   const strip = useRef<HTMLDivElement>(null);
   const [photo, setPhoto] = useState(0);
   const { status, share } = useShare();
   const count = item.images.length;
-  const titleId = `${lookAnchorId(item.slug)}-title`;
+
+  const article = useRef<HTMLElement>(null);
+
+  // Once the look is fully off screen (not at the halfway point of a swipe,
+  // and never for a swipe that snaps back), it goes back to its first photo,
+  // so coming back always starts on photo 1. Instant: nobody sees it.
+  useEffect(() => {
+    const el = article.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting || entry.intersectionRatio > 0) continue;
+        if (strip.current && strip.current.scrollLeft !== 0) strip.current.scrollLeft = 0;
+        setPhoto(0);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const onStripScroll = () => {
     const el = strip.current;
@@ -65,10 +104,11 @@ export function FeedSlide({ item, index, total, priority, visitHref, onLeave }: 
   const leave = () => onLeave(item.slug);
 
   return (
-    // An <article> (not a region landmark) labelled by the look's name.
+    // An <article> (not a region landmark) named after the look.
     <article
+      ref={article}
       id={lookAnchorId(item.slug)}
-      aria-labelledby={titleId}
+      aria-label={item.name}
       data-feed-slide={index}
       className="relative h-full w-full snap-start snap-always overflow-hidden bg-[#2a2a26]"
     >
@@ -80,40 +120,46 @@ export function FeedSlide({ item, index, total, priority, visitHref, onLeave }: 
         onScroll={onStripScroll}
         className="sf-scroll-x absolute inset-0 flex snap-x snap-mandatory overscroll-x-contain"
       >
-        {item.images.map((image, i) => (
-          <Link
-            key={`${image.src}-${i}`}
-            href={item.href}
-            onClick={leave}
-            tabIndex={-1}
-            aria-label={image.alt.trim() ? undefined : `${item.name}, photo ${i + 1} of ${count}`}
-            className="relative block h-full w-full flex-none snap-start"
-          >
-            <ImageFallback />
-            <StorefrontImg
-              image={{ src: image.src, srcSet: image.srcSet || undefined, alt: image.alt }}
-              eager={priority !== "lazy" && i === 0}
-              highPriority={priority === "high"}
-              sizes={SLIDE_SIZES}
-              className="object-[50%_20%]"
-            />
-          </Link>
-        ))}
+        {item.images.map((image, i) => {
+          // Clean view: the first photo is the keyboard / screen reader way in.
+          const entry = i === 0 && !details;
+          return (
+            <Link
+              key={`${image.src}-${i}`}
+              href={item.href}
+              onClick={leave}
+              tabIndex={entry ? 0 : -1}
+              aria-label={
+                entry
+                  ? photoLinkLabel(item)
+                  : image.alt.trim()
+                    ? undefined
+                    : `${item.name}, photo ${i + 1} of ${count}`
+              }
+              className="sf-focus relative block h-full w-full flex-none snap-start focus-visible:outline-offset-[-4px]"
+            >
+              <ImageFallback />
+              <StorefrontImg
+                image={{ src: image.src, srcSet: image.srcSet || undefined, alt: image.alt }}
+                eager={priority !== "lazy" && i === 0}
+                highPriority={priority === "high"}
+                sizes={SLIDE_SIZES}
+                className="object-[50%_20%]"
+              />
+            </Link>
+          );
+        })}
       </div>
 
-      {/* Scrims: at least 65% ink behind every line of text, so cream text is >= 4.5:1 on any photo. */}
+      {/* Top scrim behind the slim top bar (menu, wordmark, collection pill). */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 h-[200px] bg-[linear-gradient(rgba(20,20,18,0.72)_0%,rgba(20,20,18,0.66)_55%,rgba(20,20,18,0)_100%)]"
-      />
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-[440px] max-h-[75%] bg-[linear-gradient(rgba(20,20,18,0)_0%,rgba(20,20,18,0.68)_24%,rgba(20,20,18,0.86)_100%)]"
+        className="pointer-events-none absolute inset-x-0 top-0 h-[130px] bg-[linear-gradient(rgba(20,20,18,0.5),rgba(20,20,18,0))]"
       />
 
       {count > 1 ? (
         <>
-          <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-[112px] flex justify-center gap-[5px]">
+          <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-[68px] flex justify-center gap-[5px]">
             {item.images.map((image, i) => (
               <span
                 key={`${image.src}-bar-${i}`}
@@ -145,76 +191,102 @@ export function FeedSlide({ item, index, total, priority, visitHref, onLeave }: 
         </>
       ) : null}
 
-      <div className="absolute bottom-11 left-5 right-[92px] flex flex-col gap-2 text-brand-cream-50 [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">
-        {item.category ? (
-          <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-brand-cream">{item.category}</span>
-        ) : null}
-        <h2 id={titleId} className="m-0 font-serif text-[32px] font-semibold leading-[1.02] text-balance">
-          {item.name}
-        </h2>
-        <div className="flex flex-wrap items-center gap-2.5">
-          <span className="text-lg font-medium">{item.price}</span>
-          {item.badge ? (
-            <span
-              className={cn(
-                "rounded-[2px] px-2 py-1 text-[10px] font-semibold uppercase leading-none tracking-[0.16em] [text-shadow:none]",
-                badgeTone[item.badge.kind],
-              )}
-            >
-              {item.badge.label}
-            </span>
-          ) : null}
-        </div>
-        <Link
-          href={item.href}
-          onClick={leave}
-          className="sf-focus mt-1 inline-flex min-h-11 items-center gap-2 self-start rounded-[2px] border border-brand-cream-50/75 bg-[rgba(20,20,18,0.3)] px-4 text-xs font-medium uppercase tracking-[0.16em] text-brand-cream-50"
-        >
-          View details
-          <span className="sr-only"> of the {item.name}</span>
-          <ArrowIcon className="h-4 w-4" />
-        </Link>
-      </div>
+      {/* Clean view: the look keeps its heading for screen readers. */}
+      {!details ? <h2 className="sr-only">{item.name}</h2> : null}
 
-      <div className="absolute bottom-[52px] right-3 flex flex-col items-center gap-[18px]">
-        {item.enquireHref ? (
-          <a
-            href={item.enquireHref}
-            className={railItem}
-            aria-label={item.soldOut ? `Ask about a restock of the ${item.name} on WhatsApp` : `Enquire about the ${item.name} on WhatsApp`}
+      {details ? (
+        <>
+          {/* Light bottom scrim: at least 62% ink behind the caption lines, plus a text shadow. */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-[190px] bg-[linear-gradient(rgba(20,20,18,0)_0%,rgba(20,20,18,0.62)_45%,rgba(20,20,18,0.72)_100%)]"
+          />
+          <Link
+            href={item.href}
+            onClick={leave}
+            className={cn(
+              "sf-focus absolute left-4 right-[84px] flex flex-col gap-[3px] rounded-[2px] p-1 text-brand-cream-50 [text-shadow:0_1px_3px_rgba(0,0,0,0.55)]",
+              // Clear of the first-slide swipe hint while it shows.
+              lifted ? "bottom-12" : "bottom-[22px]",
+            )}
           >
-            <span className={cn(railRing, "border border-brand-olive bg-brand-olive")}>
-              <EnquireIcon className="h-6 w-6" />
+            <h2 className="m-0 truncate font-serif text-[21px] font-semibold leading-[1.15]">{item.name}</h2>
+            <span className="flex items-center gap-2 text-sm font-medium">
+              {item.price}
+              {item.badge ? (
+                <span
+                  className={cn(
+                    "rounded-[2px] px-1.5 py-[3px] text-[9px] font-semibold uppercase leading-none tracking-[0.16em] [text-shadow:none]",
+                    badgeTone[item.badge.kind],
+                  )}
+                >
+                  {item.badge.label}
+                </span>
+              ) : null}
+              <span aria-hidden="true" className="text-xs font-normal tracking-[0.04em] text-brand-cream-50/85">
+                · Tap for details
+              </span>
             </span>
-            <span className={railLabel}>{item.soldOut ? "Restock" : "Enquire"}</span>
-          </a>
-        ) : (
-          <Link href={visitHref} className={railItem}>
-            <span className={cn(railRing, "border border-brand-olive bg-brand-olive")}>
-              <PinIcon className="h-6 w-6" />
-            </span>
-            <span className={railLabel}>Visit us</span>
           </Link>
-        )}
-        {item.shareUrl ? (
-          <button
-            type="button"
-            onClick={() => share(item.shareUrl as string, `${item.name} – VYRA`)}
-            className={railItem}
-            aria-label={`Share the ${item.name}`}
-          >
-            <span className={cn(railRing, railQuiet)}>
-              <ShareIcon className="h-[22px] w-[22px]" />
-            </span>
-            <span className={railLabel}>Share</span>
-          </button>
-        ) : null}
-        <Link href={item.href} onClick={leave} className={railItem} aria-label={`Details of the ${item.name}`}>
-          <span className={cn(railRing, railQuiet)}>
-            <DetailsIcon className="h-[22px] w-[22px]" />
+        </>
+      ) : null}
+
+      <div className={cn("absolute right-3 flex flex-col items-center gap-3.5", lifted ? "bottom-12" : "bottom-6")}>
+        <button
+          type="button"
+          onClick={onToggleDetails}
+          // One fixed name; aria-pressed says whether details are shown.
+          aria-pressed={details}
+          aria-label="Show details"
+          className={railItem}
+        >
+          <span className={cn("flex h-11 w-11 items-center justify-center rounded-full", railQuiet)}>
+            <EyeIcon className="h-5 w-5" />
           </span>
-          <span className={railLabel}>Details</span>
-        </Link>
+          <span className={railLabel}>{details ? "Hide" : "Show details"}</span>
+        </button>
+        {details ? (
+          <>
+            {item.enquireHref ? (
+              <a
+                href={item.enquireHref}
+                className={railItem}
+                aria-label={item.soldOut ? `Ask about a restock of the ${item.name} on WhatsApp` : `Enquire about the ${item.name} on WhatsApp`}
+              >
+                <span className={cn(railRing, "border border-brand-olive bg-brand-olive")}>
+                  <EnquireIcon className="h-6 w-6" />
+                </span>
+                <span className={railLabel}>{item.soldOut ? "Restock" : "Enquire"}</span>
+              </a>
+            ) : (
+              <Link href={visitHref} className={railItem}>
+                <span className={cn(railRing, "border border-brand-olive bg-brand-olive")}>
+                  <PinIcon className="h-6 w-6" />
+                </span>
+                <span className={railLabel}>Visit us</span>
+              </Link>
+            )}
+            {item.shareUrl ? (
+              <button
+                type="button"
+                onClick={() => share(item.shareUrl as string, `${item.name} – VYRA`)}
+                className={railItem}
+                aria-label={`Share the ${item.name}`}
+              >
+                <span className={cn(railRing, railQuiet)}>
+                  <ShareIcon className="h-[22px] w-[22px]" />
+                </span>
+                <span className={railLabel}>Share</span>
+              </button>
+            ) : null}
+            <Link href={item.href} onClick={leave} className={railItem} aria-label={`Details of the ${item.name}`}>
+              <span className={cn(railRing, railQuiet)}>
+                <DetailsIcon className="h-[22px] w-[22px]" />
+              </span>
+              <span className={railLabel}>Details</span>
+            </Link>
+          </>
+        ) : null}
       </div>
 
       <p
