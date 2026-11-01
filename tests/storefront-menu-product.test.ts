@@ -208,6 +208,11 @@ describe('product page enquiry link', () => {
     const sized = productPageEnquiryHref(contacts, 'SOLD_OUT', { name: 'Lime wrap dress', url: null, size: 'M' });
     assert.strictEqual(text(sized), 'Hi VYRA, please let me know when the Lime wrap dress is back in stock.\nSize: M');
   });
+  test('the public ref (ZP-504) ends both messages', () => {
+    const input = { name: 'Lime wrap dress', url: null, ref: 'V-0099' };
+    assert.match(text(productPageEnquiryHref(contacts, 'IN_STOCK', input)), /\(ref V-0099\)$/);
+    assert.match(text(productPageEnquiryHref(contacts, 'SOLD_OUT', input)), /back in stock\. \(ref V-0099\)$/);
+  });
   test('no WhatsApp number: null', () => {
     assert.strictEqual(productPageEnquiryHref(settings().contacts, 'SOLD_OUT', { name: 'X', url: null }), null);
   });

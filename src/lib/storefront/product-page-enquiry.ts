@@ -9,13 +9,10 @@ import type { Availability } from '@/lib/storefront-model/rules'
 import { RESTOCK_TEMPLATE } from './feed'
 import { productEnquiryHref, type ProductEnquiryInput } from './product-enquiry'
 
-/** ProductEnquiryInput plus the public ref (an optional field until ZP-504 adds it there). */
-export type ProductPageEnquiryInput = ProductEnquiryInput & { ref?: string | null }
-
 export function productPageEnquiryHref(
   contacts: WhatsAppContactSettings,
   availability: Availability,
-  input: ProductPageEnquiryInput,
+  input: ProductEnquiryInput,
 ): string | null {
   if (availability !== 'SOLD_OUT') return productEnquiryHref({ contacts }, input)
   // Same as the feed: the restock template through the one link builder.

@@ -102,7 +102,7 @@ export function ProductView({
         productName={product.name}
         productUrl={productUrl}
         availability={product.availability}
-        productRef={(product as PublicProduct & { ref?: string | null }).ref}
+        productRef={product.ref}
       >
         <Container className="pb-8 lg:pb-20 lg:pt-8">
           <nav aria-label="Breadcrumb" className="mb-8 hidden lg:block">
