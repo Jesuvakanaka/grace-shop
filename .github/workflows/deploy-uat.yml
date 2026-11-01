@@ -44,6 +44,7 @@ env:
   CLOUD_RUN_SERVICE: grace-shop-uat
   MIGRATE_JOB: grace-shop-uat-migrate
   SEED_JOB: grace-shop-uat-seed
+  ROLLUP_JOB: grace-shop-uat-analytics-rollup
   IMAGES_BUCKET: grace-shop-uat-images-266452509449
   # Secret Manager references (names only, never values).
   DB_SECRETS: DATABASE_URL=grace-shop-uat-database-url:latest,DIRECT_URL=grace-shop-uat-direct-url:latest
@@ -148,6 +149,30 @@ jobs:
             --project="${GCP_PROJECT_ID}" \
             --region="${GCP_REGION}" \
             --wait
+
+      # ZP-493: nightly analytics rollup. Deployed with every image so it runs
+      # the same code as the web service; executed by analytics-rollup.yml.
+      - name: Deploy analytics rollup job
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.image_ref }}
+        run: |
+          set -euo pipefail
+          gcloud run jobs deploy "${ROLLUP_JOB}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --image="${IMAGE_REF}" \
+            --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
+            --set-cloudsql-instances="${CLOUD_SQL_CONNECTION}" \
+            --set-secrets="${DB_SECRETS}" \
+            --set-env-vars=NODE_ENV=production \
+            --command=npm \
+            --args=run,analytics:rollup \
+            --tasks=1 \
+            --max-retries=1 \
+            --task-timeout=15m \
+            --memory=1Gi \
+            --cpu=1 \
+            --quiet
 
       # Manual, one-time bootstrap only (workflow_dispatch with run_seed=true).
       # Never on push: `npm run init` re-applies spreadsheet product data.

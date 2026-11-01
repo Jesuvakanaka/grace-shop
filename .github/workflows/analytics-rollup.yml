@@ -1,0 +1,64 @@
+# ZP-493: nightly analytics rollup on UAT.
+# Executes the grace-shop-uat-analytics-rollup Cloud Run job (deployed with
+# every image by deploy-uat.yml). The job re-rolls yesterday and the day
+# before (Africa/Harare days) and prunes old raw events.
+# Scheduled here instead of Cloud Scheduler so no new API or service account
+# is needed in the shared GCP project. WIF only: no key files.
+name: analytics-rollup
+
+on:
+  schedule:
+    # 00:30 UTC = 02:30 Africa/Harare (no DST).
+    - cron: '30 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: analytics-rollup
+  cancel-in-progress: false
+
+env:
+  GCP_PROJECT_ID: project-f4cd7300-6eb7-46cc-be3
+  GCP_REGION: africa-south1
+  WIF_PROVIDER: projects/266452509449/locations/global/workloadIdentityPools/grace-shop-uat/providers/github
+  WIF_SERVICE_ACCOUNT: grace-shop-uat-deploy@project-f4cd7300-6eb7-46cc-be3.iam.gserviceaccount.com
+  # Shared with Fieldstream: read-only state check, never start/modify it.
+  CLOUD_SQL_INSTANCE: fieldstream-uat-db
+  ROLLUP_JOB: grace-shop-uat-analytics-rollup
+
+jobs:
+  rollup:
+    name: analytics-rollup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Check Cloud SQL instance is RUNNABLE (read-only)
+        run: |
+          set -euo pipefail
+          STATE="$(gcloud sql instances describe "${CLOUD_SQL_INSTANCE}" \
+            --project="${GCP_PROJECT_ID}" --format='value(state)')"
+          if [[ "${STATE}" != "RUNNABLE" ]]; then
+            echo "::warning::Cloud SQL ${CLOUD_SQL_INSTANCE} is not RUNNABLE (state=${STATE:-unknown}); skipping tonight's rollup. The next run re-rolls the last two days." >&2
+            exit 0
+          fi
+
+      - name: Execute rollup job
+        run: |
+          set -euo pipefail
+          gcloud run jobs execute "${ROLLUP_JOB}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --wait
