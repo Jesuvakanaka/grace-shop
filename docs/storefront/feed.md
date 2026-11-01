@@ -401,18 +401,24 @@ with no data is left out with no gap:
   to the reviews) and the **social line** (`socialLine`): "Loved by N · X
   people asked about it this week", real numbers only, each part from 3.
   *Asked* = distinct visits with `whatsapp_enquire` or `restock_request` for
-  the piece in the last 7 analytics days (today + 6, Harare), one grouped
-  query over the raw events on the `(day, type)` index
-  (`src/lib/storefront/asked-query.ts`), cached 5 minutes for everyone
-  (`asked.ts`); the DTO only gets the number.
+  the piece in the last 7 analytics days (today + 6, Harare) that were also
+  shown the piece in the window (a `look_view` or `details_sheet_open` for
+  it; once per visit), one grouped query over the raw events on the
+  `(day, type)` index (`src/lib/storefront/asked-query.ts`), cached 5 minutes
+  for everyone (`asked.ts`). The DTO only gets the number, and only from 3
+  (below that it is 0 on the server). Residual risk: a script can still send
+  a view and then an enquiry from many visits (the event endpoint is
+  anonymous and rate-limited, not authenticated); it is a nicety, never money.
 - **Colour · Size** (`colourSizeLabel`): a colour picker only with more than
   one colour, else "Colour: Olive · Size"; the size chips (the chosen size and
-  colour go into the WhatsApp message); "Size guide" opens an inline table
+  colour go into the WhatsApp message; a piece's only colour goes in too,
+  without a picker, `chosenColour`); "Size guide" opens an inline table
   ("Body measurements in cm") of the piece's sizes from its own chart, else
   the default chart (`chartForSizes`); hidden without a chart. The fit note
   under the chips. `size_guide_open` is tracked when it opens.
 - **How to buy** (`howToBuy`, a `<ul aria-label="How to buy">`): Reserve on
-  WhatsApp – "We hold it for {holdHours} h" (sold out: Ask about restock –
+  WhatsApp – "We hold it for {holdHours} h" (no sub-line until the owner sets
+  the hours; default none) (sold out: Ask about restock –
   "We message you when it's back"; only with a WhatsApp number); Pay in store
   – payment methods; Collect in store – today's hours. Cells without data are
   hidden; the strip hides when all are empty.
@@ -440,7 +446,8 @@ with no data is left out with no gap:
 Data: product fields `fitNote` (≤ 160), `fabric` (≤ 80), `care` (≤ 80),
 `sizeChart` (JSON rows `{ size, bust, waist, hips }`, ≤ 12 rows, validated by
 `parseSizeChart`) in the product's Website panel (the chart as one row per
-line: `S | 86–90 | 68–72 | 94–98`); site settings `holdHours` (default 24,
+line: `S | 86–90 | 68–72 | 94–98`; a line with more than 4 parts or no
+measurement at all is refused, naming the line); site settings `holdHours` (default none,
 1–168, empty hides), `paymentMethods` (≤ 80), `defaultSizeChart` in Website
 settings ("Details card: how to buy and size guide"). Migration
 `20261109090000_details_card`. The public product DTO adds `fit`, `fabric`,
@@ -469,9 +476,14 @@ exactly like `/?d=<slug>`:
   once more leaves as from any page. The first open sends
   `details_sheet_open` with `from: "shared"`. The tab title stays the
   piece's until the next navigation.
-- The full-screen frame (no header / footer) is decided by `isFeedFrame`:
-  home, or the `p` segment (also after the address became the home path); a
-  404 under /p (segment null) keeps the header.
+- The full-screen frame (no header / footer): the home page from the first
+  render (`isFeedFrame`), and any other page because it renders the feed: the
+  feed's root carries `data-feed-page` (`FEED_PAGE_ATTR`) and
+  `.sf-page:has([data-feed-page])` (globals.css) turns the page frame into the
+  feed frame and hides the header and footer, in the server HTML too. A
+  /p/<unknown> 404 has no feed, so it keeps them (review: the route segment
+  alone never decides it). When the address becomes the feed URL, the tab
+  title becomes the feed's (`FEED_DOCUMENT_TITLE`).
 - **Per-piece server render** (`generateMetadata`): title, description,
   canonical `/p/<slug>`, Open Graph and Twitter title / description / image
   (the primary photo, absolute URL: WhatsApp / Instagram previews), and

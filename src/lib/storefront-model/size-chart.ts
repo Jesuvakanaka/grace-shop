@@ -59,6 +59,7 @@ export function parseSizeChart(input: unknown): SizeChartResult {
       row[key] = text
     }
     if (!row.size) return { ok: false, error: `${at} needs a size.` }
+    if (!row.bust && !row.waist && !row.hips) return { ok: false, error: `${at} (${row.size}) has no measurements.` }
     const k = row.size.toLowerCase()
     if (seen.has(k)) return { ok: false, error: `${at}: size ${row.size} is listed twice.` }
     seen.add(k)
@@ -74,18 +75,24 @@ export function sizeChartToText(rows: readonly SizeChartRow[] | null): string {
 
 /**
  * Rows from the admin's text form (blank lines skipped; a short line keeps
- * its missing measurements empty). Not validated here: parseSizeChart on the
- * server does that and names the bad row.
+ * its missing measurements empty). Refuses a line with more than 4 parts and
+ * a row with no measurement at all, naming the line (review); parseSizeChart
+ * on the server checks the rest.
  */
-export function sizeChartFromText(text: string): SizeChartRow[] {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [size = '', bust = '', waist = '', hips = ''] = line.split('|').map((c) => c.trim())
-      return { size, bust, waist, hips }
-    })
+export function sizeChartFromText(text: string): { ok: true; rows: SizeChartRow[] } | { ok: false; error: string } {
+  const rows: SizeChartRow[] = []
+  let n = 0
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line) continue
+    n += 1
+    const cells = line.split('|').map((c) => c.trim())
+    if (cells.length > 4) return { ok: false, error: `Line ${n} has more than 4 parts. Use: size | bust | waist | hips.` }
+    const [size = '', bust = '', waist = '', hips = ''] = cells
+    if (!bust && !waist && !hips) return { ok: false, error: `Line ${n} (${size}) has no measurements. Add bust, waist or hips.` }
+    rows.push({ size, bust, waist, hips })
+  }
+  return { ok: true, rows }
 }
 
 /** A stored chart (JSON column) as rows, or null when unset or no longer valid. */

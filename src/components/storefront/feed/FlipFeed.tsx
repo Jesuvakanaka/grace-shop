@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { track } from "@/lib/analytics/client";
 import { loadFeedAction, type FeedActionResult } from "@/lib/storefront/feed-actions";
@@ -40,7 +40,7 @@ import {
   type SheetCloseReason,
 } from "@/lib/storefront/feed-sheet";
 import type { SheetExtras } from "@/lib/storefront/feed-sheet";
-import { productLandingHistory } from "@/lib/storefront/product-landing";
+import { FEED_DOCUMENT_TITLE, productLandingHistory } from "@/lib/storefront/product-landing";
 import { Wordmark } from "../Brand";
 import { cn } from "../cn";
 import { ShellMenuDialog } from "../ShellMenu";
@@ -170,6 +170,16 @@ export function FlipFeed({
   }
 
   const searchParams = useSearchParams();
+  const pathname = usePathname();
+  // Review: once a /p/<slug> landing's address has become the feed's, the tab
+  // title is the feed's too (after the router has applied the page metadata).
+  useEffect(() => {
+    if (landing?.mode !== "product" || pathname.includes("/p/")) return;
+    const timer = setTimeout(() => {
+      document.title = FEED_DOCUMENT_TITLE;
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [pathname, searchParams, landing?.mode]);
   const urlTab = resolveFeedTab(searchParams.get(FEED_TAB_PARAM), tabs);
   // ZP-510: the details sheet is open while the URL has ?d=<slug> of a loaded look.
   const urlSheetSlug = sheetSlugFromSearch(searchParams.toString());
@@ -737,13 +747,15 @@ export function FlipFeed({
         setTimeout(() => focusSlide(slug), reducedMotion() ? 0 : 450);
         return;
       }
+      // Review: New in loads on from where the feed stopped (nextOffset), not from the item count.
+      if (tabRef.current === FEED_NEW_TAB && nextOffset === null) return;
       const loaded =
         tabRef.current !== FEED_NEW_TAB
           ? switchTab(FEED_NEW_TAB, slug)
-          : load({ tab: FEED_NEW_TAB, offset: items.length, through: slug }, "append", slug);
+          : load({ tab: FEED_NEW_TAB, offset: nextOffset as number, through: slug }, "append", slug);
       void loaded.then(() => setTimeout(() => focusSlide(slug), 50));
     },
-    [items, scrollToIndex, focusSlide, switchTab, load],
+    [items, nextOffset, scrollToIndex, focusSlide, switchTab, load],
   );
   useEffect(() => {
     showLookRef.current = showLook;
@@ -765,7 +777,8 @@ export function FlipFeed({
     "sf-focus flex h-12 w-12 items-center justify-center rounded-full border border-brand-ink/20! bg-brand-cream-50 text-brand-ink transition-colors hover:border-brand-ink! disabled:opacity-40 disabled:hover:border-brand-ink/20!";
 
   return (
-    <div className="flex h-full w-full items-center justify-center gap-6 bg-brand-cream">
+    // FEED_PAGE_ATTR: the storefront frame becomes the full-screen feed frame for any page that renders this.
+    <div data-feed-page="" className="flex h-full w-full items-center justify-center gap-6 bg-brand-cream">
       {/* Keeps the column centred against the step buttons on computers. */}
       <span aria-hidden="true" className="hidden w-12 md:block" />
 

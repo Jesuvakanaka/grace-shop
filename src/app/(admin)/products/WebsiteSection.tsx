@@ -197,6 +197,9 @@ export function WebsiteSection({
   };
 
   const save = async () => {
+    // ZP-513 review: the chart text is checked here first (line-by-line message).
+    const chart = fields.sizeChart.trim() ? sizeChartFromText(fields.sizeChart) : ({ ok: true, rows: null } as const);
+    if (!chart.ok) return setError({ error: chart.error, field: 'sizeChart' });
     setSaving(true);
     setError(null);
     const body: Record<string, unknown> = {
@@ -210,7 +213,7 @@ export function WebsiteSection({
       fitNote: fields.fitNote || null,
       fabric: fields.fabric || null,
       care: fields.care || null,
-      sizeChart: fields.sizeChart.trim() ? sizeChartFromText(fields.sizeChart) : null,
+      sizeChart: chart.rows,
     };
     // ZP-506: Featured is read-only while the feed ranks automatically.
     if (!product.featuredAuto) body.featured = fields.featured;

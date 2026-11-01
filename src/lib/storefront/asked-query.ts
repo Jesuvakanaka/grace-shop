@@ -5,12 +5,19 @@
 // the raw events for every piece at once, on the (day, type) index. Raw events
 // are kept 90 days, so the week is always there and today's taps count at
 // once (the daily rollups hold distinct visits per day, which do not add up
-// over a week). Tested in tests/storefront-asked-db.test.ts.
+// over a week). Review: a visit counts only when it also has a look_view or
+// details_sheet_open for that piece in the window, once per visit. Residual
+// risk: anyone can still script a visit that sends a view and then an
+// enquiry (the endpoint is anonymous and rate-limited per IP / visit, not
+// authenticated); the number is a nicety, shown only from 3, never money.
+// Tested in tests/storefront-asked-db.test.ts.
 import type { PrismaClient } from '@prisma/client'
 import { addDays, analyticsDay } from '@/lib/analytics/events'
 
 export const ASKED_DAYS = 7
 const ASKED_TYPES = ['whatsapp_enquire', 'restock_request'] as const
+/** A visit counts only when it was also shown the piece in the window (review). */
+const SEEN_TYPES = ['look_view', 'details_sheet_open'] as const
 
 type Db = Pick<PrismaClient, '$queryRawUnsafe'>
 
@@ -18,13 +25,21 @@ type Db = Pick<PrismaClient, '$queryRawUnsafe'>
 export async function countAskedBySlug(db: Db, now: Date = new Date()): Promise<Record<string, number>> {
   const today = analyticsDay(now)
   const from = addDays(today, -(ASKED_DAYS - 1))
+  // Review: only visits that were also shown the piece (its look or its sheet)
+  // in the window count, once each; a bare POST of enquiry events never does.
   const rows = (await db.$queryRawUnsafe(
-    `SELECT p.slug AS slug, COUNT(DISTINCT e."visitId")::int AS asked
-       FROM "AnalyticsEvent" e
-       JOIN "Product" p ON p.id = e."productId"
-      WHERE e.day BETWEEN $1::date AND $2::date
-        AND e.type IN ('${ASKED_TYPES.join("', '")}')
-        AND p.slug IS NOT NULL
+    `WITH asked AS (
+       SELECT DISTINCT "productId", "visitId" FROM "AnalyticsEvent"
+        WHERE day BETWEEN $1::date AND $2::date AND type IN ('${ASKED_TYPES.join("', '")}') AND "productId" IS NOT NULL
+     ), seen AS (
+       SELECT DISTINCT "productId", "visitId" FROM "AnalyticsEvent"
+        WHERE day BETWEEN $1::date AND $2::date AND type IN ('${SEEN_TYPES.join("', '")}') AND "productId" IS NOT NULL
+     )
+     SELECT p.slug AS slug, COUNT(*)::int AS asked
+       FROM asked a
+       JOIN seen s ON s."productId" = a."productId" AND s."visitId" = a."visitId"
+       JOIN "Product" p ON p.id = a."productId"
+      WHERE p.slug IS NOT NULL
       GROUP BY p.slug`,
     from,
     today,

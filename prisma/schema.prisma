@@ -535,7 +535,7 @@ model SiteSettings {
   // ZP-513 details card "How to buy" and "Size guide": hours a reserved piece
   // is held (null hides it), payment methods ("EcoCash · cash · card"), and
   // the default size chart (JSON rows { size, bust, waist, hips }).
-  holdHours        Int?    @default(24)
+  holdHours        Int?
   paymentMethods   String?
   defaultSizeChart Json?
 

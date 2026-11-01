@@ -98,8 +98,8 @@ because `new URL()` silently strips tabs and newlines.
 The featured-products order is not here. Featured flags and `sortOrder` live
 on each product (ZP-482/ZP-483).
 
-**ZP-513 (details card).** `holdHours` (integer 1–168, default 24, null
-hides "We hold it for … h"), `paymentMethods` (≤ 80 characters, null hides
+**ZP-513 (details card).** `holdHours` (integer 1–168, default null:
+no "We hold it for … h" until the owner sets it), `paymentMethods` (≤ 80 characters, null hides
 "Pay in store"), `defaultSizeChart` (JSON rows `{ size, bust, waist, hips }`,
 ≤ 12, validated by `parseSizeChart`; null = no default chart; a stored chart
 that no longer validates reads as null). Public as `buying: { holdHours,

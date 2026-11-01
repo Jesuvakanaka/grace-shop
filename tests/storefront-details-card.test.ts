@@ -23,6 +23,7 @@ import { SITE_SETTINGS_DEFAULTS } from '../src/lib/site-settings/schema'
 import { toPublicSiteSettings } from '../src/lib/site-settings/dto'
 import {
   alsoLikeTitle,
+  chosenColour,
   colourSizeLabel,
   descriptionToggle,
   howToBuy,
@@ -69,10 +70,25 @@ describe('size chart', () => {
   test('admin text form: one row per line, "size | bust | waist | hips"', () => {
     assert.strictEqual(sizeChartToText([S, M]), 'S | 86–90 | 68–72 | 94–98\nM | 91–95 | 73–77 | 99–103')
     assert.strictEqual(sizeChartToText(null), '')
-    assert.deepStrictEqual(sizeChartFromText(' S | 86–90 | 68–72 | 94–98 \n\nM|91–95|73–77|99–103\n'), [S, M])
-    assert.deepStrictEqual(sizeChartFromText('  \n'), [])
-    // A short line keeps its missing measurements empty; the server validates the rows.
-    assert.deepStrictEqual(sizeChartFromText('XL | 102'), [{ size: 'XL', bust: '102', waist: '', hips: '' }])
+    assert.deepStrictEqual(sizeChartFromText(' S | 86–90 | 68–72 | 94–98 \n\nM|91–95|73–77|99–103\n'), { ok: true, rows: [S, M] })
+    assert.deepStrictEqual(sizeChartFromText('  \n'), { ok: true, rows: [] })
+    // A short line keeps its missing measurements empty.
+    assert.deepStrictEqual(sizeChartFromText('XL | 102'), { ok: true, rows: [{ size: 'XL', bust: '102', waist: '', hips: '' }] })
+  })
+  test('review: the text form refuses more than 4 cells and rows without any measurement, naming the line', () => {
+    assert.deepStrictEqual(sizeChartFromText('S | 86 | 68 | 94\nM | 91 | 73 | 99 | 120'), {
+      ok: false,
+      error: 'Line 2 has more than 4 parts. Use: size | bust | waist | hips.',
+    })
+    assert.deepStrictEqual(sizeChartFromText('S | 86 | 68 | 94\nXL'), {
+      ok: false,
+      error: 'Line 2 (XL) has no measurements. Add bust, waist or hips.',
+    })
+    assert.deepStrictEqual(sizeChartFromText('XL |  |  | '), { ok: false, error: 'Line 1 (XL) has no measurements. Add bust, waist or hips.' })
+  })
+  test('review: the server refuses rows with no measurement at all', () => {
+    const r = parseSizeChart([{ size: 'XL', bust: '', waist: '', hips: '' }])
+    assert.strictEqual(r.ok, false)
   })
 
   test('readSizeChart: stored JSON that no longer validates reads as none', () => {
@@ -100,7 +116,8 @@ describe('admin allow-lists', () => {
     assert.strictEqual(parseProductWebsitePatch({ sizeChart: [{ size: 'S' }] }).ok, false)
   })
   test('settings: holdHours (1..168 or empty), paymentMethods <= 80, defaultSizeChart', () => {
-    assert.strictEqual(SITE_SETTINGS_DEFAULTS.holdHours, 24)
+    // Owner (review): no "We hold it" line until the owner sets the hours.
+    assert.strictEqual(SITE_SETTINGS_DEFAULTS.holdHours, null)
     assert.strictEqual(SITE_SETTINGS_DEFAULTS.paymentMethods, null)
     assert.strictEqual(SITE_SETTINGS_DEFAULTS.defaultSizeChart, null)
     const r = validateSiteSettingsInput({ holdHours: 48, paymentMethods: 'EcoCash · cash · card', defaultSizeChart: [S, M] })
@@ -114,7 +131,7 @@ describe('admin allow-lists', () => {
     }
   })
   test('public settings: buying block (hold hours, payment methods, default size chart)', () => {
-    const dto = toPublicSiteSettings({ ...SITE_SETTINGS_DEFAULTS, paymentMethods: 'EcoCash · cash', defaultSizeChart: [S] })
+    const dto = toPublicSiteSettings({ ...SITE_SETTINGS_DEFAULTS, holdHours: 24, paymentMethods: 'EcoCash · cash', defaultSizeChart: [S] })
     assert.deepStrictEqual(dto.buying, { holdHours: 24, paymentMethods: 'EcoCash · cash', sizeChart: [S] })
   })
 })
@@ -164,6 +181,13 @@ describe('card model', () => {
     assert.strictEqual(tryItOnText('Open today 09:00–17:30'), 'open today 09:00–17:30')
     assert.strictEqual(tryItOnText('Closed today'), 'closed today')
     assert.strictEqual(tryItOnText(null), null)
+  })
+
+  test('review: a single colour goes into the WhatsApp message without a picker; a chosen one wins', () => {
+    assert.strictEqual(chosenColour({ colours: ['Olive'], chosen: null }), 'Olive')
+    assert.strictEqual(chosenColour({ colours: ['Olive', 'Cream'], chosen: null }), null)
+    assert.strictEqual(chosenColour({ colours: ['Olive', 'Cream'], chosen: 'Cream' }), 'Cream')
+    assert.strictEqual(chosenColour({ colours: [], chosen: null }), null)
   })
 
   test('also like: up to 4 available pieces, same collection first, then feed order; title on sold-out', () => {

@@ -62,6 +62,12 @@ function toForm(s: SiteSettingsData): FormState {
   };
 }
 
+/** ZP-513: the chart rows, or the text itself when a line is wrong (validation reports it). */
+function chartOrText(text: string): unknown {
+  const r = sizeChartFromText(text);
+  return r.ok ? r.rows : text;
+}
+
 function toPayload(f: FormState): Record<string, unknown> {
   const { hoursSet, hours, latitude, longitude, fewLeftThreshold, holdHours, defaultSizeChart, ...rest } = f;
   const openingHours: OpeningHours | null = hoursSet
@@ -77,7 +83,8 @@ function toPayload(f: FormState): Record<string, unknown> {
     longitude: num(longitude),
     fewLeftThreshold: fewLeftThreshold.trim() === '' ? null : Number(fewLeftThreshold),
     holdHours: num(holdHours),
-    defaultSizeChart: defaultSizeChart.trim() ? sizeChartFromText(defaultSizeChart) : null,
+    // A text form that does not parse is sent as text: validation then names the problem (see save()).
+    defaultSizeChart: defaultSizeChart.trim() ? chartOrText(defaultSizeChart) : null,
   };
 }
 
@@ -181,6 +188,11 @@ export default function WebsiteSettingsPage() {
     if (!form) return;
     // Validate the whole form (so every problem shows), send only what changed.
     const full = toPayload(form);
+    const chart = form.defaultSizeChart.trim() ? sizeChartFromText(form.defaultSizeChart) : null;
+    if (chart && !chart.ok) {
+      setErrors({ defaultSizeChart: chart.error });
+      return;
+    }
     const check = validateSiteSettingsInput(full);
     if (!check.ok) {
       setErrors(check.errors);

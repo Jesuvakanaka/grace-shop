@@ -274,6 +274,15 @@ describe('buildSheetExtras (the lazily loaded part)', () => {
     assert.deepStrictEqual(own.sizeChart, [XL], "the piece's own chart wins")
   })
 
+  test('review: the asked count below 3 never leaves the server (the DTO holds 0, never 1 or 2)', () => {
+    const asked = (n: number) => buildSheetExtras(product(), { contacts, reviews: null, shop: null, visit: null, now, asked: n }).asked
+    assert.strictEqual(asked(1), 0)
+    assert.strictEqual(asked(2), 0)
+    assert.strictEqual(asked(3), 3)
+    assert.strictEqual(asked(17), 17)
+    assert.strictEqual(asked(-1), 0)
+  })
+
   test('ZP-512: every approved review (display order), without photos, formatted on the server', () => {
     const reviews = { summary: { average: 4.7, count: 3 }, reviews: [review(0, true), review(1), review(2)] }
     const extras = buildSheetExtras(product(), { contacts, reviews, shop: { average: 4.8, count: 36 }, visit: null, now })

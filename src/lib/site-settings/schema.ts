@@ -110,7 +110,7 @@ export const SITE_SETTINGS_DEFAULTS: Readonly<SiteSettingsData> = Object.freeze(
   showItemNumber: false,
   googleReviewUrl: null,
   feedRanking: 'AUTO',
-  holdHours: 24,
+  holdHours: null,
   paymentMethods: null,
   defaultSizeChart: null,
 })

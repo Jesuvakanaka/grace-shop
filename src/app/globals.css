@@ -501,6 +501,31 @@ body {
   height: var(--sf-visible-h);
 }
 
+/* ZP-512 review: a storefront page frame whose main holds the feed
+   ([data-feed-page], e.g. /p/<slug>) becomes the feed frame and drops its
+   header and footer; any other page (also a /p/<unknown> 404) keeps them.
+   The chrome wrappers are display: contents, so a sticky header still sticks. */
+.sf-page-chrome {
+  display: contents;
+}
+.sf-page:has([data-feed-page]) {
+  height: 100vh;
+  height: 100svh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+.sf-page[data-vh]:has([data-feed-page]) {
+  height: var(--sf-visible-h);
+}
+.sf-page:has([data-feed-page]) > .sf-page-chrome {
+  display: none;
+}
+.sf-page:has([data-feed-page]) > main {
+  height: 100%;
+  min-height: 0;
+}
+
 /* ZP-507: the heart's small pop when it is loved (none with reduced motion: motion-safe: in LoveButton). */
 @keyframes sf-heart-pop {
   0% {

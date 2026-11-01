@@ -20,6 +20,7 @@ import { type FeedBadge, type FeedItem } from "@/lib/storefront/feed";
 import { loadSheetExtrasAction } from "@/lib/storefront/feed-sheet-actions";
 import {
   alsoLikeTitle,
+  chosenColour,
   colourSizeLabel,
   descriptionToggle,
   howToBuy,
@@ -349,6 +350,8 @@ function SheetContent({
       availability={extras?.availability ?? (item.soldOut ? "SOLD_OUT" : "IN_STOCK")}
       productRef={extras?.ref ?? null}
       slug={item.slug}
+      // Review: a piece's only colour goes into the WhatsApp message (no picker for one colour).
+      defaultColour={chosenColour({ colours: extras?.colours ?? [], chosen: null })}
     >
       {inner}
     </ProductEnquiryProvider>
@@ -503,8 +506,10 @@ function SheetLayout({
                 {model.rating ? (
                   <button
                     type="button"
+                    // Review: the reviews block exists only once the extras have arrived; until then nothing to jump to.
+                    disabled={!(extras && model.showReviews)}
                     onClick={() => reviewsRef.current?.scrollIntoView({ block: "start", behavior: reducedMotion() ? "auto" : "smooth" })}
-                    className="sf-focus inline-flex items-center gap-1.5 self-start rounded-[2px] text-[13px] text-brand-ink"
+                    className="sf-focus inline-flex items-center gap-1.5 self-start rounded-[2px] text-[13px] text-brand-ink disabled:cursor-default"
                   >
                     {model.rating.stars ? (
                       <span aria-hidden="true" className="tracking-[0.06em] text-brand-olive-700">
@@ -512,7 +517,10 @@ function SheetLayout({
                       </span>
                     ) : null}
                     <span aria-hidden="true">{model.rating.text}</span>
-                    <span className="sr-only">{model.rating.label}. Go to the reviews</span>
+                    <span className="sr-only">
+                      {model.rating.label}
+                      {extras && model.showReviews ? ". Go to the reviews" : ""}
+                    </span>
                   </button>
                 ) : null}
                 {social ? <p className="m-0 text-xs text-brand-olive-700">{social}</p> : null}
@@ -804,7 +812,7 @@ function Description({ extras }: { extras: SheetExtras }) {
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          aria-controls={panelId}
+          aria-controls={open && (extras.fabric || extras.care) ? panelId : undefined}
           className="sf-focus min-h-8 self-start rounded-[2px] text-xs font-medium text-brand-olive-700"
         >
           {open ? "Less" : toggle}

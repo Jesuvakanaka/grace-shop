@@ -286,7 +286,8 @@ export function buildSheetExtras(
     fabric: p.fabric ?? null,
     care: p.care ?? null,
     sizeChart: chartForSizes({ piece: p.sizeChart ?? null, fallback: ctx.defaultSizeChart ?? null, sizes }),
-    asked: Math.max(0, Math.floor(ctx.asked ?? 0)),
+    // Review: below SOCIAL_MIN the number never leaves the server (it is only shown from 3).
+    asked: publicAsked(ctx.asked ?? 0),
     buying: ctx.buying ?? { holdHours: null, paymentMethods: null },
     alsoLike: ctx.alsoLike ?? [],
   }
@@ -296,6 +297,20 @@ export function buildSheetExtras(
 
 /** The social line's parts show from this number on (never "1 person asked"). */
 export const SOCIAL_MIN = 3
+
+/** The asked count as the public DTO carries it: 0 below SOCIAL_MIN (review). */
+function publicAsked(raw: number): number {
+  const n = Math.max(0, Math.floor(raw))
+  return n >= SOCIAL_MIN ? n : 0
+}
+
+/**
+ * The colour that goes into the WhatsApp message: the one picked, else a
+ * piece's only colour (no picker is shown for one colour, review), else none.
+ */
+export function chosenColour(input: { colours: readonly string[]; chosen: string | null }): string | null {
+  return input.chosen ?? (input.colours.length === 1 ? input.colours[0] : null)
+}
 
 /** "Loved by 24 · 6 people asked about it this week"; each part only from 3; null when neither. */
 export function socialLine(input: { loves: number; asked: number }): string | null {

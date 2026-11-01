@@ -8,22 +8,20 @@
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert'
-import { isFeedFrame, productLandingHistory, withLandingItem } from '../src/lib/storefront/product-landing'
+import { FEED_PAGE_ATTR, isFeedFrame, productLandingHistory, withLandingItem } from '../src/lib/storefront/product-landing'
 
 describe('feed frame (no header / footer)', () => {
   test('home: /site on UAT, / on a storefront host (segment null)', () => {
     assert.strictEqual(isFeedFrame({ segment: null, pathname: '/site' }), true)
     assert.strictEqual(isFeedFrame({ segment: null, pathname: '/' }), true)
   })
-  test('the product route /p/<slug>, also after its URL became the feed URL', () => {
-    assert.strictEqual(isFeedFrame({ segment: 'p', pathname: '/site/p/linen-dress' }), true)
-    assert.strictEqual(isFeedFrame({ segment: 'p', pathname: '/p/linen-dress' }), true)
-    assert.strictEqual(isFeedFrame({ segment: 'p', pathname: '/site' }), true)
-  })
-  test('other pages and the 404 boundary (segment null on a non-home path) keep the header', () => {
-    assert.strictEqual(isFeedFrame({ segment: null, pathname: '/site/p/unknown' }), false)
+  test('review: a route segment alone never decides it (a /p/<unknown> 404 keeps segment "p" and its header)', () => {
+    // /p/<slug> gets the feed frame only because its page renders the feed, which
+    // carries FEED_PAGE_ATTR; the frame switches on that marker (CSS :has()).
+    assert.strictEqual(isFeedFrame({ segment: 'p', pathname: '/site/p/linen-dress' }), false)
+    assert.strictEqual(isFeedFrame({ segment: 'p', pathname: '/site/p/unknown' }), false)
     assert.strictEqual(isFeedFrame({ segment: 'shop', pathname: '/site/shop' }), false)
-    assert.strictEqual(isFeedFrame({ segment: 'collections', pathname: '/collections/dresses' }), false)
+    assert.strictEqual(FEED_PAGE_ATTR, 'data-feed-page')
   })
 })
 
