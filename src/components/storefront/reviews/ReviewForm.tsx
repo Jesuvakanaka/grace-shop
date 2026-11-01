@@ -104,7 +104,11 @@ export function ReviewForm({ token, piece, nameHint, googleReviewUrl, homeHref }
   }, [preview]);
 
   useEffect(() => {
-    if (done) thanksRef.current?.focus();
+    // The thank-you screen is shorter than the form: start it at the top.
+    if (done) {
+      window.scrollTo({ top: 0 });
+      thanksRef.current?.focus({ preventScroll: true });
+    }
   }, [done]);
 
   async function choosePhoto(file: File | undefined) {
