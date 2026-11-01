@@ -3,6 +3,7 @@ import { buildWhatsAppLink } from "@/lib/site-settings/whatsapp";
 import { FEED_TAB_PARAM } from "@/lib/storefront/feed";
 import { loadFeed } from "@/lib/storefront/feed-data";
 import { SITE_ROUTES, sitePath } from "@/lib/storefront/paths";
+import { telHref } from "@/lib/storefront/product-enquiry";
 import { getShellData } from "@/lib/storefront/shell";
 
 // ZP-500: the VYRA landing page is a full-screen flip feed: one published
@@ -32,7 +33,8 @@ export default async function StorefrontHome({ searchParams }: Props) {
       initialItems={page.items}
       initialNextOffset={page.nextOffset}
       initialTotal={page.total}
-      links={{ visit: to(SITE_ROUTES.visit) }}
+      // ZP-510: Call on the rail and in the details sheet (hidden without a phone number).
+      links={{ visit: to(SITE_ROUTES.visit), call: telHref(shell.settings.contacts.phone) }}
       hasWhatsApp={buildWhatsAppLink(shell.settings) !== null}
       menu={{ nav: shell.nav, whatsappHref: shell.whatsappHref, social: shell.social, current: shell.homeHref }}
     />

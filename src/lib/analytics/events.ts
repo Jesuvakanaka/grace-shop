@@ -32,6 +32,8 @@ export const PRODUCT_OPEN_SOURCES = ['feed', 'collection', 'shop', 'new', 'relat
 export const SHARE_METHODS = ['native', 'copy', 'whatsapp', 'facebook', 'other'] as const
 export const LOAD_ERROR_KINDS = ['image', 'video', 'feed', 'page', 'other'] as const
 export const VIDEO_PROGRESS_STEPS = [25, 50, 75, 100] as const
+/** ZP-510: how the feed's details sheet was closed (drag down, backdrop tap, ✕, browser / Android back, Escape). */
+export const SHEET_CLOSE_REASONS = ['swipe', 'backdrop', 'button', 'back', 'escape'] as const
 
 export const ANALYTICS_EVENT_TYPES = [
   // Visit
@@ -71,6 +73,9 @@ export const ANALYTICS_EVENT_TYPES = [
   // Hearts (ZP-507)
   'love_on',
   'love_off',
+  // Details sheet (ZP-510)
+  'details_sheet_open',
+  'details_sheet_close',
   // Health
   'load_error',
   'slow_load',
@@ -174,6 +179,10 @@ export const EVENT_SPECS: Readonly<Record<AnalyticsEventType, EventSpec>> = {
 
   love_on: { slug: 'required', props: {} },
   love_off: { slug: 'required', props: {} },
+
+  // ZP-510: the rollup counts details_sheet_open as a product_open (funnel "opened a piece").
+  details_sheet_open: { slug: 'required', props: {} },
+  details_sheet_close: { slug: 'required', props: { reason: oneOf(SHEET_CLOSE_REASONS) } },
 
   load_error: { slug: 'optional', props: { what: oneOf(LOAD_ERROR_KINDS) } },
   slow_load: { slug: 'none', props: { lcp: int(0, 600_000) } }, // milliseconds

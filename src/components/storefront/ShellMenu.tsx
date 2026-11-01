@@ -5,7 +5,7 @@ import { createContext, useContext, useId, useState, type ReactNode, type RefObj
 import type { MenuModel } from "@/lib/storefront/menu-model";
 import { Wordmark } from "./Brand";
 import { cn } from "./cn";
-import { ChevronDownIcon, CloseIcon, WhatsAppIcon } from "./icons";
+import { ChevronDownIcon, CloseIcon, WhatsAppIcon, WhatsAppLogoIcon } from "./icons";
 import { SocialIcons } from "./SocialIcons";
 import type { NavItem, SocialLink } from "./types";
 import { VisitDetails } from "./VisitDetails";
@@ -146,7 +146,7 @@ function MenuContent({ menu, onNavigate }: { menu: MenuModel; onNavigate: () => 
             href={menu.whatsappHref}
             className="sf-focus mt-[22px] flex min-h-[52px] items-center justify-center gap-2.5 rounded-[2px] bg-brand-olive px-6 text-[13px] font-medium uppercase tracking-[0.14em] text-white transition-colors duration-200 hover:bg-brand-olive-700"
           >
-            <WhatsAppIcon className="h-5 w-5 shrink-0" />
+            <WhatsAppLogoIcon className="h-5 w-5 shrink-0" />
             Chat on WhatsApp
           </a>
         ) : null}

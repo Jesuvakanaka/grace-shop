@@ -191,6 +191,8 @@ removed, then trimmed; 1..max characters; no control characters.
 | `guide_step` | – | `step` 1..20 |
 | `guide_skipped` | – | `step`? 1..20 |
 | `love_on`, `love_off` | req | – |
+| `details_sheet_open` | req | – (ZP-510; the rollup counts it as a `product_open` "from the sheet") |
+| `details_sheet_close` | req | `reason` swipe/backdrop/button/back/escape |
 | `load_error` | opt | `what` image/video/feed/page/other |
 | `slow_load` | – | `lcp` ms 0..600000 (send when LCP > 4000) |
 | `action_failed` | opt | `action` tag ≤ 40 `[a-z0-9_-]` (e.g. `feed_load`) |
@@ -296,7 +298,8 @@ Prop builders are pure and tested in `tests/storefront-tracking.test.ts`
 | `whatsapp_enquire` / `restock_request` | feed rail Enquire / Restock (`screen: feed`); product page enquiry buttons (`screen: product`, with the chosen size / colour) | sold-out pieces send `restock_request` only |
 | `share` | feed rail, product top bar and Share button | only when the share sheet completed (`native`) or the link was copied (`copy`) |
 | `visit_us` | feed rail (no WhatsApp number) and end slide; product page Visit us | |
-| `call`, `directions` | product page (Call buttons, "Get directions") | |
+| `call`, `directions` | product page (Call buttons, "Get directions"); ZP-510: feed rail Call and the details sheet's Call (`screen: feed`, with the slug) | |
+| `details_sheet_open` / `details_sheet_close` | `FlipFeed` (ZP-510), when the details sheet opens / closes for a look (tap on Details, caption or photo; a `?d=` link; forward / back) | `slug`, `collection`; close `reason`: drag down (`swipe`), backdrop, ✕ (`button`), browser / Android back (`back`), `escape`. Inside the sheet, `size_select`, `colour_select`, `whatsapp_enquire` / `restock_request` (`screen: feed`, with size / colour), `share`, `love_on` / `love_off` work as elsewhere; a failed extras load sends `action_failed` `details_sheet` |
 | `product_open` | `ProductTracking`, once per piece shown | `from`: in-app previous path (NavMemory) else same-origin referrer: `/` feed, `/collections…` collection, `/shop`, `/new`, `/p/…` related; no / foreign referrer shared; else other. Covers taps on collection / shop cards without touching them |
 | `size_select`, `colour_select` | product page chips (picked, not cleared) | exactly the chip text |
 | `gallery_zoom` | `Gallery` full screen | `index` of the photo |
@@ -357,7 +360,10 @@ both index scans.
   campaign `""` when none): `visits`, `bounces`, `enquiringVisits`, `totalSeconds`.
 - **`AnalyticsDailyPiece`** (`day, productId` PK, `slug` latest): `views`
   (`look_view`), `viewers` (distinct visits), `dwellSeconds` / `dwellCount`
-  (`look_dwell`), `photoViews`, `videoStarts`, `detailsShows`, `productOpens`,
+  (`look_dwell`), `photoViews`, `videoStarts`, `detailsShows`, `productOpens`
+  (distinct visits with any `OPEN_TYPES` event: `product_open` or, ZP-510,
+  `details_sheet_open`; opening the feed's details sheet counts as opening
+  the piece, also for the journey's "opened a piece" step),
   `sizeSelects`, `colourSelects`, `galleryZooms`, `enquiries`,
   `restockRequests`, `shares`, `loveOn`, `loveOff`, `exits` (visits whose
   latest `visit_end` that day named this piece).

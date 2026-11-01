@@ -90,13 +90,13 @@ export const VISIT_ROWS_SELECT = `
            MAX((props->>'looks')::int) FILTER (WHERE type = 'visit_end') AS end_looks,
            COUNT(DISTINCT "productId") FILTER (WHERE type = 'look_view') AS seen,
            BOOL_OR(type = 'details_show') AS details,
-           BOOL_OR(type = 'product_open') AS opened,
+           BOOL_OR(type IN (${OPEN_TYPES.map((t) => `'${t}'`).join(', ')})) AS opened, -- ZP-510: a details sheet open counts
            BOOL_OR(type = 'size_select') AS sized,
            COUNT(*) FILTER (WHERE type = 'whatsapp_enquire') AS taps,
            BOOL_OR(type = 'feed_end_reached') AS feed_end
     FROM "AnalyticsEvent"
     WHERE day BETWEEN $1::date AND $1::date + 1
-      AND type IN ('visit_start', 'visit_end', 'look_view', 'details_show', 'product_open', 'size_select',
+      AND type IN ('visit_start', 'visit_end', 'look_view', 'details_show', ${OPEN_TYPES.map((t) => `'${t}'`).join(', ')}, 'size_select',
                    'whatsapp_enquire', 'feed_end_reached')
     GROUP BY "visitId"
   ),
