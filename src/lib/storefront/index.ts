@@ -12,6 +12,7 @@ import 'server-only'
 import { unstable_cache } from 'next/cache'
 import prisma from '@/lib/db'
 import { createStorefront, type CacheFn } from './cached'
+import { loadPreviewCandidate } from './preview'
 
 export { publicImageUrl, PUBLIC_IMAGE_URL_PREFIX } from './dto'
 export {
@@ -47,3 +48,10 @@ export const {
   listPublishedCategories,
   getPublishedCategory,
 } = storefront
+
+// ZP-490: owner preview of an unpublished product page. UNCACHED (never
+// touches the two public cache entries). Only use the result after
+// verifyPreviewTokenFor(token, productId) succeeds; see ./preview.ts.
+export function getProductPreviewCandidate(slug: string, options: { includeItemNumber?: boolean } = {}) {
+  return loadPreviewCandidate(prisma, slug, options)
+}
