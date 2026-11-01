@@ -9,7 +9,8 @@
 import { describe, test, before, after } from 'node:test'
 import assert from 'node:assert'
 import prisma from '../src/lib/db'
-import { analyticsDay, dayToDate } from '../src/lib/analytics/events'
+import { randomUUID } from 'node:crypto'
+import { addDays, analyticsDay, dayToDate } from '../src/lib/analytics/events'
 import { parseRollupArgs, pruneAnalytics, rollupDay, runRollup } from '../src/lib/analytics/rollup'
 
 const D = '2031-03-10'
@@ -46,6 +47,7 @@ function row(
   seq += 1
   const occurredAt = new Date(at(opts.day ?? D, opts.time).getTime() + seq * 1000)
   return {
+    eventId: randomUUID(),
     visitId,
     deviceId: opts.device === undefined ? D1 : opts.device,
     type,
@@ -250,8 +252,8 @@ describe('retention', () => {
 
 describe('parseRollupArgs', () => {
   const now = new Date('2026-11-02T03:00:00Z') // 05:00 in Harare on 2 Nov
-  test('default: yesterday (Harare), with pruning', () => {
-    assert.deepStrictEqual(parseRollupArgs([], now), { from: '2026-11-01', to: '2026-11-01', prune: true })
+  test('default: yesterday AND the day before (late events, clock skew), with pruning', () => {
+    assert.deepStrictEqual(parseRollupArgs([], now), { from: '2026-10-31', to: '2026-11-01', prune: true })
   })
   test('--date, --from/--to, --no-prune', () => {
     assert.deepStrictEqual(parseRollupArgs(['--date', '2026-10-15'], now), { from: '2026-10-15', to: '2026-10-15', prune: true })
@@ -269,8 +271,47 @@ describe('parseRollupArgs', () => {
       ['--from', '2026-10-01'],
       ['--what'],
       ['--from', '2024-01-01', '--to', '2026-10-01'],
+      ['--date', '2026-08-01'], // older than the 90 days of raw events: would rebuild zeros
+      ['--from', '2026-08-03', '--to', '2026-08-10'],
     ]) {
       assert.throws(() => parseRollupArgs(argv, now), Error, argv.join(' '))
     }
+  })
+})
+
+describe('never rebuilds a day whose raw events are gone (review M2)', () => {
+  const today = analyticsDay(new Date())
+  const OLD = addDays(today, -(90 + 30)) // raw events already pruned
+  const EMPTY = addDays(today, -40) // inside the window, but no raw events
+  const cleanDays = async () => {
+    for (const day of [OLD, EMPTY]) {
+      await prisma.analyticsDailyVisits.deleteMany({ where: { day: dayToDate(day) } })
+      await prisma.analyticsDailyPiece.deleteMany({ where: { day: dayToDate(day) } })
+    }
+  }
+  before(cleanDays)
+  after(cleanDays)
+
+  test('a day older than the raw retention is skipped, its rollups untouched', async () => {
+    await prisma.analyticsDailyVisits.create({ data: { day: dayToDate(OLD), visits: 42 } })
+    await prisma.analyticsDailyPiece.create({ data: { day: dayToDate(OLD), productId: P1, slug: 'zp493r-one', views: 9 } })
+    const result = await rollupDay(prisma, OLD)
+    assert.strictEqual(result.status, 'skipped')
+    assert.match(result.reason ?? '', /90 days/)
+    assert.strictEqual((await prisma.analyticsDailyVisits.findUnique({ where: { day: dayToDate(OLD) } }))!.visits, 42)
+    assert.strictEqual(await prisma.analyticsDailyPiece.count({ where: { day: dayToDate(OLD) } }), 1)
+  })
+
+  test('a day with no raw events but existing rollups is skipped, its rollups untouched', async () => {
+    await prisma.analyticsDailyVisits.create({ data: { day: dayToDate(EMPTY), visits: 7 } })
+    const result = await rollupDay(prisma, EMPTY)
+    assert.strictEqual(result.status, 'skipped')
+    assert.strictEqual((await prisma.analyticsDailyVisits.findUnique({ where: { day: dayToDate(EMPTY) } }))!.visits, 7)
+  })
+
+  test('runRollup reports skipped days and does not delete them', async () => {
+    const result = await runRollup(prisma, { from: EMPTY, to: EMPTY, prune: false })
+    assert.deepStrictEqual(result.skipped, [EMPTY])
+    assert.strictEqual((await prisma.analyticsDailyVisits.findUnique({ where: { day: dayToDate(EMPTY) } }))!.visits, 7)
   })
 })

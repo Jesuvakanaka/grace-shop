@@ -8,56 +8,52 @@
 // the day of the event. Columns are documented in prisma/schema.prisma and
 // docs/storefront/analytics.md.
 import type { PrismaClient } from '@prisma/client'
-import { addDays, analyticsDay, dayToDate, isDay } from './events'
+import { addDays, analyticsDay, isDay } from './events'
 
 /** Raw events older than this many days are deleted. */
 export const RAW_RETENTION_DAYS = 90
 /** Daily rollups older than this many months are deleted. */
 export const ROLLUP_RETENTION_MONTHS = 25
-/** Longest range one run may backfill (the rollup retention, ~25 months). */
-export const MAX_BACKFILL_DAYS = 762
+/** How many days the nightly run re-rolls by default: yesterday and the day before (late beacons, clock skew). */
+export const DEFAULT_DAYS = 2
 
 type Db = Pick<PrismaClient, '$transaction' | '$executeRawUnsafe'>
-type Tx = Pick<PrismaClient, '$executeRawUnsafe'>
+type Tx = Pick<PrismaClient, '$executeRawUnsafe' | '$queryRawUnsafe'>
 
 const BOUNCE_SECONDS = 5
 
-/** One row per visit that started on $1, with its latest/longest visit_end (that day or the next). */
+/**
+ * One row per visit that started on $1, with its latest/longest visit_end
+ * and whether it enquired (that day or the next). One grouped pass over the
+ * two days, no joins: at 500k events/day the earlier join form (CTE + IN
+ * semi-joins) picked nested loops and ran for minutes.
+ */
 const VISITS_CTE = `
-  starts AS (
-    SELECT DISTINCT ON ("visitId") "visitId", "deviceId", props
-    FROM "AnalyticsEvent"
-    WHERE day = $1::date AND type = 'visit_start'
-    ORDER BY "visitId", "occurredAt"
-  ),
-  ends AS (
+  pv AS (
     SELECT "visitId",
-           MAX((props->>'duration')::float8) AS duration,
-           MAX((props->>'looks')::int) AS looks
+           (ARRAY_AGG("deviceId" ORDER BY "occurredAt") FILTER (WHERE type = 'visit_start' AND day = $1::date))[1] AS device_id,
+           (ARRAY_AGG(props ORDER BY "occurredAt") FILTER (WHERE type = 'visit_start' AND day = $1::date))[1] AS start_props,
+           MAX((props->>'duration')::float8) FILTER (WHERE type = 'visit_end') AS duration,
+           MAX((props->>'looks')::int) FILTER (WHERE type = 'visit_end') AS looks,
+           BOOL_OR(type = 'whatsapp_enquire') AS enquired
     FROM "AnalyticsEvent"
-    WHERE day BETWEEN $1::date AND $1::date + 1 AND type = 'visit_end'
-      AND "visitId" IN (SELECT "visitId" FROM starts)
+    WHERE day BETWEEN $1::date AND $1::date + 1
+      AND type IN ('visit_start', 'visit_end', 'whatsapp_enquire')
     GROUP BY "visitId"
   ),
-  enquired AS (
-    SELECT DISTINCT "visitId" FROM "AnalyticsEvent"
-    WHERE day BETWEEN $1::date AND $1::date + 1 AND type = 'whatsapp_enquire'
-      AND "visitId" IN (SELECT "visitId" FROM starts)
-  ),
   v AS (
-    SELECT s."visitId",
-           s."deviceId",
-           COALESCE(s.props->>'ref', 'other') AS source,
-           COALESCE(s.props->>'device', 'desktop') AS device_class,
-           COALESCE(s.props->>'campaign', '') AS campaign,
-           COALESCE((s.props->>'returning')::boolean, false) AS is_returning,
-           e.duration,
-           e.looks,
-           (e.duration IS NOT NULL AND e.duration < ${BOUNCE_SECONDS} AND COALESCE(e.looks, 0) <= 1) AS bounce,
-           (q."visitId" IS NOT NULL) AS enquired
-    FROM starts s
-    LEFT JOIN ends e ON e."visitId" = s."visitId"
-    LEFT JOIN enquired q ON q."visitId" = s."visitId"
+    SELECT "visitId",
+           device_id AS "deviceId",
+           COALESCE(start_props->>'ref', 'other') AS source,
+           COALESCE(start_props->>'device', 'desktop') AS device_class,
+           COALESCE(start_props->>'campaign', '') AS campaign,
+           COALESCE((start_props->>'returning')::boolean, false) AS is_returning,
+           duration,
+           looks,
+           (duration IS NOT NULL AND duration < ${BOUNCE_SECONDS} AND COALESCE(looks, 0) <= 1) AS bounce,
+           COALESCE(enquired, false) AS enquired
+    FROM pv
+    WHERE start_props IS NOT NULL
   )`
 
 const count = (type: string) => `COUNT(*) FILTER (WHERE type = '${type}')::int`
@@ -164,12 +160,50 @@ const STATEMENTS: string[] = [
    GROUP BY "productId"`,
 ]
 
-/** Recompute every daily table for one analytics day ("YYYY-MM-DD"). Idempotent. */
-export async function rollupDay(db: Db, day: string): Promise<void> {
+/**
+ * Transaction limits for one day's rollup. Prisma's interactive-transaction
+ * default is 5 s, which a busy day (~400k events) exceeded. The statement
+ * timeout (set inside the transaction) stops a runaway query before the
+ * transaction timeout, so the job fails cleanly instead of hanging.
+ */
+export const ROLLUP_TRANSACTION = { timeout: 10 * 60_000, maxWait: 30_000 }
+export const ROLLUP_STATEMENT_TIMEOUT = '9min'
+
+export type RollupDayResult = { day: string; status: 'done' | 'skipped'; reason?: string }
+
+/** The oldest day whose raw events are all still there (older ones are pruned). */
+export function oldestRollableDay(now: Date = new Date()): string {
+  return addDays(analyticsDay(now), -RAW_RETENTION_DAYS)
+}
+
+/**
+ * Recompute every daily table for one analytics day ("YYYY-MM-DD").
+ * Idempotent. Never touches a day it cannot rebuild correctly:
+ * - older than RAW_RETENTION_DAYS (its raw events are pruned or being
+ *   pruned; rebuilding would replace real totals with zeros), or
+ * - with no raw events at all while rollups for it exist.
+ * Such a day is skipped and its rollups are left exactly as they are.
+ */
+export async function rollupDay(db: Db, day: string, options: { now?: Date } = {}): Promise<RollupDayResult> {
   if (!isDay(day)) throw new Error(`Not a date: ${day}`)
-  await db.$transaction(async (tx: Tx) => {
+  const oldest = oldestRollableDay(options.now)
+  if (day < oldest) {
+    return { day, status: 'skipped', reason: `older than ${RAW_RETENTION_DAYS} days (raw events pruned); rollups kept` }
+  }
+  return db.$transaction(async (tx: Tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = '${ROLLUP_STATEMENT_TIMEOUT}'`)
+    const [{ raw, rolled }] = (await tx.$queryRawUnsafe(
+      `SELECT EXISTS (SELECT 1 FROM "AnalyticsEvent" WHERE day = $1::date) AS raw,
+              (EXISTS (SELECT 1 FROM "AnalyticsDailyVisits" WHERE day = $1::date)
+               OR EXISTS (SELECT 1 FROM "AnalyticsDailyPiece" WHERE day = $1::date)) AS rolled`,
+      day,
+    )) as Array<{ raw: boolean; rolled: boolean }>
+    if (!raw && rolled) {
+      return { day, status: 'skipped' as const, reason: 'no raw events but rollups exist; rollups kept' }
+    }
     for (const sql of STATEMENTS) await tx.$executeRawUnsafe(sql, day)
-  })
+    return { day, status: 'done' as const }
+  }, ROLLUP_TRANSACTION)
 }
 
 const ROLLUP_TABLES = [
@@ -207,10 +241,12 @@ export type RollupPlan = { from: string; to: string; prune: boolean }
 
 /**
  * Arguments of `npm run analytics:rollup`:
- *   (none)                         yesterday (Harare), then prune
+ *   (none)                         the day before yesterday and yesterday (Harare), then prune
  *   --date YYYY-MM-DD              one day
  *   --from YYYY-MM-DD --to YYYY-MM-DD   a range, both inclusive (backfill)
  *   --no-prune                     skip the retention deletes
+ * Days older than RAW_RETENTION_DAYS are refused: their raw events are gone,
+ * so rebuilding them would replace real totals with zeros.
  */
 export function parseRollupArgs(argv: readonly string[], now: Date = new Date()): RollupPlan {
   let date: string | undefined
@@ -232,22 +268,34 @@ export function parseRollupArgs(argv: readonly string[], now: Date = new Date())
   }
   if (date && (from || to)) throw new Error('Use --date or --from/--to, not both')
   if ((from && !to) || (to && !from)) throw new Error('--from and --to go together')
-  if (date) return { from: date, to: date, prune }
+  const oldest = oldestRollableDay(now)
+  const tooOld = (day: string) => {
+    if (day < oldest) {
+      throw new Error(`${day} is older than ${RAW_RETENTION_DAYS} days (oldest: ${oldest}); its raw events are gone`)
+    }
+  }
+  if (date) {
+    tooOld(date)
+    return { from: date, to: date, prune }
+  }
   if (from && to) {
     if (from > to) throw new Error('--from is after --to')
-    const days = (dayToDate(to).getTime() - dayToDate(from).getTime()) / 86_400_000 + 1
-    if (days > MAX_BACKFILL_DAYS) throw new Error(`At most ${MAX_BACKFILL_DAYS} days per run`)
+    tooOld(from)
     return { from, to, prune }
   }
   const yesterday = addDays(analyticsDay(now), -1)
-  return { from: yesterday, to: yesterday, prune }
+  return { from: addDays(yesterday, -(DEFAULT_DAYS - 1)), to: yesterday, prune }
 }
 
-/** Roll up every day of the plan (oldest first), then prune if asked. */
+/** Roll up every day of the plan (oldest first), then prune if asked. Skipped days are reported, never deleted. */
 export async function runRollup(db: Db, plan: RollupPlan & { now?: Date }) {
   const days: string[] = []
+  const skipped: string[] = []
   for (let d = plan.from; d <= plan.to; d = addDays(d, 1)) days.push(d)
-  for (const day of days) await rollupDay(db, day)
+  for (const day of days) {
+    const result = await rollupDay(db, day, { now: plan.now })
+    if (result.status === 'skipped') skipped.push(day)
+  }
   const pruned = plan.prune ? await pruneAnalytics(db, plan.now ?? new Date()) : null
-  return { days, pruned }
+  return { days, skipped, pruned }
 }

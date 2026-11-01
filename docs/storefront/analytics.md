@@ -19,9 +19,22 @@ components are instrumented in wave 2 (see "How to instrument").
   scripts, pixels or tools. Not sold or shared.
 - **Opt-out respected.** Global Privacy Control or Do Not Track (browser
   signal or `Sec-GPC: 1` / `DNT: 1` header): nothing is collected or stored.
-- **Bots dropped.** Crawlers, link-preview fetchers, HTTP tools, headless and
-  automated browsers (`navigator.webdriver`, `HeadlessChrome`) are filtered in
-  the browser and again on the server.
+- **Bots dropped.** Crawlers, link-preview fetchers (incl. TelegramBot,
+  Discordbot), HTTP tools, headless and automated browsers
+  (`navigator.webdriver`, `HeadlessChrome`) are filtered in the browser and
+  again on the server. Telegram / Discord **in-app browsers** are real people
+  and are kept.
+- **Staff are not visitors.** A request carrying a valid back-office session
+  cookie (`auth-token`, verified like the admin API does) is answered 204 and
+  nothing is stored. On UAT the site lives under `/site` on the admin host, so
+  this covers the owner and staff checking the site while signed in. (On a
+  separate storefront host the admin cookie, which is host-only, is never
+  sent; staff browsing there signed out count as visitors.) A forged or
+  expired token counts as a normal visitor.
+- **IP addresses** are used only in server memory for rate limiting
+  (`src/lib/analytics/limits.ts`) and are never written to the database or
+  to logs by this code. (Cloud Run's own request logs are separate; the
+  privacy page mentions them under "Technical logs".)
 - **Preview pages** (`/preview/...`, `?preview=`) are never collected.
 - **Retention.** Raw events 90 days; daily rollups 25 months.
 - The public notice is `src/app/site/privacy/page.tsx` (`/privacy`). Change it
@@ -30,13 +43,13 @@ components are instrumented in wave 2 (see "How to instrument").
 ## Pipeline
 
 ```
-component ──track()──▶ client queue ──sendBeacon / fetch keepalive──▶ POST /api/public/events
-                                                                         │ validate, drop, store
-                                                                         ▼
-                                                     AnalyticsEvent (raw, 90 days)
-                                                                         │ npm run analytics:rollup (nightly)
-                                                                         ▼
-                        AnalyticsDailyVisits / Source / Piece / Photo / Video (25 months)
+component ──track()──▶ validate + queue ──sendBeacon / fetch keepalive──▶ POST /api/public/events
+                                                                            │ validate, limit, drop, store once
+                                                                            ▼
+                                                        AnalyticsEvent (raw, 90 days)
+                                                                            │ npm run analytics:rollup (nightly)
+                                                                            ▼
+                           AnalyticsDailyVisits / Source / Piece / Photo / Video (25 months)
 ```
 
 ### Client (`src/lib/analytics/`)
@@ -48,18 +61,28 @@ component ──track()──▶ client queue ──sendBeacon / fetch keepalive
 | `dwell.ts` | dwell rules, IntersectionObserver tracker, page visibility |
 | `context.ts` | referrer bucket, campaign tag, device class, page path |
 | `privacy.ts` | GPC / DNT, bot and headless detection (client and server) |
-| `events.ts` | the event catalogue and strict schema (shared with the server) |
+| `events.ts` | the event catalogue, `validateEvent` / `validateBatch` (shared with the server) |
+| `limits.ts` | the server's in-memory abuse limits |
 | `provider.tsx` | `<AnalyticsProvider />`, mounted in `src/app/site/layout.tsx` |
 
+- **Validation before queueing:** `track()` gives each event a random UUID
+  (`id`) and runs the shared `validateEvent`. An invalid event is dropped
+  (with a `console.warn` in development, silently in production), so one bad
+  call can never cost the other events of a batch.
 - **Batching:** events wait in memory and are sent every **10 s**, as soon as
-  **20** are queued, and when the page hides (`visibilitychange` hidden or
-  `pagehide`). Anything tracked while the page is hidden is sent at once.
+  **20** are queued (`MAX_BATCH_EVENTS`), and when the page hides.
+  While the page is hidden, sends are **coalesced** to the end of the current
+  task (a microtask): `visit_end` and the dwell events that the same hide
+  makes the slides emit go out in **one** beacon. `pagehide` (the page is
+  being unloaded) sends synchronously.
   Transport: `navigator.sendBeacon` (a string body, so `text/plain`, no CORS
   preflight); if it is missing or refuses, `fetch(..., { keepalive: true,
-  credentials: 'omit' })`. At most 200 events are held if sending keeps failing.
+  credentials: 'same-origin' })` (same-origin so a staff cookie reaches the
+  server). At most 200 events are held if sending keeps failing.
 - **Visit:** `vyra:analytics:visit` in sessionStorage (id, last activity,
   visible ms, looks seen, last event). A reload or full navigation in the same
-  tab continues the visit; **30 min** without activity starts a new one.
+  tab continues the visit; it ends with the tab / browser session, and
+  **30 min** without activity starts a new one.
 - **Device:** `vyra:analytics:device` in localStorage. If it already existed,
   `visit_start.returning` is `true`.
 - **Storage blocked** (private mode, settings): every access is in
@@ -83,39 +106,65 @@ Body (JSON, `text/plain` or `application/json`):
   "visit": "<uuid v4>",
   "device": "<uuid v4, optional>",
   "events": [
-    { "type": "look_view", "at": 1793527200000, "page": "/", "slug": "linen-dress",
-      "collection": "new", "props": { "position": 0 } }
+    { "id": "<uuid v4>", "type": "look_view", "at": 1793527200000, "page": "/",
+      "slug": "linen-dress", "collection": "new", "props": { "position": 0 } }
   ] }
 ```
 
-| check | answer |
+| check (in this order) | answer |
 |---|---|
 | `Origin` missing / not this host, or `Sec-Fetch-Site` not `same-origin` | 403 |
-| GPC / DNT header, bot or headless user agent / client hint | 204, nothing stored |
-| more than 120 requests burst / 2 per s per IP (in memory, IP never stored) | 429 + Retry-After |
+| GPC / DNT header, bot or headless user agent / client hint, valid staff session cookie | 204, nothing stored |
+| per-IP event budget: 1 token for the request | 429 + Retry-After |
 | content type not `text/plain` / `application/json` | 415 |
 | body over 32 KB (Content-Length or actual) | 413 |
-| not JSON, unknown field / type / prop, wrong type, out of range, too long, > 50 events, bad ids | 400 (`{ error }`), nothing stored |
-| more than 30 requests burst / 1 per 5 s per visit id | 429 |
-| an event's `slug` is not a published piece (published, slug, published category) | that event dropped, the rest stored |
+| bad envelope: not JSON, unknown top-level field, version, visit / device id, no events, **more than 20 events** | 400 (`{ error }`), nothing stored |
+| per-IP event budget: 1 token per event; new visit ids per IP per hour; per-visit event budget; events per visit per day | 429 + Retry-After |
+| an invalid event (unknown type / field / prop, wrong type, out of range, too long, bad `id`) | **that event dropped**, the rest stored |
+| an event's `slug` is not a published piece (published, slug, published category) | that event dropped |
+| `size` / `colour` not one of that piece's own published options (case-insensitive) | that prop dropped (the event is kept); a matching value is stored in the piece's spelling |
+| an event id already stored (retry, replay, duplicate in the batch) | skipped (`createMany skipDuplicates`, unique `eventId`) |
 | stored | 204, no body, `Cache-Control: no-store` |
 
 `at` is the client clock (ms). If it is more than 24 h in the past or 5 min
-in the future the server time is used. Rate limits are per Cloud Run
-instance (same caveat as `/api/public/products`, see
-`src/lib/storefront/rate-limit.ts` for the load-balancer note).
+in the future the server time is used.
+
+### Limits (in memory, per Cloud Run instance)
+
+`src/lib/analytics/limits.ts`, tested in `tests/analytics-limits.test.ts`.
+Budgets are counted **in events**, not requests; every event sent counts,
+valid or not. Keys are the client IP bucket (`clientKey`: IPv4, or the IPv6
+/64) and the visit id. Maps are bounded (oldest forgotten); everything resets
+when an instance restarts. Same load-balancer caveat as
+`/api/public/products` (see `src/lib/storefront/rate-limit.ts`).
+
+Zimbabwean mobile carriers put many phones behind one public address
+(carrier-grade NAT). The per-IP numbers are sized for **~30 people browsing
+the feed at the same time behind one IP**: an actively scrolling visitor
+sends about 0.5 events/s, and a full batch costs 21 tokens (request + 20).
+
+| limit | value | why |
+|---|---|---|
+| per IP, burst | 640 events | 30 people × a full batch (30 × 21 = 630) |
+| per IP, sustained | 20 events/s | 30 × 0.5 = 15, plus headroom |
+| new visit ids per IP per hour | 300 | 30 people × a few visits / tabs each |
+| per visit, burst | 200 events | ten full batches |
+| per visit, sustained | 2 events/s | 4× an active visitor |
+| per visit per analytics day (24 h window) | 3,000 events | a normal visit sends ~50 |
 
 ## Event catalogue
 
-Every event: `type`, `at`, `page` (path only, no query string, `/site` prefix
-removed), optional `slug` (the piece) and `collection` (feed tab: `new` or a
-category slug), and `props` exactly as below (anything else is a 400).
+Every event: `id` (UUID v4, made by the client), `type`, `at`, `page` (path
+only, no query string, `/site` prefix removed), optional `slug` (the piece)
+and `collection` (feed tab: `new` or a category slug), and `props` exactly as
+below (anything else makes the event invalid).
 `slug`: **req** = required, **opt** = optional, – = not allowed.
-Text props are trimmed, 1..max characters, no control characters.
+Text props: zero-width characters (U+200B–U+200D, U+2060, U+FEFF) are
+removed, then trimmed; 1..max characters; no control characters.
 
 | type | slug | props |
 |---|---|---|
-| `visit_start` | – | `ref` instagram/tiktok/whatsapp/facebook/google/direct/other; `refDomain`? host; `campaign`? tag ≤ 64 `[a-z0-9._-]`; `device` phone/tablet/desktop; `vw`, `vh` 0..20000; `lang`? BCP 47; `landing` path; `returning` bool |
+| `visit_start` | – | `ref` instagram/tiktok/whatsapp/facebook/google/direct/other; `refDomain`? host; `campaign`? tag ≤ 40 `[a-z0-9_-]`; `device` phone/tablet/desktop; `vw`, `vh` 0..20000; `lang`? BCP 47; `landing` path; `returning` bool |
 | `visit_end` | opt (last look) | `duration` visible s 0..86400; `looks` int; `last`? event type |
 | `look_view` | req | `position`? 0..10000 (index in the feed) |
 | `look_dwell` | req | `seconds` 0.5..60 |
@@ -130,10 +179,10 @@ Text props are trimmed, 1..max characters, no control characters.
 | `feed_load_more` | – | `loaded`? 0..10000 |
 | `feed_end_reached` | – | `looks`? 0..10000 |
 | `product_open` | req | `from` feed/collection/shop/new/related/shared/other |
-| `size_select` | req | `size` text ≤ 24 |
-| `colour_select` | req | `colour` text ≤ 32 |
-| `whatsapp_enquire` | opt | `screen` (below); `size`? ≤ 24; `colour`? ≤ 32 |
-| `restock_request` | req | `size`? ≤ 24; `screen`? |
+| `size_select` | req | `size` text ≤ 24 (kept only if it is one of the piece's sizes) |
+| `colour_select` | req | `colour` text ≤ 32 (kept only if it is one of the piece's colours) |
+| `whatsapp_enquire` | opt | `screen` (below); `size`? ≤ 24; `colour`? ≤ 32 (same option check) |
+| `restock_request` | req | `size`? ≤ 24 (same option check); `screen`? |
 | `call` | opt | `screen`? |
 | `share` | opt | `method` native/copy/whatsapp/facebook/other; `screen`? |
 | `directions`, `visit_us` | – | `screen`? |
@@ -144,9 +193,12 @@ Text props are trimmed, 1..max characters, no control characters.
 | `love_on`, `love_off` | req | – |
 | `load_error` | opt | `what` image/video/feed/page/other |
 | `slow_load` | – | `lcp` ms 0..600000 (send when LCP > 4000) |
-| `action_failed` | opt | `action` tag ≤ 40 `[a-z0-9._-]` (e.g. `feed_load`) |
+| `action_failed` | opt | `action` tag ≤ 40 `[a-z0-9_-]` (e.g. `feed_load`) |
 
 `screen`: feed/product/menu/visit/about/collection/shop/new/other.
+Size / colour options are the piece's free-text `sizes` / `colours` split
+like the product page does (`splitOptions`: commas, semicolons, pipes, new
+lines).
 
 Derived (not sent): **bounce** = a visit that ended under 5 visible seconds
 having seen at most one look; **last look before leaving** = `slug` of the
@@ -161,8 +213,9 @@ latest `visit_end`.
   referrer a `?src=` / `utm_source` tag like `ig`, `instagram-bio`, `tt`,
   `wa-status`, `fb` sets the bucket. **Use `?src=` on every link the shop
   posts** (e.g. `https://…/?src=ig-bio`).
-- `campaign`: `?src=`, else `utm_campaign`, else `utm_source`, lowercased,
-  `[a-z0-9._-]`, ≤ 64.
+- `campaign`: `?src=`, else `utm_campaign`, else `utm_source`; zero-width
+  characters removed, lowercased, anything else than `[a-z0-9_-]` becomes
+  `-`, at most 40 characters.
 - `device`: from the user agent (iPadOS via touch points).
 
 `visit_end` is sent **every time the page hides** (app switch, lock, tab
@@ -203,17 +256,23 @@ track('collection_switch', { from, to })
 
 - `slug` and `collection` are lifted onto the event; every other key must be a
   prop of that type in `EVENT_SPECS` (`src/lib/analytics/events.ts`), with the
-  right type and range, or **the server rejects the whole batch**. Omit
-  optional props rather than sending `null` (`undefined` values are dropped).
+  right type and range. Otherwise **the event is dropped in the browser**
+  (watch the console in development). Omit optional props rather than
+  sending `null` (`undefined` values are dropped).
+- Send `size` / `colour` exactly as the chip shows them (the product's own
+  options); anything else is dropped by the server.
 - `image` is the stored file name `<32 hex>.webp` (the last path segment of
   the public image URL), not the URL.
 - `useDwell(ref, onDwell, { enabled, threshold, root, key })`: `root` is a ref
   to a scroll container (horizontal carousel); `key` restarts the tracker.
   `createDwellTracker(el, { onDwell })` / `createDwellTimer({ onDwell })` are
-  the framework-free versions.
+  the framework-free versions. They use the same page-visibility source as
+  the tracker, which is what lets their hide-time dwell events share the
+  `visit_end` beacon.
 - Never put free text the visitor typed, phone numbers, or URLs with a query
   into props (the schema refuses them anyway).
-- `track()` is cheap (an array push); do not call it from scroll handlers.
+- `track()` is cheap (validation + an array push); do not call it from
+  scroll handlers.
 - Hearts (ZP-507) can read the same device id: `localStorage['vyra:analytics:device']`
   (`DEVICE_STORAGE_KEY` in `client-core.ts`). It is absent when the visitor
   opted out (GPC / DNT) or storage is blocked.
@@ -229,6 +288,7 @@ Africa/Harare** (`analyticsDay()` in `events.ts`), stored as `DATE`.
 | column | meaning |
 |---|---|
 | `id` | bigint |
+| `eventId` | client-made UUID, **unique**: retries and replays are stored once |
 | `occurredAt` / `receivedAt` | event time (client clock, sanity-checked) / server receive time |
 | `day` | analytics day of `occurredAt` |
 | `visitId`, `deviceId` | UUIDs (`deviceId` null if storage blocked) |
@@ -238,7 +298,7 @@ Africa/Harare** (`analyticsDay()` in `events.ts`), stored as `DATE`.
 | `collection` | feed tab |
 | `props` | JSONB, per-type schema above |
 
-Indexes: `(day, type)`, `(productId, day)`, `(visitId)`.
+Indexes: unique `(eventId)`, `(day, type)`, `(productId, day)`, `(visitId)`.
 
 ### Daily rollups (25 months)
 
@@ -276,16 +336,29 @@ highest dwell per view). All in one indexed range scan.
 ## Rollup job
 
 `npm run analytics:rollup` (`scripts/analytics-rollup.ts`, logic in
-`src/lib/analytics/rollup.ts`, tested in `tests/analytics-rollup-db.test.ts`).
+`src/lib/analytics/rollup.ts`, tested in `tests/analytics-rollup-db.test.ts`
+and, at 500,000 events/day, `tests/analytics-rollup-volume-db.test.ts`).
 
 ```
-npm run analytics:rollup                                        # yesterday (Harare), then prune
+npm run analytics:rollup                                        # the day before yesterday AND yesterday (Harare), then prune
 npm run analytics:rollup -- --date 2026-11-01                   # redo one day
-npm run analytics:rollup -- --from 2026-11-01 --to 2026-11-30   # backfill (≤ 762 days)
+npm run analytics:rollup -- --from 2026-11-01 --to 2026-11-30   # backfill (last 90 days only)
 npm run analytics:rollup -- --no-prune
 ```
 
-- Each day is replaced in one transaction: running it again is safe.
+- **Default: two days.** Every night it re-rolls yesterday and the day
+  before, so events that arrive late (a phone that was offline, a beacon
+  sent just after midnight, a skewed client clock up to 24 h back) are
+  counted on the next night's run.
+- Each day is replaced in one transaction (timeout 10 min, max wait 30 s,
+  `statement_timeout` 9 min), so running it again is safe and a runaway query
+  fails the job instead of hanging. 500,000 events roll up in about 1.5 s
+  locally.
+- **Never rebuilds what it cannot.** A day older than 90 days (its raw
+  events are pruned) is refused by the arguments and skipped by
+  `rollupDay`; a day with no raw events while rollups exist is skipped too.
+  Skipped days keep their rollups untouched and are listed as `skipped` in
+  the output.
 - Then retention: `AnalyticsEvent` rows with `day` older than 90 days, and
   rollup rows older than 25 months, are deleted.
 - Prints one JSON line of counts; exit code 1 on failure.
@@ -300,17 +373,20 @@ project `project-f4cd7300-6eb7-46cc-be3`, region `africa-south1`. For UAT:
    image (`image@sha256:…`), command `npm`, args `run,analytics:rollup`, the
    same Cloud SQL connection, `DATABASE_URL` / `DIRECT_URL` secrets and
    runtime SA (`grace-shop-uat-run`) as `grace-shop-uat-migrate`; 1 task,
-   max retries 1, task timeout 10 min. Redeploy it with every new image: add a
+   max retries 1, task timeout 15 min (two days at up to 10 min each would
+   be far beyond today's volume). Redeploy it with every new image: add a
    "Deploy analytics rollup job" step (deploy only, no execute) next to the
    migrate job in `.github/workflows/deploy-uat.yml`.
 2. Cloud Scheduler job `grace-shop-uat-analytics-rollup-nightly`: cron
-   `30 2 * * *`, time zone `Africa/Harare` (02:30, after late beacons from
-   just before midnight have arrived), HTTP POST to
+   `30 2 * * *`, time zone `Africa/Harare` (02:30). No arguments: the job
+   re-rolls the day before yesterday and yesterday. HTTP POST to
    `https://run.googleapis.com/v2/projects/project-f4cd7300-6eb7-46cc-be3/locations/africa-south1/jobs/grace-shop-uat-analytics-rollup:run`
    with an OAuth token of a service account that has `roles/run.invoker`
    (or `run.jobs.run`) on that job only.
-3. After the first deploy, backfill once from the first day of data:
-   `gcloud run jobs execute grace-shop-uat-analytics-rollup --args=run,analytics:rollup,--,--from,<first day>,--to,<yesterday> --wait`.
+3. After the first deploy, if collection ran for more than two days before
+   the schedule existed, backfill once (only days within the last 90 days
+   are accepted):
+   `gcloud run jobs execute grace-shop-uat-analytics-rollup --args=run,analytics:rollup,--,--from,<first day, max 90 days ago>,--to,<yesterday> --wait`.
 
 The migration (`npm run migrate` job) must run before the new web image
 serves traffic, as usual.
@@ -319,8 +395,10 @@ serves traffic, as usual.
 
 | file | covers |
 |---|---|
-| `tests/analytics-events.test.ts` | catalogue, allow-list, every type's props, limits, ids, pages, bots, GPC/DNT, referrer buckets, campaign, device class, host routing |
+| `tests/analytics-events.test.ts` | catalogue, `validateEvent` vs envelope, every type's props, batch limit, ids, pages, zero-width, bots (incl. Telegram / Discord in-app), GPC/DNT, referrer buckets, campaign, device class, host routing |
+| `tests/analytics-limits.test.ts` | event budgets, per-visit daily cap, new visit ids per IP, the carrier-NAT numbers |
 | `tests/analytics-dwell.test.ts` | dwell rules with a fake clock / visibility / IntersectionObserver |
-| `tests/analytics-client.test.ts` | batching, transport fallback, visit/device ids, idle, opt-out, storage failures, no-op on the server |
-| `tests/analytics-endpoint-db.test.ts` | the endpoint end to end against the DB (accept, drop, 400/403/413/415/429) |
-| `tests/analytics-rollup-db.test.ts` | rollups, idempotency, backfill, retention, job arguments |
+| `tests/analytics-client.test.ts` | validation before queueing, event ids, batching, hidden-page coalescing, transport fallback, visit/device ids, idle, opt-out, storage failures, no-op on the server |
+| `tests/analytics-endpoint-db.test.ts` | the endpoint end to end against the DB (accept, per-event drop, option check, dedupe, staff, 400/403/413/415/429) |
+| `tests/analytics-rollup-db.test.ts` | rollups, idempotency, backfill, two-day default, never rebuilding pruned / empty days, retention, job arguments |
+| `tests/analytics-rollup-volume-db.test.ts` | 500,000 events in one day roll up within the transaction limits |

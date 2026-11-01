@@ -10,10 +10,12 @@
  * User-agent fragments of crawlers, link previews (WhatsApp, Facebook,
  * Instagram), HTTP libraries, performance tools and headless browsers.
  * Matched case-insensitively. Real in-app browsers (Instagram, Facebook,
- * TikTok) say "Instagram 352.0..." / "FBAN" and are not matched.
+ * TikTok, Telegram, Discord) say "Instagram 352.0..." / "FBAN" /
+ * "Telegram-Android" / "Discord/..." and are NOT matched; their preview
+ * fetchers (TelegramBot, Discordbot) are, through "bot".
  */
 const BOT_UA =
-  /bot\b|bot\/|crawl|spider|slurp|scrap|preview|externalhit|facebookcatalog|whatsapp\/|telegram|discord|skype|headless|phantomjs|selenium|webdriver|puppeteer|playwright|lighthouse|pagespeed|gtmetrix|pingdom|uptime|monitor|curl\/|wget|httpie|python|java\/|okhttp|go-http-client|node-fetch|undici|axios|libwww|httpclient|postman|insomnia|^mozilla\/5\.0$/i
+  /bot\b|bot\/|crawl|spider|slurp|scrap|preview|externalhit|facebookcatalog|whatsapp\/|skype|headless|phantomjs|selenium|webdriver|puppeteer|playwright|lighthouse|pagespeed|gtmetrix|pingdom|uptime|monitor|curl\/|wget|httpie|python|java\/|okhttp|go-http-client|node-fetch|undici|axios|libwww|httpclient|postman|insomnia|^mozilla\/5\.0$/i
 
 export function isBotUserAgent(userAgent: string | null | undefined): boolean {
   const ua = (userAgent ?? '').trim()

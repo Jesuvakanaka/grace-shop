@@ -479,6 +479,8 @@ model SiteSettings {
 /// One event from the storefront tracker (POST /api/public/events).
 model AnalyticsEvent {
   id         BigInt   @id @default(autoincrement())
+  /// Random UUID made by the browser per event: a retried or replayed batch is stored once (createMany skipDuplicates).
+  eventId    String   @unique @db.Uuid
   /// When it happened (client clock; replaced by receivedAt when more than 24 h back or 5 min ahead).
   occurredAt DateTime
   receivedAt DateTime @default(now())

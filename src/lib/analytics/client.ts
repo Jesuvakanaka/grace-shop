@@ -86,6 +86,8 @@ function browserEnv(): AnalyticsEnv {
     viewport: () => ({ width: window.innerWidth, height: window.innerHeight }),
     visibility: documentVisibility,
     onPageHide: (fn) => window.addEventListener('pagehide', fn),
+    defer: (fn) => (typeof queueMicrotask === 'function' ? queueMicrotask(fn) : void Promise.resolve().then(fn)),
+    warn: process.env.NODE_ENV !== 'production' ? (message) => console.warn(message) : undefined,
   }
 }
 

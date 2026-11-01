@@ -1,14 +1,16 @@
 // ZP-493: first-party analytics, the event catalogue. Pure; shared by the
 // browser tracker (./client-core.ts) and the endpoint (./ingest.ts).
 //
-// The allow-list is strict: an unknown event type, an unknown field or prop,
-// a wrong type, a value out of range or too long rejects the whole batch.
+// The allow-list is strict: an event with an unknown type, an unknown field or
+// prop, a wrong type, a value out of range or too long is invalid. The client
+// runs validateEvent before queueing (and drops what fails); the server drops
+// invalid events one by one and answers 400 only for a bad envelope.
 // Nothing free-form is accepted (no names, numbers, messages, URLs with a
 // query). See docs/storefront/analytics.md for the catalogue in prose.
 import { isValidSlug } from '@/lib/storefront-model/slug'
 
-/** Most events in one POST. The client sends at most FLUSH_AT_EVENTS (20). */
-export const MAX_BATCH_EVENTS = 50
+/** Most events in one POST (the client's flush size). */
+export const MAX_BATCH_EVENTS = 20
 /** Wire format version. */
 export const BATCH_VERSION = 1
 /** Client timestamps further off than this are replaced by the server time. */
@@ -127,7 +129,7 @@ export const EVENT_SPECS: Readonly<Record<AnalyticsEventType, EventSpec>> = {
     props: {
       ref: oneOf(REFERRER_BUCKETS),
       refDomain: opt(host),
-      campaign: opt(token(64)),
+      campaign: opt(token(40)),
       device: oneOf(DEVICE_CLASSES),
       vw: int(0, 20_000),
       vh: int(0, 20_000),
@@ -186,7 +188,8 @@ const PATH = /^\/[A-Za-z0-9\-._~%!$&'()*+,;=:@/]*$/
 export const PAGE_MAX_LENGTH = 200
 const HOST = /^(?=.{1,100}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/
 const LANG = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8}){0,2}$/
-const TOKEN = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/
+/** Tags (campaign, action): lowercase letters, digits, "-" and "_". */
+const TOKEN = /^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$/
 const IMAGE_NAME = /^[a-f0-9]{32}\.webp$/
 /** C0 / C1 control characters and the Unicode line / paragraph separators (U+2028, U+2029). */
 const CONTROL = new RegExp('[\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]')
@@ -208,6 +211,8 @@ export function isCollectionKey(value: unknown): value is string {
 
 export type PropValue = string | number | boolean
 export type ValidEvent = {
+  /** Client-made UUID; the server stores each id once. */
+  id: string
   type: AnalyticsEventType
   occurredAt: Date
   page: string | null
@@ -215,11 +220,29 @@ export type ValidEvent = {
   collection: string | null
   props: Record<string, PropValue>
 }
-export type ValidBatch = { ok: true; visitId: string; deviceId: string | null; events: ValidEvent[] }
+export type ValidBatch = {
+  ok: true
+  visitId: string
+  deviceId: string | null
+  /** The valid events, in order. */
+  events: ValidEvent[]
+  /** How many invalid events were dropped. */
+  dropped: number
+  /** The first few reasons (debugging; never echoed to the client). */
+  errors: string[]
+}
 export type BatchResult = ValidBatch | { ok: false; error: string }
 
+/** Zero-width space / joiners, word joiner, BOM: invisible, stripped from text before validating. */
+const ZERO_WIDTH = /[​-‍⁠﻿]/g
+
+/** Text as validated: zero-width characters removed, trimmed. */
+export function cleanText(value: string): string {
+  return value.replace(ZERO_WIDTH, '').trim()
+}
+
 const BATCH_KEYS = new Set(['v', 'visit', 'device', 'events'])
-const EVENT_KEYS = new Set(['type', 'at', 'page', 'slug', 'collection', 'props'])
+const EVENT_KEYS = new Set(['id', 'type', 'at', 'page', 'slug', 'collection', 'props'])
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
@@ -241,7 +264,7 @@ function checkField(field: Field, value: unknown): PropValue | undefined {
       return (typeof value === 'string' || typeof value === 'number') && field.values.includes(value) ? value : undefined
     case 'text': {
       if (typeof value !== 'string') return undefined
-      const v = value.trim()
+      const v = cleanText(value)
       return v.length > 0 && v.length <= field.max && !CONTROL.test(v) ? v : undefined
     }
     case 'token':
@@ -263,14 +286,22 @@ function checkField(field: Field, value: unknown): PropValue | undefined {
   }
 }
 
-function validateEvent(raw: unknown, i: number, now: Date): ValidEvent | string {
-  const where = `events[${i}]`
-  if (!isPlainObject(raw)) return `${where} is not an object`
-  for (const key of Object.keys(raw)) if (!EVENT_KEYS.has(key)) return `${where}: unknown field "${key.slice(0, 32)}"`
+/**
+ * Validate one event against the allow-list. Returns the normalised event,
+ * or the reason it is invalid. Shared: the browser tracker runs it before
+ * queueing, the server before storing. `now` is the validating side's clock.
+ */
+export function validateEvent(raw: unknown, now: Date): ValidEvent | string {
+  if (!isPlainObject(raw)) return 'event is not an object'
+  for (const key of Object.keys(raw)) if (!EVENT_KEYS.has(key)) return `unknown field "${key.slice(0, 32)}"`
 
   const type = raw.type
-  if (!isAnalyticsEventType(type)) return `${where}: unknown type`
+  if (!isAnalyticsEventType(type)) return 'unknown type'
+  const where = type
   const spec = EVENT_SPECS[type]
+
+  if (!isUuidV4(raw.id)) return `${where}: id must be a v4 UUID`
+  const id = raw.id
 
   if (typeof raw.at !== 'number' || !Number.isFinite(raw.at)) return `${where}: at must be a timestamp`
   const nowMs = now.getTime()
@@ -317,10 +348,14 @@ function validateEvent(raw: unknown, i: number, now: Date): ValidEvent | string 
     return `${where}: bad index (more than of)`
   }
 
-  return { type, occurredAt: new Date(at), page, slug, collection: coll, props }
+  return { id, type, occurredAt: new Date(at), page, slug, collection: coll, props }
 }
 
-/** Validate one POSTed batch. `now` is the server's receive time. */
+/**
+ * Validate one POSTed batch. `now` is the server's receive time. A bad
+ * envelope (not an object, unknown field, version, ids, no events, more than
+ * MAX_BATCH_EVENTS) rejects the batch; invalid events are dropped one by one.
+ */
 export function validateBatch(input: unknown, now: Date): BatchResult {
   if (!isPlainObject(input)) return { ok: false, error: 'Body must be a JSON object' }
   for (const key of Object.keys(input)) if (!BATCH_KEYS.has(key)) return { ok: false, error: `Unknown field "${key.slice(0, 32)}"` }
@@ -331,12 +366,18 @@ export function validateBatch(input: unknown, now: Date): BatchResult {
   if (input.events.length > MAX_BATCH_EVENTS) return { ok: false, error: `At most ${MAX_BATCH_EVENTS} events per batch` }
 
   const events: ValidEvent[] = []
+  const errors: string[] = []
+  let dropped = 0
   for (let i = 0; i < input.events.length; i += 1) {
-    const result = validateEvent(input.events[i], i, now)
-    if (typeof result === 'string') return { ok: false, error: result }
-    events.push(result)
+    const result = validateEvent(input.events[i], now)
+    if (typeof result === 'string') {
+      dropped += 1
+      if (errors.length < 3) errors.push(`events[${i}]: ${result}`)
+    } else {
+      events.push(result)
+    }
   }
-  return { ok: true, visitId: input.visit, deviceId: (input.device as string | undefined) ?? null, events }
+  return { ok: true, visitId: input.visit, deviceId: (input.device as string | undefined) ?? null, events, dropped, errors }
 }
 
 // ------------------------------------------------------------------ days

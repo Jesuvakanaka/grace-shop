@@ -18,11 +18,11 @@ const DOMAIN_BUCKETS: ReadonlyArray<[RegExp, KnownBucket]> = [
 
 /** `?src=` / `utm_source` values that name a known source (for in-app browsers that send no referrer). */
 const SOURCE_TAGS: ReadonlyArray<[RegExp, KnownBucket]> = [
-  [/^(ig|insta|instagram)([._-].*)?$/, 'instagram'],
-  [/^(tt|tiktok)([._-].*)?$/, 'tiktok'],
-  [/^(wa|whatsapp)([._-].*)?$/, 'whatsapp'],
-  [/^(fb|facebook|meta|messenger)([._-].*)?$/, 'facebook'],
-  [/^(google|gmb|gbp)([._-].*)?$/, 'google'],
+  [/^(ig|insta|instagram)([_-].*)?$/, 'instagram'],
+  [/^(tt|tiktok)([_-].*)?$/, 'tiktok'],
+  [/^(wa|whatsapp)([_-].*)?$/, 'whatsapp'],
+  [/^(fb|facebook|meta|messenger)([_-].*)?$/, 'facebook'],
+  [/^(google|gmb|gbp)([_-].*)?$/, 'google'],
 ]
 
 const stripWww = (host: string) => host.replace(/^www\./, '')
@@ -38,15 +38,18 @@ function bucketForTag(tag: string | undefined): KnownBucket | null {
   return null
 }
 
-/** Lowercase, words joined by "-", only [a-z0-9._-], at most 64 characters. */
+export const CAMPAIGN_MAX_LENGTH = 40
+
+/** Lowercase, words joined by "-", only [a-z0-9_-], at most 40 characters; zero-width characters removed. */
 function normalizeTag(raw: string | null): string | undefined {
   if (!raw) return undefined
   const tag = raw
+    .replace(/[​-‍⁠﻿]/g, '')
     .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^[._-]+|[._-]+$/g, '')
-    .slice(0, 64)
-    .replace(/[._-]+$/, '')
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^[_-]+|[_-]+$/g, '')
+    .slice(0, CAMPAIGN_MAX_LENGTH)
+    .replace(/[_-]+$/, '')
   return tag || undefined
 }
 

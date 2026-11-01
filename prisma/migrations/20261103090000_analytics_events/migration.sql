@@ -5,6 +5,7 @@
 -- CreateTable
 CREATE TABLE "AnalyticsEvent" (
     "id" BIGSERIAL NOT NULL,
+    "eventId" UUID NOT NULL,
     "occurredAt" TIMESTAMP(3) NOT NULL,
     "receivedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "day" DATE NOT NULL,
@@ -107,6 +108,9 @@ CREATE TABLE "AnalyticsDailyVideo" (
 
     CONSTRAINT "AnalyticsDailyVideo_pkey" PRIMARY KEY ("day","productId")
 );
+
+-- CreateIndex
+CREATE UNIQUE INDEX "AnalyticsEvent_eventId_key" ON "AnalyticsEvent"("eventId");
 
 -- CreateIndex
 CREATE INDEX "AnalyticsEvent_day_type_idx" ON "AnalyticsEvent"("day", "type");

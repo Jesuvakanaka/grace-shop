@@ -1,9 +1,9 @@
 // ZP-493: nightly analytics rollup + retention. Runs as a Cloud Run job
 // (same image, command override) or locally:
 //
-//   npm run analytics:rollup                                 # yesterday (Harare), then prune
+//   npm run analytics:rollup                                 # day before yesterday + yesterday (Harare), then prune
 //   npm run analytics:rollup -- --date 2026-11-01            # one day again (idempotent)
-//   npm run analytics:rollup -- --from 2026-11-01 --to 2026-11-30   # backfill
+//   npm run analytics:rollup -- --from 2026-11-01 --to 2026-11-30   # backfill (last 90 days only)
 //   npm run analytics:rollup -- --no-prune                   # skip retention deletes
 //
 // Needs DATABASE_URL. Prints only counts. Exit code 1 on failure.
@@ -23,6 +23,7 @@ async function main() {
         from: plan.from,
         to: plan.to,
         days: result.days.length,
+        skipped: result.skipped,
         pruned: result.pruned,
         ms: Date.now() - started,
       }),

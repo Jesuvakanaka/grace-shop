@@ -1,7 +1,9 @@
 /**
  * ZP-493: first-party analytics, pure parts.
  * - The event allow-list and per-type prop schemas (src/lib/analytics/events.ts).
- * - Batch limits, id formats, timestamps.
+ * - validateEvent (shared by client and server) vs validateBatch (envelope:
+ *   400; invalid events are dropped one by one, the rest kept).
+ * - Batch limits, id formats, timestamps, zero-width characters.
  * - Bot / headless filter and GPC / DNT opt-out (src/lib/analytics/privacy.ts).
  * - Visit context: referrer bucket, campaign, device class, page (src/lib/analytics/context.ts).
  */
@@ -13,6 +15,7 @@ import {
   MAX_BATCH_EVENTS,
   analyticsDay,
   validateBatch,
+  validateEvent,
 } from '../src/lib/analytics/events'
 import { isAutomatedClient, isBotRequest, isOptedOutClient, isOptedOutRequest } from '../src/lib/analytics/privacy'
 import { campaignFromSearch, deviceClass, normalizePage, visitSource } from '../src/lib/analytics/context'
@@ -22,22 +25,35 @@ const VISIT = '0b6f3c1e-8a3d-4f7e-9a51-2c1d4e5f6a7b'
 const DEVICE = '9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d'
 const NOW = new Date('2026-11-01T10:00:00Z')
 const AT = NOW.getTime() - 5_000
+let idSeq = 0
+const nextId = () => `e0e0e0e0-0000-4000-8000-${String(++idSeq).padStart(12, '0')}`
 
 function batch(events: unknown[], extra: Record<string, unknown> = {}) {
   return { v: 1, visit: VISIT, device: DEVICE, events, ...extra }
 }
 function ev(type: string, props: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
-  return { type, at: AT, page: '/', props, ...extra }
+  return { id: nextId(), type, at: AT, page: '/', props, ...extra }
 }
 function ok(input: unknown) {
   const r = validateBatch(input, NOW)
   assert.ok(r.ok, `expected ok, got ${r.ok ? '' : r.error}`)
   return r
 }
-function bad(input: unknown, pattern?: RegExp) {
+/** Envelope errors reject the whole batch. */
+function badBatch(input: unknown, pattern?: RegExp) {
   const r = validateBatch(input, NOW)
   assert.strictEqual(r.ok, false, 'expected the batch to be rejected')
   if (pattern && !r.ok) assert.match(r.error, pattern)
+}
+/** Event errors: validateEvent returns the reason; in a batch the event is dropped. */
+function badEvent(event: unknown, pattern?: RegExp) {
+  const r = validateEvent(event, NOW)
+  assert.strictEqual(typeof r, 'string', `expected ${JSON.stringify(event)} to be refused`)
+  if (pattern) assert.match(r as string, pattern)
+  const b = validateBatch(batch([event, ev('guide_shown')]), NOW)
+  assert.ok(b.ok, 'one bad event does not reject the batch')
+  assert.strictEqual(b.events.length, 1)
+  assert.strictEqual(b.dropped, 1)
 }
 
 const VISIT_START = {
@@ -65,6 +81,10 @@ describe('event catalogue', () => {
     assert.deepStrictEqual([...ANALYTICS_EVENT_TYPES].sort(), [...expected].sort())
     for (const t of expected) assert.ok(EVENT_SPECS[t as keyof typeof EVENT_SPECS], t)
   })
+
+  test('at most 20 events per batch', () => {
+    assert.strictEqual(MAX_BATCH_EVENTS, 20)
+  })
 })
 
 describe('validateBatch: accepted', () => {
@@ -84,7 +104,9 @@ describe('validateBatch: accepted', () => {
     assert.strictEqual(r.visitId, VISIT)
     assert.strictEqual(r.deviceId, DEVICE)
     assert.strictEqual(r.events.length, 8)
+    assert.strictEqual(r.dropped, 0)
     const [start, view, dwell] = r.events
+    assert.match(start.id, /^e0e0e0e0-/)
     assert.strictEqual(start.type, 'visit_start')
     assert.strictEqual(start.slug, null)
     assert.deepStrictEqual(start.props, VISIT_START)
@@ -103,6 +125,13 @@ describe('validateBatch: accepted', () => {
   test('a client clock far off is replaced by the server time', () => {
     const r = ok(batch([{ ...ev('guide_shown'), at: AT - 3 * 86_400_000 }, { ...ev('guide_shown'), at: AT + 3_600_000 }]))
     for (const e of r.events) assert.strictEqual(e.occurredAt.getTime(), NOW.getTime())
+  })
+
+  test('zero-width characters are stripped before validating text', () => {
+    const r = validateEvent(ev('size_select', { size: '​M‍﻿' }, { slug: 'a' }), NOW)
+    assert.notStrictEqual(typeof r, 'string')
+    assert.strictEqual((r as { props: Record<string, unknown> }).props.size, 'M')
+    badEvent(ev('size_select', { size: '​⁠' }, { slug: 'a' }), /size/)
   })
 
   test('every type accepts its minimal props', () => {
@@ -145,105 +174,124 @@ describe('validateBatch: accepted', () => {
     }
     assert.deepStrictEqual(Object.keys(minimal).sort(), [...ANALYTICS_EVENT_TYPES].sort())
     for (const [type, [props, extra]] of Object.entries(minimal)) {
-      const r = validateBatch(batch([ev(type, props, extra)]), NOW)
-      assert.ok(r.ok, `${type}: ${r.ok ? '' : r.error}`)
+      const r = validateEvent(ev(type, props, extra), NOW)
+      assert.notStrictEqual(typeof r, 'string', `${type}: ${r}`)
     }
   })
 })
 
-describe('validateBatch: rejected', () => {
+describe('validateBatch: envelope errors reject the batch (400)', () => {
   test('not an object / wrong version / no events', () => {
-    bad(null)
-    bad('x')
-    bad([])
-    bad(batch([ev('guide_shown')], { v: 2 }), /version/)
-    bad(batch([]), /events/)
-    bad({ v: 1, visit: VISIT, device: DEVICE }, /events/)
+    badBatch(null)
+    badBatch('x')
+    badBatch([])
+    badBatch(batch([ev('guide_shown')], { v: 2 }), /version/)
+    badBatch(batch([]), /events/)
+    badBatch({ v: 1, visit: VISIT, device: DEVICE }, /events/)
   })
 
   test('unknown top-level fields', () => {
-    bad(batch([ev('guide_shown')], { ip: '1.2.3.4' }), /unknown/i)
+    badBatch(batch([ev('guide_shown')], { ip: '1.2.3.4' }), /unknown/i)
   })
 
   test(`more than ${MAX_BATCH_EVENTS} events`, () => {
     ok(batch(Array.from({ length: MAX_BATCH_EVENTS }, () => ev('guide_shown'))))
-    bad(batch(Array.from({ length: MAX_BATCH_EVENTS + 1 }, () => ev('guide_shown'))), /50/)
+    badBatch(batch(Array.from({ length: MAX_BATCH_EVENTS + 1 }, () => ev('guide_shown'))), /20/)
   })
 
   test('visit and device ids must be v4 UUIDs', () => {
-    bad(batch([ev('guide_shown')], { visit: 'abc' }), /visit/)
-    bad(batch([ev('guide_shown')], { visit: VISIT.toUpperCase() }), /visit/)
-    bad(batch([ev('guide_shown')], { device: 'phone-of-tendai' }), /device/)
-    bad(batch([ev('guide_shown')], { device: 7 }), /device/)
+    badBatch(batch([ev('guide_shown')], { visit: 'abc' }), /visit/)
+    badBatch(batch([ev('guide_shown')], { visit: VISIT.toUpperCase() }), /visit/)
+    badBatch(batch([ev('guide_shown')], { device: 'phone-of-tendai' }), /device/)
+    badBatch(batch([ev('guide_shown')], { device: 7 }), /device/)
+  })
+
+  test('a batch whose events are all invalid is ok but empty', () => {
+    const r = ok(batch([ev('page_view'), ev('look_view')]))
+    assert.strictEqual(r.events.length, 0)
+    assert.strictEqual(r.dropped, 2)
+  })
+})
+
+describe('validateEvent: invalid events are dropped one by one', () => {
+  test('event ids must be v4 UUIDs', () => {
+    badEvent({ ...ev('guide_shown'), id: 'x' }, /id/)
+    const { id: _id, ...noId } = ev('guide_shown')
+    void _id
+    badEvent(noId, /id/)
   })
 
   test('unknown event types', () => {
-    bad(batch([ev('page_view')]), /type/)
-    bad(batch([ev('__proto__')]), /type/)
-    bad(batch([{ ...ev('guide_shown'), type: 3 }]), /type/)
+    badEvent(ev('page_view'), /type/)
+    badEvent(ev('__proto__'), /type/)
+    badEvent({ ...ev('guide_shown'), type: 3 }, /type/)
   })
 
   test('unknown event fields and unknown props', () => {
-    bad(batch([{ ...ev('guide_shown'), phone: '+263771234567' }]), /unknown/i)
-    bad(batch([ev('look_view', { position: 1, name: 'Tendai' }, { slug: 'a' })]), /name/)
-    bad(batch([ev('guide_step', { step: 1, extra: 1 })]), /extra/)
+    badEvent({ ...ev('guide_shown'), phone: '+263771234567' }, /unknown/i)
+    badEvent(ev('look_view', { position: 1, name: 'Tendai' }, { slug: 'a' }), /name/)
+    badEvent(ev('guide_step', { step: 1, extra: 1 }), /extra/)
   })
 
   test('props must be a plain object', () => {
-    bad(batch([{ ...ev('guide_shown'), props: [] }]))
-    bad(batch([{ ...ev('guide_shown'), props: 'x' }]))
+    badEvent({ ...ev('guide_shown'), props: [] })
+    badEvent({ ...ev('guide_shown'), props: 'x' })
   })
 
   test('missing required props and wrong types', () => {
-    bad(batch([ev('look_dwell', {}, { slug: 'a' })]), /seconds/)
-    bad(batch([ev('look_dwell', { seconds: '4' }, { slug: 'a' })]), /seconds/)
-    bad(batch([ev('look_dwell', { seconds: Number.NaN }, { slug: 'a' })]), /seconds/)
-    bad(batch([ev('guide_step', { step: 1.5 })]), /step/)
-    bad(batch([ev('visit_start', { ...VISIT_START, returning: 'yes' })]), /returning/)
+    badEvent(ev('look_dwell', {}, { slug: 'a' }), /seconds/)
+    badEvent(ev('look_dwell', { seconds: '4' }, { slug: 'a' }), /seconds/)
+    badEvent(ev('look_dwell', { seconds: Number.NaN }, { slug: 'a' }), /seconds/)
+    badEvent(ev('guide_step', { step: 1.5 }), /step/)
+    badEvent(ev('visit_start', { ...VISIT_START, returning: 'yes' }), /returning/)
   })
 
   test('numbers out of range (dwell rules: 0.5 s to 60 s)', () => {
-    bad(batch([ev('look_dwell', { seconds: 0.4 }, { slug: 'a' })]), /seconds/)
-    bad(batch([ev('look_dwell', { seconds: 61 }, { slug: 'a' })]), /seconds/)
-    bad(batch([ev('photo_view', { index: 0, of: 3 }, { slug: 'a' })]), /index/)
-    bad(batch([ev('photo_view', { index: 4, of: 3 }, { slug: 'a' })]), /index/)
-    bad(batch([ev('video_progress', { pct: 30 }, { slug: 'a' })]), /pct/)
+    badEvent(ev('look_dwell', { seconds: 0.4 }, { slug: 'a' }), /seconds/)
+    badEvent(ev('look_dwell', { seconds: 61 }, { slug: 'a' }), /seconds/)
+    badEvent(ev('photo_view', { index: 0, of: 3 }, { slug: 'a' }), /index/)
+    badEvent(ev('photo_view', { index: 4, of: 3 }, { slug: 'a' }), /index/)
+    badEvent(ev('video_progress', { pct: 30 }, { slug: 'a' }), /pct/)
   })
 
   test('enums', () => {
-    bad(batch([ev('visit_start', { ...VISIT_START, ref: 'twitter' })]), /ref/)
-    bad(batch([ev('visit_start', { ...VISIT_START, device: 'tv' })]), /device/)
-    bad(batch([ev('share', { method: 'sms' })]), /method/)
-    bad(batch([ev('visit_end', { duration: 1, looks: 1, last: 'nope' })]), /last/)
+    badEvent(ev('visit_start', { ...VISIT_START, ref: 'twitter' }), /ref/)
+    badEvent(ev('visit_start', { ...VISIT_START, device: 'tv' }), /device/)
+    badEvent(ev('share', { method: 'sms' }), /method/)
+    badEvent(ev('visit_end', { duration: 1, looks: 1, last: 'nope' }), /last/)
   })
 
   test('string lengths and characters', () => {
-    bad(batch([ev('size_select', { size: 'x'.repeat(25) }, { slug: 'a' })]), /size/)
-    bad(batch([ev('size_select', { size: '' }, { slug: 'a' })]), /size/)
-    bad(batch([ev('size_select', { size: 'M\u0000' }, { slug: 'a' })]), /size/)
-    bad(batch([ev('visit_start', { ...VISIT_START, campaign: 'Has Spaces' })]), /campaign/)
-    bad(batch([ev('visit_start', { ...VISIT_START, refDomain: 'evil.com/path' })]), /refDomain/)
-    bad(batch([ev('visit_start', { ...VISIT_START, lang: 'english please' })]), /lang/)
-    bad(batch([ev('photo_view', { index: 1, of: 1, image: '../x.webp' }, { slug: 'a' })]), /image/)
+    badEvent(ev('size_select', { size: 'x'.repeat(25) }, { slug: 'a' }), /size/)
+    badEvent(ev('size_select', { size: '' }, { slug: 'a' }), /size/)
+    badEvent(ev('size_select', { size: 'M\u0000' }, { slug: 'a' }), /size/)
+    badEvent(ev('visit_start', { ...VISIT_START, campaign: 'Has Spaces' }), /campaign/)
+    badEvent(ev('visit_start', { ...VISIT_START, campaign: 'has.dot' }), /campaign/)
+    badEvent(ev('visit_start', { ...VISIT_START, campaign: 'x'.repeat(41) }), /campaign/)
+    badEvent(ev('visit_start', { ...VISIT_START, refDomain: 'evil.com/path' }), /refDomain/)
+    badEvent(ev('visit_start', { ...VISIT_START, lang: 'english please' }), /lang/)
+    badEvent(ev('photo_view', { index: 1, of: 1, image: '../x.webp' }, { slug: 'a' }), /image/)
   })
 
   test('pages are paths without query or fragment', () => {
-    bad(batch([ev('guide_shown', {}, { page: 'https://evil.example/' })]), /page/)
-    bad(batch([ev('guide_shown', {}, { page: '/p/a?preview=secret' })]), /page/)
-    bad(batch([ev('guide_shown', {}, { page: `/${'a'.repeat(200)}` })]), /page/)
-    bad(batch([ev('visit_start', { ...VISIT_START, landing: '/?src=x' })]), /landing/)
+    badEvent(ev('guide_shown', {}, { page: 'https://evil.example/' }), /page/)
+    badEvent(ev('guide_shown', {}, { page: '/p/a?preview=secret' }), /page/)
+    badEvent(ev('guide_shown', {}, { page: `/${'a'.repeat(200)}` }), /page/)
+    badEvent(ev('visit_start', { ...VISIT_START, landing: '/?src=x' }), /landing/)
   })
 
   test('slug rules per type', () => {
-    bad(batch([ev('look_view', {})]), /slug/)
-    bad(batch([ev('guide_shown', {}, { slug: 'a' })]), /slug/)
-    bad(batch([ev('look_view', {}, { slug: 'Not A Slug' })]), /slug/)
-    bad(batch([ev('look_view', {}, { slug: 'a', collection: 'Bad Tab' })]), /collection/)
+    badEvent(ev('look_view', {}), /slug/)
+    badEvent(ev('guide_shown', {}, { slug: 'a' }), /slug/)
+    badEvent(ev('look_view', {}, { slug: 'Not A Slug' }), /slug/)
+    badEvent(ev('look_view', {}, { slug: 'a', collection: 'Bad Tab' }), /collection/)
   })
 
   test('timestamps must be numbers', () => {
-    bad(batch([{ ...ev('guide_shown'), at: '2026-11-01' }]), /at/)
-    bad(batch([{ type: 'guide_shown', page: '/', props: {} }]), /at/)
+    badEvent({ ...ev('guide_shown'), at: '2026-11-01' }, /at/)
+    const { at: _at, ...noAt } = ev('guide_shown')
+    void _at
+    badEvent(noAt, /at/)
   })
 })
 
@@ -264,15 +312,26 @@ describe('bots and headless browsers', () => {
   const ANDROID = 'Mozilla/5.0 (Linux; Android 14; SM-A145F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36'
   const IG = `${PHONE} Instagram 352.0.0.0`
 
-  test('real browsers pass', () => {
-    for (const ua of [PHONE, ANDROID, IG]) assert.strictEqual(isBotRequest(h(ua)), false, ua)
+  test('real browsers pass, including Telegram / Discord in-app browsers and CUBOT phones', () => {
+    for (const ua of [
+      PHONE,
+      ANDROID,
+      IG,
+      `${ANDROID} Telegram-Android/11.2.2 (Samsung SM-A145F; Android 14; SDK 34; AVERAGE)`,
+      `${PHONE} Discord/250.0`,
+      'Mozilla/5.0 (Linux; Android 10; CUBOT X30) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36',
+    ]) {
+      assert.strictEqual(isBotRequest(h(ua)), false, ua)
+    }
   })
 
-  test('crawlers, tools and headless browsers are dropped', () => {
+  test('crawlers, previews, tools and headless browsers are dropped', () => {
     for (const ua of [
       'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
       'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
       'WhatsApp/2.23.20.0',
+      'TelegramBot (like TwitterBot)',
+      'Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)',
       'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/130.0.0.0 Safari/537.36',
       'curl/8.4.0',
       'python-requests/2.31.0',
@@ -345,13 +404,15 @@ describe('visit context', () => {
     assert.strictEqual(src('https://www.google.com/', '?src=ig').ref, 'google')
   })
 
-  test('campaign tag: ?src=, else utm_campaign, else utm_source; normalised', () => {
+  test('campaign tag: ?src=, else utm_campaign, else utm_source; [a-z0-9_-], at most 40', () => {
     assert.strictEqual(campaignFromSearch(''), undefined)
     assert.strictEqual(campaignFromSearch('?src=Nov-Launch'), 'nov-launch')
     assert.strictEqual(campaignFromSearch('?utm_source=ig&utm_campaign=Black Friday!'), 'black-friday')
     assert.strictEqual(campaignFromSearch('?utm_source=instagram'), 'instagram')
-    assert.strictEqual(campaignFromSearch(`?src=${'x'.repeat(100)}`)?.length, 64)
+    assert.strictEqual(campaignFromSearch('?src=ig.bio_2026'), 'ig-bio_2026')
+    assert.strictEqual(campaignFromSearch(`?src=${'x'.repeat(100)}`)?.length, 40)
     assert.strictEqual(campaignFromSearch('?src=%%%'), undefined)
+    assert.strictEqual(campaignFromSearch('?src=%E2%80%8B'), undefined, 'zero-width only')
   })
 
   test('device class', () => {

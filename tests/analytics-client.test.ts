@@ -47,7 +47,7 @@ const throwing = {
   },
 }
 
-type Sent = { via: 'beacon' | 'fetch'; url: string; body: { v: number; visit: string; device?: string; events: Array<{ type: string; slug?: string; page?: string; props: Record<string, unknown> }> }; init?: RequestInit }
+type Sent = { via: 'beacon' | 'fetch'; url: string; body: { v: number; visit: string; device?: string; events: Array<{ id: string; type: string; slug?: string; page?: string; props: Record<string, unknown> }> }; init?: RequestInit }
 
 function fakeEnv(overrides: Partial<AnalyticsEnv> & { beaconOk?: boolean } = {}) {
   let t = Date.parse('2026-11-01T10:00:00Z')
@@ -57,6 +57,15 @@ function fakeEnv(overrides: Partial<AnalyticsEnv> & { beaconOk?: boolean } = {})
   const visListeners = new Set<(v: boolean) => void>()
   const hideListeners: Array<() => void> = []
   const sent: Sent[] = []
+  const warnings: string[] = []
+  let microtasks: Array<() => void> = []
+  const runMicrotasks = () => {
+    while (microtasks.length) {
+      const queued = microtasks
+      microtasks = []
+      for (const fn of queued) fn()
+    }
+  }
   let ids = 0
   const session = new MemoryStorage()
   const local = new MemoryStorage()
@@ -101,11 +110,19 @@ function fakeEnv(overrides: Partial<AnalyticsEnv> & { beaconOk?: boolean } = {})
     onPageHide(fn) {
       hideListeners.push(fn)
     },
+    defer(fn) {
+      microtasks.push(fn)
+    },
+    warn(message) {
+      warnings.push(message)
+    },
     ...overrides,
   }
   return {
     env,
     sent,
+    warnings,
+    runMicrotasks,
     session,
     local,
     advance(ms: number) {
@@ -120,11 +137,16 @@ function fakeEnv(overrides: Partial<AnalyticsEnv> & { beaconOk?: boolean } = {})
       t = end
     },
     setVisible(v: boolean) {
+      // Like the browser: one native event notifies every subscriber, then the microtask checkpoint.
       visible = v
       for (const fn of [...visListeners]) fn(v)
+      runMicrotasks()
     },
     pageHide() {
-      for (const fn of hideListeners) fn()
+      for (const fn of hideListeners) {
+        fn()
+        runMicrotasks()
+      }
     },
     get pendingTimers() {
       return timers.length
@@ -229,10 +251,74 @@ describe('analytics client', () => {
     f.setVisible(false)
     const before = f.sent.length
     client.track('look_dwell', { slug: 'a', seconds: 3 })
-    assert.strictEqual(f.sent.length, before + 1)
+    client.track('photo_dwell', { slug: 'a', index: 1, of: 2, seconds: 2 })
+    assert.strictEqual(f.sent.length, before, 'coalesced: not yet')
+    f.runMicrotasks()
+    assert.strictEqual(f.sent.length, before + 1, 'one beacon for both')
+    assert.strictEqual(f.sent.at(-1)!.body.events.length, 2)
   })
 
-  test('sendBeacon refused: fetch with keepalive, no credentials', () => {
+  test('page hides: visit_end and the dwell events emitted by the same hide go in ONE beacon', () => {
+    const f = fakeEnv()
+    const client = createAnalyticsClient(f.env)
+    client.track('look_view', { slug: 'a', position: 0 })
+    // A dwell tracker subscribed after the client (as the feed's slides are) emits on hide.
+    f.env.visibility.subscribe((visible) => {
+      if (!visible) client.track('look_dwell', { slug: 'a', seconds: 2.5 })
+    })
+    f.advance(3_000)
+    const before = f.sent.length
+    f.setVisible(false)
+    assert.strictEqual(f.sent.length, before + 1)
+    const types = f.sent.at(-1)!.body.events.map((e) => e.type)
+    assert.deepStrictEqual(types, ['visit_start', 'look_view', 'visit_end', 'look_dwell'])
+  })
+
+  test('pagehide (unload) still sends synchronously', () => {
+    // The client's pagehide handler, called without a microtask checkpoint afterwards.
+    let handler: (() => void) | null = null
+    const g = fakeEnv({ onPageHide: (fn) => void (handler = fn) })
+    const client = createAnalyticsClient(g.env)
+    client.track('look_view', { slug: 'b' })
+    handler!()
+    assert.ok(g.events().some((e) => e.type === 'visit_end'))
+  })
+
+  test('every event carries its own random event id (server dedupe)', () => {
+    const f = fakeEnv()
+    const client = createAnalyticsClient(f.env)
+    client.track('look_view', { slug: 'a' })
+    client.track('look_view', { slug: 'a' })
+    client.flush()
+    const ids = f.events().map((e) => e.id)
+    assert.strictEqual(ids.length, 3)
+    for (const id of ids) assert.match(id, UUID)
+    assert.strictEqual(new Set(ids).size, 3)
+  })
+
+  test('invalid events are dropped before queueing (shared validator), with a dev warning', () => {
+    const f = fakeEnv()
+    const client = createAnalyticsClient(f.env)
+    client.track('look_dwell', { slug: 'a', seconds: 0.2 }) // flick: below 0.5 s
+    client.track('look_view', {}) // no slug
+    client.track('guide_step', { step: 1, name: 'Tendai' } as never) // unknown prop
+    client.track('look_view', { slug: 'a', position: 0 })
+    assert.deepStrictEqual(
+      client.pending().map((e) => e.type),
+      ['visit_start', 'look_view'],
+    )
+    assert.strictEqual(f.warnings.length, 3)
+    assert.match(f.warnings[0], /look_dwell/)
+  })
+
+  test('no warn function (production): invalid events are dropped silently', () => {
+    const f = fakeEnv({ warn: undefined })
+    const client = createAnalyticsClient(f.env)
+    client.track('look_view', {})
+    assert.deepStrictEqual(client.pending().map((e) => e.type), ['visit_start'])
+  })
+
+  test('sendBeacon refused: fetch with keepalive, same-origin credentials (so staff sessions are recognised)', () => {
     const f = fakeEnv({ beaconOk: false })
     createAnalyticsClient(f.env)
     f.advance(FLUSH_INTERVAL_MS)
@@ -240,7 +326,7 @@ describe('analytics client', () => {
     assert.strictEqual(f.sent[0].via, 'fetch')
     assert.strictEqual(f.sent[0].init?.keepalive, true)
     assert.strictEqual(f.sent[0].init?.method, 'POST')
-    assert.strictEqual(f.sent[0].init?.credentials, 'omit')
+    assert.strictEqual(f.sent[0].init?.credentials, 'same-origin')
   })
 
   test('the visit continues across a reload; a returning device is marked', () => {

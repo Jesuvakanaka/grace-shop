@@ -2,40 +2,52 @@
 //
 // Order of checks (cheapest and most protective first):
 //   1. Same origin: Origin must match Host, Sec-Fetch-Site (when sent) must be
-//      same-origin                                               -> 403
-//   2. GPC / DNT, bots, headless browsers: nothing is stored      -> 204
-//   3. Rate limit per IP (in memory; the IP is never stored)       -> 429
-//   4. Content type text/plain (sendBeacon) or application/json    -> 415
-//   5. Body at most MAX_BODY_BYTES                                 -> 413
-//   6. JSON + strict schema (./events.ts), at most 50 events       -> 400
-//   7. Rate limit per visit id                                     -> 429
-//   8. Slugs must be published pieces; other events are dropped    -> 204
-// Responses carry no body and Cache-Control: no-store.
+//      same-origin                                                    -> 403
+//   2. GPC / DNT, bots, headless browsers, staff with a valid admin
+//      session cookie: nothing is stored                              -> 204
+//   3. Per-IP event budget, 1 token for the request (IP in memory only) -> 429
+//   4. Content type text/plain (sendBeacon) or application/json         -> 415
+//   5. Body at most MAX_BODY_BYTES                                      -> 413
+//   6. JSON + envelope (version, ids, 1..20 events)                     -> 400
+//   7. Per-IP event budget for the events, new visit ids per IP per
+//      hour, per-visit event budget, events per visit per day          -> 429
+//   8. Each event against the allow-list (./events.ts): invalid events
+//      are dropped one by one
+//   9. Slugs must be published pieces (else the event is dropped); size /
+//      colour must be one of the piece's own options (else the prop is dropped)
+//  10. Stored with createMany skipDuplicates on the client's event id    -> 204
+// Responses carry no body (except the 400 reason) and Cache-Control: no-store.
+// Nothing about the request (IP, user agent, cookie) is stored or logged.
 import type { PrismaClient } from '@prisma/client'
 import prisma from '@/lib/db'
+import { getSession } from '@/lib/auth'
 import { PUBLIC_PRODUCT_WHERE } from '@/lib/storefront/queries'
-import { TokenBucketLimiter, clientKey } from '@/lib/storefront/rate-limit'
-import { analyticsDay, dayToDate, validateBatch } from './events'
+import { splitOptions } from '@/lib/storefront/product-enquiry'
+import { clientKey } from '@/lib/storefront/rate-limit'
+import { analyticsDay, cleanText, dayToDate, validateBatch, type PropValue, type ValidEvent } from './events'
+import {
+  DailyCounter,
+  EventBudget,
+  IP_EVENT_BUDGET,
+  NEW_VISITS_PER_IP_PER_HOUR,
+  NewVisitLimiter,
+  VISIT_EVENT_BUDGET,
+  VISIT_EVENTS_PER_DAY,
+  type BudgetResult,
+} from './limits'
 import { isBotRequest, isOptedOutRequest } from './privacy'
 
-/** 50 events of the largest kind are about 12 KB; 32 KB leaves room and stops junk. */
+/** 20 events of the largest kind are about 5 KB; 32 KB leaves room and stops junk. */
 export const MAX_BODY_BYTES = 32 * 1024
-
-/**
- * Per IP: 120 requests burst, 2 per second after. Generous on purpose:
- * mobile carriers put many phones behind one address. A normal visit sends
- * about one request every 10 s.
- */
-export const IP_LIMIT = { capacity: 120, refillPerSecond: 2 }
-/** Per visit: 30 requests burst, then one every 5 s (the client flushes at most every 10 s unless 20 events queue up). */
-export const VISIT_LIMIT = { capacity: 30, refillPerSecond: 0.2 }
 
 type Db = Pick<PrismaClient, 'product' | 'analyticsEvent'>
 
 export type EventsHandlerOptions = {
   db?: Db
-  ipLimiter?: TokenBucketLimiter
-  visitLimiter?: TokenBucketLimiter
+  ipBudget?: EventBudget
+  visitBudget?: EventBudget
+  visitDaily?: DailyCounter
+  newVisits?: NewVisitLimiter
   now?: () => Date
 }
 
@@ -43,6 +55,9 @@ const NO_STORE = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosni
 
 function empty(status: number, extra: Record<string, string> = {}): Response {
   return new Response(null, { status, headers: { ...NO_STORE, ...extra } })
+}
+function tooMany(limit: BudgetResult & { ok: false }): Response {
+  return empty(429, { 'Retry-After': String(limit.retryAfterSeconds) })
 }
 
 /** Origin's host[:port] must equal the Host header; Sec-Fetch-Site, when present, must be same-origin. */
@@ -56,6 +71,22 @@ export function isSameOrigin(headers: Headers): boolean {
     const url = new URL(origin)
     if (url.protocol !== 'https:' && url.protocol !== 'http:') return false
     return url.host.toLowerCase() === host.trim().toLowerCase()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Staff browsing the site while signed in to the back office (same host on
+ * UAT, where the site lives under /site) are not visitors. The session
+ * cookie is host-only and HttpOnly; the browser sends it with sendBeacon and
+ * with the fetch fallback (credentials: same-origin). A forged or expired
+ * token, or a server without JWT_SECRET, counts as a normal visitor.
+ */
+async function isStaffRequest(request: Request): Promise<boolean> {
+  if (!request.headers.get('cookie')?.includes('auth-token=')) return false
+  try {
+    return (await getSession(request)) !== null
   } catch {
     return false
   }
@@ -91,19 +122,48 @@ async function readLimited(request: Request, max: number): Promise<string | null
   return new TextDecoder('utf-8', { fatal: false }).decode(all)
 }
 
+type Piece = { id: number; sizes: string[]; colours: string[] }
+
+/** The piece's own spelling of an option, matched case-insensitively; null when it is not one of them. */
+function matchOption(value: PropValue | undefined, options: string[]): string | null {
+  if (typeof value !== 'string') return null
+  const wanted = cleanText(value).toLowerCase()
+  return options.find((o) => cleanText(o).toLowerCase() === wanted) ?? null
+}
+
+/** Keep size / colour only when they are one of the piece's published options. */
+function checkOptions(event: ValidEvent, piece: Piece | undefined): Record<string, PropValue> {
+  if (!('size' in event.props) && !('colour' in event.props)) return event.props
+  const props = { ...event.props }
+  for (const [key, options] of [
+    ['size', piece?.sizes ?? []],
+    ['colour', piece?.colours ?? []],
+  ] as const) {
+    if (!(key in props)) continue
+    const match = matchOption(props[key], options)
+    if (match === null) delete props[key]
+    else props[key] = match
+  }
+  return props
+}
+
 export function createEventsHandler(options: EventsHandlerOptions = {}) {
   const db = options.db ?? prisma
-  const ipLimiter = options.ipLimiter ?? new TokenBucketLimiter(IP_LIMIT)
-  const visitLimiter = options.visitLimiter ?? new TokenBucketLimiter(VISIT_LIMIT)
+  const ipBudget = options.ipBudget ?? new EventBudget(IP_EVENT_BUDGET)
+  const visitBudget = options.visitBudget ?? new EventBudget(VISIT_EVENT_BUDGET)
+  const visitDaily = options.visitDaily ?? new DailyCounter({ limit: VISIT_EVENTS_PER_DAY })
+  const newVisits = options.newVisits ?? new NewVisitLimiter({ perHour: NEW_VISITS_PER_IP_PER_HOUR })
   const now = options.now ?? (() => new Date())
 
   return async function handleEvents(request: Request): Promise<Response> {
     const headers = request.headers
     if (!isSameOrigin(headers)) return empty(403)
     if (isOptedOutRequest(headers) || isBotRequest(headers)) return empty(204)
+    if (await isStaffRequest(request)) return empty(204)
 
-    const ipLimit = ipLimiter.take(clientKey(headers))
-    if (!ipLimit.ok) return empty(429, { 'Retry-After': String(ipLimit.retryAfterSeconds) })
+    const ip = clientKey(headers)
+    const requestCost = ipBudget.take(ip, 1)
+    if (!requestCost.ok) return tooMany(requestCost)
 
     if (!contentTypeOk(headers.get('content-type'))) return empty(415)
     const declared = Number(headers.get('content-length'))
@@ -131,35 +191,52 @@ export function createEventsHandler(options: EventsHandlerOptions = {}) {
       })
     }
 
-    const visitLimit = visitLimiter.take(batch.visitId)
-    if (!visitLimit.ok) return empty(429, { 'Retry-After': String(visitLimit.retryAfterSeconds) })
+    // Every event sent counts, valid or not.
+    const count = batch.events.length + batch.dropped
+    const ipEvents = ipBudget.take(ip, count)
+    if (!ipEvents.ok) return tooMany(ipEvents)
+    if (!newVisits.allow(ip, batch.visitId)) return empty(429, { 'Retry-After': '600' })
+    const visitEvents = visitBudget.take(batch.visitId, count)
+    if (!visitEvents.ok) return tooMany(visitEvents)
+    if (!visitDaily.add(batch.visitId, count)) return empty(429, { 'Retry-After': '3600' })
+
+    if (batch.events.length === 0) return empty(204)
 
     try {
       const slugs = [...new Set(batch.events.map((e) => e.slug).filter((s): s is string => s !== null))]
-      const pieces = slugs.length
-        ? await db.product.findMany({ where: { ...PUBLIC_PRODUCT_WHERE, slug: { in: slugs } }, select: { id: true, slug: true } })
+      const rows = slugs.length
+        ? await db.product.findMany({
+            where: { ...PUBLIC_PRODUCT_WHERE, slug: { in: slugs } },
+            select: { id: true, slug: true, sizes: true, colours: true },
+          })
         : []
-      const productIds = new Map(pieces.map((p) => [p.slug as string, p.id]))
+      const pieces = new Map<string, Piece>(
+        rows.map((p) => [p.slug as string, { id: p.id, sizes: splitOptions(p.sizes), colours: splitOptions(p.colours) }]),
+      )
 
       const data = batch.events
-        .filter((e) => e.slug === null || productIds.has(e.slug))
-        .map((e) => ({
-          occurredAt: e.occurredAt,
-          receivedAt,
-          day: dayToDate(analyticsDay(e.occurredAt)),
-          visitId: batch.visitId,
-          deviceId: batch.deviceId,
-          type: e.type,
-          slug: e.slug,
-          productId: e.slug === null ? null : (productIds.get(e.slug) ?? null),
-          page: e.page,
-          collection: e.collection,
-          props: e.props,
-        }))
-      if (data.length) await db.analyticsEvent.createMany({ data })
+        .filter((e) => e.slug === null || pieces.has(e.slug))
+        .map((e) => {
+          const piece = e.slug === null ? undefined : pieces.get(e.slug)
+          return {
+            eventId: e.id,
+            occurredAt: e.occurredAt,
+            receivedAt,
+            day: dayToDate(analyticsDay(e.occurredAt)),
+            visitId: batch.visitId,
+            deviceId: batch.deviceId,
+            type: e.type,
+            slug: e.slug,
+            productId: piece?.id ?? null,
+            page: e.page,
+            collection: e.collection,
+            props: checkOptions(e, piece),
+          }
+        })
+      if (data.length) await db.analyticsEvent.createMany({ data, skipDuplicates: true })
       return empty(204)
     } catch (error) {
-      // Never log the payload: only that storing failed.
+      // Never log the payload or the request: only that storing failed.
       console.error('Analytics events not stored', error instanceof Error ? error.name : 'error')
       return empty(503)
     }

@@ -2,9 +2,14 @@
 // injected (tests/analytics-client.test.ts drives it with a fake browser).
 // ./client.ts builds the real one; components import from there.
 //
+// - Every event gets a random id (the server stores each id once) and is
+//   checked with the shared validateEvent before it is queued; invalid ones
+//   are dropped (with a console warning in development).
 // - Batching: events wait in memory and are sent every 10 s, as soon as 20
 //   are queued, and when the page hides (sendBeacon, fetch keepalive fallback).
-//   Events tracked while the page is hidden are sent straight away.
+//   While the page is hidden, sends are coalesced to the end of the current
+//   task (microtask), so visit_end and the dwell events emitted by the same
+//   hide go in one beacon; pagehide (unload) sends synchronously.
 // - Visit id: random UUID in sessionStorage; a new visit after 30 min idle.
 // - Device id: random UUID in localStorage (returning visitors, hearts).
 // - visit_start (once per visit, with the visit context) and visit_end (every
@@ -14,12 +19,12 @@
 //   memory for this page and no device id is sent.
 import { campaignFromSearch, deviceClass, normalizePage, visitSource } from './context'
 import type { PageVisibilitySource } from './dwell'
-import { BATCH_VERSION, type AnalyticsEventType, type PropValue } from './events'
+import { BATCH_VERSION, MAX_BATCH_EVENTS, validateEvent, type AnalyticsEventType, type PropValue } from './events'
 import { isAutomatedClient, isOptedOutClient, type PrivacyNavigator } from './privacy'
 
 export const ANALYTICS_ENDPOINT = '/api/public/events'
 export const FLUSH_INTERVAL_MS = 10_000
-export const FLUSH_AT_EVENTS = 20
+export const FLUSH_AT_EVENTS = MAX_BATCH_EVENTS
 export const VISIT_IDLE_MS = 30 * 60_000
 export const MAX_QUEUED_EVENTS = 200
 export const VISIT_STORAGE_KEY = 'vyra:analytics:visit'
@@ -45,12 +50,17 @@ export type AnalyticsEnv = {
   viewport(): { width: number; height: number }
   visibility: PageVisibilitySource
   onPageHide(fn: () => void): void
+  /** Run fn at the end of the current task (queueMicrotask in the browser). */
+  defer(fn: () => void): void
+  /** Development only: report a dropped event. Absent in production. */
+  warn?: (message: string) => void
 }
 
 /** Props of one event as callers pass them: `slug` and `collection` are lifted onto the event. */
 export type TrackProps = { slug?: string; collection?: string } & Record<string, PropValue | undefined>
 
 export type QueuedEvent = {
+  id: string
   type: AnalyticsEventType
   at: number
   page: string
@@ -176,7 +186,8 @@ export function createAnalyticsClient(env: AnalyticsEnv): AnalyticsClient {
           method: 'POST',
           body,
           keepalive: true,
-          credentials: 'omit',
+          // same-origin: the server must see a staff session cookie to skip staff traffic.
+          credentials: 'same-origin',
           headers: { 'content-type': 'text/plain;charset=UTF-8' },
         })
         .catch(() => {})
@@ -201,10 +212,38 @@ export function createAnalyticsClient(env: AnalyticsEnv): AnalyticsClient {
     }
   }
 
-  const enqueue = (event: QueuedEvent) => {
+  /** While hidden: one send at the end of the current task, for everything queued during it. */
+  let flushDeferred = false
+  const flushSoon = () => {
+    if (flushDeferred) return
+    flushDeferred = true
+    env.defer(() => {
+      flushDeferred = false
+      flush()
+    })
+  }
+
+  /** Give the event an id and check it with the shared validator; null (dropped) when invalid. */
+  const build = (event: Omit<QueuedEvent, 'id'>): QueuedEvent | null => {
+    const full: QueuedEvent = { id: env.randomId(), ...event }
+    const problem = validateEvent(full, new Date(env.now()))
+    if (typeof problem === 'string') {
+      env.warn?.(`[analytics] dropped ${event.type}: ${problem}`)
+      return null
+    }
+    return full
+  }
+
+  const push = (event: QueuedEvent) => {
     queue.push(event)
     if (queue.length > MAX_QUEUED_EVENTS) queue = queue.slice(queue.length - MAX_QUEUED_EVENTS)
-    if (!env.visibility.isVisible() || queue.length >= FLUSH_AT_EVENTS) {
+  }
+
+  const enqueue = (event: QueuedEvent) => {
+    push(event)
+    if (!env.visibility.isVisible()) {
+      flushSoon()
+    } else if (queue.length >= FLUSH_AT_EVENTS) {
       flush()
     } else if (timer === null) {
       timer = env.setTimer(() => {
@@ -235,7 +274,8 @@ export function createAnalyticsClient(env: AnalyticsEnv): AnalyticsClient {
     props.landing = page()
     props.returning = returning
     returning = true // a later visit of this page life is a returning one
-    enqueue({ type: 'visit_start', at: env.now(), page: page(), props })
+    const start = build({ type: 'visit_start', at: env.now(), page: page(), props })
+    if (start) enqueue(start)
     persist()
   }
 
@@ -258,8 +298,12 @@ export function createAnalyticsClient(env: AnalyticsEnv): AnalyticsClient {
     startVisit()
   }
 
-  const endVisit = () => {
-    if (endedWhileHidden) return
+  /** visit_end, sent at the end of the task (hide) or at once (sync: pagehide, the page is going away). */
+  const endVisit = (sync: boolean) => {
+    if (endedWhileHidden) {
+      if (sync) flush()
+      return
+    }
     endedWhileHidden = true
     if (visibleSince !== null) visit.activeMs += Math.max(0, env.now() - visibleSince)
     visibleSince = null
@@ -268,13 +312,15 @@ export function createAnalyticsClient(env: AnalyticsEnv): AnalyticsClient {
       looks: Math.min(100_000, visit.looks),
     }
     if (visit.lastType) props.last = visit.lastType
-    queue.push({ type: 'visit_end', at: env.now(), page: page(), ...(visit.lastSlug ? { slug: visit.lastSlug } : {}), props })
-    flush()
+    const end = build({ type: 'visit_end', at: env.now(), page: page(), ...(visit.lastSlug ? { slug: visit.lastSlug } : {}), props })
+    if (end) push(end)
+    if (sync) flush()
+    else flushSoon()
   }
 
   env.visibility.subscribe((visible) => {
     if (!visible) {
-      endVisit()
+      endVisit(false)
     } else {
       endedWhileHidden = false
       if (visibleSince === null) visibleSince = env.now()
@@ -282,7 +328,7 @@ export function createAnalyticsClient(env: AnalyticsEnv): AnalyticsClient {
       visit.last = env.now()
     }
   })
-  env.onPageHide(endVisit)
+  env.onPageHide(() => endVisit(true))
 
   return {
     enabled: true,
@@ -292,11 +338,7 @@ export function createAnalyticsClient(env: AnalyticsEnv): AnalyticsClient {
         const { slug, collection, ...rest } = input
         const props: Record<string, PropValue> = {}
         for (const [k, v] of Object.entries(rest)) if (v !== undefined) props[k] = v
-        visit.last = env.now()
-        visit.lastType = type
-        if (slug) visit.lastSlug = slug
-        if (type === 'look_view') visit.looks += 1
-        enqueue({
+        const event = build({
           type,
           at: env.now(),
           page: page(),
@@ -304,6 +346,12 @@ export function createAnalyticsClient(env: AnalyticsEnv): AnalyticsClient {
           ...(collection ? { collection } : {}),
           props,
         })
+        if (!event) return
+        visit.last = env.now()
+        visit.lastType = type
+        if (slug) visit.lastSlug = slug
+        if (type === 'look_view') visit.looks += 1
+        enqueue(event)
       } catch {
         // Analytics must never break the page.
       }

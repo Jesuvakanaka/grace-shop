@@ -75,7 +75,8 @@ export default async function PrivacyPage() {
           <p className="sf-body text-brand-ink-soft">
             To tell visits apart, your browser makes up two random codes that say nothing about you. A{" "}
             <strong className="font-medium text-brand-ink">visit ID</strong> is kept in the browser&apos;s session
-            storage and is gone when you close the browser (a new one starts after 30 minutes without activity). A{" "}
+            storage and ends when the tab or browser session ends (a new one also starts after 30 minutes without
+            activity). A{" "}
             <strong className="font-medium text-brand-ink">device ID</strong> is kept in the browser&apos;s local
             storage so we can count returning visitors; it stays until you clear this site&apos;s data in your browser
             settings, which also resets it. The site also remembers small display choices in session storage, such as
@@ -87,8 +88,8 @@ export default async function PrivacyPage() {
           <ul className={list}>
             <li>your name, phone number, email address or any account: there are no accounts on this site;</li>
             <li>
-              your IP address: it is held briefly in the server&apos;s memory to stop floods of fake traffic and is
-              never written to our analytics;
+              your IP address: our analytics use it only in the server&apos;s memory, for rate limiting (to stop floods
+              of fake traffic), and never write it to the database or to logs;
             </li>
             <li>what you write to us on WhatsApp (see below), and anything you do on other websites or apps.</li>
           </ul>
