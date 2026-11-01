@@ -6,12 +6,12 @@ import type { Metadata } from 'next'
 import { headers } from 'next/headers'
 import { notFound, redirect } from 'next/navigation'
 import { getPublishedCategory, listPublishedProducts } from './index'
+import { hostRoutingConfigFromEnv } from '@/lib/host-routing'
 import {
-  canonicalUrl,
+  listingCanonicalUrl,
   listingHref,
   loadListing,
   parseListingQuery,
-  requestOrigin,
   sortForScope,
   type ListingQuery,
   type ListingScope,
@@ -24,20 +24,22 @@ import { getSiteBase } from './site-base'
 import type { PublicCategory } from './dto'
 import type { PublicProductPage } from './catalogue'
 
-/** "https://host" for this request, or null. */
-export async function getRequestOrigin(): Promise<string | null> {
-  const h = await headers()
-  // The Host header, like getSiteBase() and src/proxy.ts (not X-Forwarded-Host).
-  return requestOrigin(h.get('host'), h.get('x-forwarded-proto'))
-}
-
-/** Page metadata with a canonical URL that never carries sort, filter or page. */
+/**
+ * Page metadata with a canonical URL that never carries sort, filter or page
+ * (shared absoluteSiteUrl rule; omitted when there is no trustworthy origin).
+ */
 export async function listingMetadata(route: string, meta: { title: string; description?: string | null }): Promise<Metadata> {
-  const [origin, base] = await Promise.all([getRequestOrigin(), getSiteBase()])
+  const [h, base] = await Promise.all([headers(), getSiteBase()])
+  const canonical = listingCanonicalUrl({
+    base,
+    route,
+    storefrontHosts: hostRoutingConfigFromEnv().storefrontHosts,
+    host: h.get('host'),
+  })
   return {
     title: meta.title,
     ...(meta.description ? { description: meta.description } : {}),
-    alternates: { canonical: canonicalUrl(origin, base, route) },
+    ...(canonical ? { alternates: { canonical } } : {}),
   }
 }
 

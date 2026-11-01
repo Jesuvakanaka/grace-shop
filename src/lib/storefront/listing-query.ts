@@ -9,6 +9,7 @@ import { isValidSlug } from '@/lib/storefront-model'
 import type { CatalogueListOptions, PublicProductPage } from './catalogue'
 import type { PublicCategory } from './dto'
 import type { SiteBase } from './paths'
+import { absoluteSiteUrl } from './public-url'
 
 export const LISTING_PAGE_SIZE = 24
 
@@ -104,23 +105,20 @@ export function pageWindow(page: number, pageCount: number): (number | 'gap')[] 
   return out
 }
 
-const HOST = /^[a-z0-9.-]+(?::\d{1,5})?$|^\[[0-9a-f:.]+\](?::\d{1,5})?$/i
 
-/** "https://host" from the request Host and X-Forwarded-Proto headers, or null for a missing or odd host. */
-export function requestOrigin(host: string | null | undefined, forwardedProto: string | null | undefined): string | null {
-  const h = host?.trim()
-  if (!h || !HOST.test(h)) return null
-  const proto = forwardedProto?.split(',')[0]?.trim().toLowerCase()
-  const local = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(h)
-  const scheme = proto === 'http' || proto === 'https' ? proto : local ? 'http' : 'https'
-  return `${scheme}://${h}`
-}
-
-/** The canonical URL of a listing: never carries sort, filter or page. Relative when the origin is unknown. */
-export function canonicalUrl(origin: string | null, base: SiteBase, route: string): string {
-  const path = route.split(/[?#]/)[0] || '/'
-  const full = base === '' ? path : `${base}${path === '/' ? '' : path}`
-  return origin ? `${origin}${full}` : full
+/**
+ * The canonical URL of a listing: never carries sort, filter or page. Uses
+ * the shared absoluteSiteUrl (configured storefront host on the storefront,
+ * validated Host + /site on UAT); null when no trustworthy origin exists.
+ */
+export function listingCanonicalUrl(input: {
+  base: SiteBase
+  route: string
+  storefrontHosts: readonly string[]
+  host: string | null | undefined
+}): string | null {
+  const path = input.route.split(/[?#]/)[0] || '/'
+  return absoluteSiteUrl({ base: input.base, path, storefrontHosts: input.storefrontHosts, host: input.host })
 }
 
 export type ListingScope = { kind: 'all' } | { kind: 'new' } | { kind: 'category'; slug: string }
