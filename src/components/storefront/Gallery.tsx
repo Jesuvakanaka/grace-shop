@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "./cn";
 import { ChevronLeftIcon, ChevronRightIcon, CloseIcon, ExpandIcon } from "./icons";
 import { ImageFallback, ImageFrame, StorefrontImg } from "./StorefrontImage";
@@ -56,6 +56,29 @@ export function Gallery({ images, label, eager = true, className }: GalleryProps
   const openZoom = () => zoomRef.current?.showModal();
   const closeZoom = () => zoomRef.current?.close();
 
+  // ZP-490: in the full-screen view, arrows change photo (Esc closes natively)
+  // and Tab cycles through the dialog's own buttons only.
+  const onZoomKeyDown = (e: KeyboardEvent<HTMLDialogElement>) => {
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      if (count < 2) return;
+      e.preventDefault();
+      goTo(active + (e.key === "ArrowRight" ? 1 : -1));
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const focusable = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("button:not([disabled])"));
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
   if (count === 0) {
     return (
       <ImageFrame ratio="4 / 5" className={className}>
@@ -88,7 +111,9 @@ export function Gallery({ images, label, eager = true, className }: GalleryProps
             <div
               key={img.src + i}
               data-index={i}
-              className="w-full shrink-0"
+              // ZP-490: click/tap the photo to zoom (the expand button is the keyboard route).
+              onClick={openZoom}
+              className="w-full shrink-0 cursor-zoom-in"
               role="group"
               aria-roledescription="slide"
               aria-label={`${i + 1} of ${count}`}
@@ -181,6 +206,7 @@ export function Gallery({ images, label, eager = true, className }: GalleryProps
         ref={zoomRef}
         aria-label={`${label}, photo ${active + 1} of ${count}`}
         onClose={() => zoomButtonRef.current?.focus()}
+        onKeyDown={onZoomKeyDown}
         className="sf-dialog bg-brand-cream-100 text-brand-ink"
       >
         <div className="relative flex h-full w-full items-center justify-center">

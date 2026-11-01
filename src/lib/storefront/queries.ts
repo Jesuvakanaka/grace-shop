@@ -36,7 +36,7 @@ export const PUBLIC_PRODUCT_WHERE = {
   category: { is: { published: true } },
 } satisfies Prisma.ProductWhereInput
 
-const PRODUCT_SELECT = {
+export const PRODUCT_SELECT = {
   id: true,
   itemNumber: true,
   productName: true,
