@@ -12,9 +12,7 @@ import {
   EnquiryButton,
   ErrorState,
   FilterBar,
-  Footer,
   Gallery,
-  Header,
   Hero,
   NotFoundState,
   ProductCard,
@@ -49,12 +47,15 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false, nocache: true, googleBot: { index: false, follow: false } },
 };
 
-const nav = [
-  { label: "Shop", href: "#collection" },
-  { label: "Collections", href: "#categories" },
-  { label: "New Arrivals", href: "#new-arrivals" },
-  { label: "About", href: "#about" },
-  { label: "Visit Us", href: "#visit" },
+/** In-page jump links to the preview sections (the shell nav goes to the real pages). */
+const sections = [
+  { label: "Home", href: "#home" },
+  { label: "New arrivals", href: "#new-arrivals" },
+  { label: "Categories", href: "#categories" },
+  { label: "Visit", href: "#visit" },
+  { label: "Collection page", href: "#collection" },
+  { label: "Product page", href: "#product" },
+  { label: "States", href: "#states" },
 ];
 
 function PreviewDivider({ id, label }: { id?: string; label: string }) {
@@ -93,26 +94,37 @@ export default async function StorefrontDesignPreview() {
 
   const featuredPrice = formatPriceUsd(featured.priceUsd);
 
+  // ZP-487: the real storefront shell (src/app/site/layout.tsx) now draws the
+  // skip link, header and footer around this page.
   return (
     <div className="bg-brand-cream text-brand-ink">
-      <a
-        href="#home"
-        className="sf-focus sf-label sr-only z-50 bg-brand-ink px-4 py-4 text-brand-cream focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:inline-flex focus:min-h-11 focus:items-center"
-      >
-        Skip to content
-      </a>
-      <Header nav={nav} homeHref="#home" whatsappHref={WHATSAPP_HREF} />
+      <nav aria-label="Design preview sections" className="border-b border-brand-ink/10! bg-brand-cream-100">
+        <ul className="sf-scroll-x mx-auto flex max-w-[1200px] gap-1 px-2 sm:px-4 lg:px-8">
+          {sections.map((s) => (
+            <li key={s.href} className="shrink-0">
+              <a
+                href={s.href}
+                className="sf-focus sf-label inline-flex min-h-11 items-center rounded-[2px] px-3 text-brand-ink-soft hover:text-brand-ink"
+              >
+                {s.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
 
       {/* ------------------------------------------------------------ HOME */}
       <div id="home" className="scroll-mt-20">
+        {/* Portrait lookbook photo: the split layout shows the whole look. */}
         <Hero
+          layout="split"
           title="Style your way"
           subline="Premium fashion. Modern you."
-          eyebrow="The new season"
+          eyebrow="Wear different."
           primary={{ label: "Shop the collection", href: "#collection" }}
           secondary={{ label: "Visit us", href: "#visit" }}
-          image={hero.desktop}
-          mobileImage={hero.mobile}
+          image={hero}
+          className="border-t-0"
         />
       </div>
 
@@ -150,7 +162,6 @@ export default async function StorefrontDesignPreview() {
 
       <ColourBlock
         id="about"
-        tone="lime"
         eyebrow="Be bold. Be you."
         statement="Confidence in every stitch"
         action={{ label: "Our story", href: "#visit" }}
@@ -160,10 +171,11 @@ export default async function StorefrontDesignPreview() {
       <Hero
         as="h2"
         layout="split"
+        reverse
         eager={false}
         title="Elevate your style"
         eyebrow="The featured edit"
-        subline="Sharp tailoring in lime, cream and black. Wear it together, or let one piece do the talking."
+        subline="Pleats, prints and olive tones. Wear it together, or let one piece do the talking."
         primary={{ label: "Shop the edit", href: "#collection" }}
         image={editImage}
       />
@@ -342,7 +354,7 @@ export default async function StorefrontDesignPreview() {
       </article>
 
       {/* ---------------------------------------------------------- STATES */}
-      <PreviewDivider label="Empty, error and 404 states" />
+      <PreviewDivider id="states" label="Empty, error and 404 states" />
       <div className="grid divide-y divide-brand-ink/10! bg-brand-cream lg:grid-cols-3 lg:divide-x lg:divide-y-0">
         <EmptyState
           title="No pieces match yet"
@@ -352,33 +364,6 @@ export default async function StorefrontDesignPreview() {
         <ErrorState action={{ label: "Try again", href: "#home" }} />
         <NotFoundState as="h2" action={{ label: "See new arrivals", href: "#new-arrivals" }} />
       </div>
-
-      <Footer
-        homeHref="#home"
-        columns={[
-          {
-            title: "Shop",
-            links: [
-              { label: "New arrivals", href: "#new-arrivals" },
-              { label: "Collections", href: "#categories" },
-              { label: "All pieces", href: "#collection" },
-            ],
-          },
-          {
-            title: "VYRA",
-            links: [
-              { label: "About", href: "#about" },
-              { label: "Visit us", href: "#visit" },
-              { label: "WhatsApp", href: WHATSAPP_HREF },
-            ],
-          },
-        ]}
-        social={[
-          { label: "VYRA on Instagram", href: "#social", icon: "instagram" },
-          { label: "VYRA on Facebook", href: "#social", icon: "facebook" },
-          { label: "Chat with VYRA on WhatsApp", href: WHATSAPP_HREF, icon: "whatsapp" },
-        ]}
-      />
     </div>
   );
 }

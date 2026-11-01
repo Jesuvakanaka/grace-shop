@@ -4,8 +4,10 @@ import { cn } from "./cn";
 import { ArrowRightIcon } from "./icons";
 
 export type ButtonVariant =
-  /** Olive with white text (4.89:1). The one main action per view. */
+  /** Olive with white text (4.89:1). The default action colour: the one main action per view. */
   | "primary"
+  /** Lime with INK text (6.97:1). Accent only, at most one per page; never white text on lime. */
+  | "accent"
   /** Transparent with a 1px ink border and ink text. Secondary action on cream/white. */
   | "ghost"
   /** Ghost for dark or olive grounds: white border and text. */
@@ -22,6 +24,7 @@ const base =
 
 const variants: Record<ButtonVariant, string> = {
   primary: "bg-brand-olive px-7 py-4 text-white hover:bg-brand-olive-700",
+  accent: "bg-brand-lime px-7 py-4 text-brand-ink hover:bg-brand-lime-300",
   ghost: "border border-brand-ink! px-7 py-4 text-brand-ink hover:bg-brand-ink hover:text-brand-cream",
   "ghost-light": "border border-white! px-7 py-4 text-white hover:bg-white hover:text-brand-ink",
   ink: "bg-brand-ink px-7 py-4 text-brand-cream hover:bg-black",

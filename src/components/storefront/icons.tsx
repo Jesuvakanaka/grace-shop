@@ -43,6 +43,16 @@ export function FacebookIcon({ className = "h-5 w-5" }: IconProps) {
   );
 }
 
+/** Thin-line musical note, after the TikTok glyph. */
+export function TikTokIcon({ className = "h-5 w-5" }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true" focusable="false">
+      <path {...line} d="M14 3.5v11.3a3.7 3.7 0 1 1-3.7-3.7" />
+      <path {...line} d="M14 3.5c.4 2.6 2.2 4.4 4.8 4.6" />
+    </svg>
+  );
+}
+
 export function MenuIcon({ className = "h-6 w-6" }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden="true" focusable="false">

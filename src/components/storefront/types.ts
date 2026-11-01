@@ -24,3 +24,11 @@ export type NavLink = {
  */
 export type { Availability } from "@/lib/storefront-model/rules";
 export type { PublicImage, PublicCategoryRef, PublicProduct } from "@/lib/storefront/dto";
+
+/** A top-level nav item; `children` makes it a sub-menu (Collections). */
+export type NavItem = NavLink & { children?: NavLink[] };
+
+export type SocialIcon = "instagram" | "facebook" | "tiktok" | "whatsapp";
+export type SocialLink = { label: string; href: string; icon: SocialIcon };
+
+export type FooterColumn = { title: string; links: NavLink[] };
