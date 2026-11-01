@@ -323,6 +323,15 @@ both index scans.
   `""` when not sent): `views`, `viewers`, `dwellSeconds`, `dwellCount`.
 - **`AnalyticsDailyVideo`** (`day, productId` PK): `starts`, `viewers`,
   `replays`, `reached25/50/75/100`, `watchSeconds`.
+- **ZP-505 (Insights)**, migration `20261105090000_analytics_insights_rollups`:
+  `AnalyticsDailyPiece.photoSwipers`, and `AnalyticsDailyJourney` (funnel by
+  furthest step, feed end, WhatsApp taps per source / device / campaign),
+  `AnalyticsDailyDepth` (visits by looks seen), `AnalyticsDailyHour` (visits
+  by Harare hour of start), `AnalyticsDailyHealth` (slow loads, load errors,
+  failed actions), `AnalyticsDailyOption` (size / colour demand per piece).
+  Columns and definitions: `docs/admin/insights.md`. Journey, depth and hour
+  rows are by the day the visit started; health and option rows by the day
+  of the event.
 
 Visit and source rows are by the day the visit **started** (a `visit_end`
 or enquiry after midnight still counts for it); piece, photo and video rows

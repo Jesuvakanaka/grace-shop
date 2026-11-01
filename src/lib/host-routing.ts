@@ -44,6 +44,7 @@ export const ADMIN_PAGE_SECTIONS: readonly string[] = [
   'debtors',
   'expenses',
   'import',
+  'insights',
   'products',
   'reports',
   'sales',

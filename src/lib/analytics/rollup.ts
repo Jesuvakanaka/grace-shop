@@ -8,7 +8,7 @@
 // the day of the event. Columns are documented in prisma/schema.prisma and
 // docs/storefront/analytics.md.
 import type { PrismaClient } from '@prisma/client'
-import { addDays, analyticsDay, isDay } from './events'
+import { addDays, ANALYTICS_TIME_ZONE, analyticsDay, isDay } from './events'
 
 /** Raw events older than this many days are deleted. */
 export const RAW_RETENTION_DAYS = 90
@@ -21,6 +21,8 @@ type Db = Pick<PrismaClient, '$transaction' | '$executeRawUnsafe'>
 type Tx = Pick<PrismaClient, '$executeRawUnsafe' | '$queryRawUnsafe'>
 
 const BOUNCE_SECONDS = 5
+/** ZP-505: depth rows are capped here: looks = MAX_DEPTH means "this many or more". */
+export const MAX_DEPTH = 100
 
 /**
  * One row per visit that started on $1, with its latest/longest visit_end
@@ -119,17 +121,20 @@ const STATEMENTS: string[] = [
             ${count('restock_request')} AS restock_requests,
             ${count('share')} AS shares,
             ${count('love_on')} AS love_on,
-            ${count('love_off')} AS love_off
+            ${count('love_off')} AS love_off,
+            (COUNT(DISTINCT "visitId") FILTER (
+              WHERE (CASE WHEN type = 'photo_view' THEN (props->>'index')::int END) >= 2))::int AS photo_swipers
      FROM "AnalyticsEvent"
      WHERE day = $1::date AND "productId" IS NOT NULL AND slug IS NOT NULL
      GROUP BY "productId"
    )
    INSERT INTO "AnalyticsDailyPiece"
      (day, "productId", slug, views, viewers, "dwellSeconds", "dwellCount", "photoViews", "videoStarts", "detailsShows",
-      "productOpens", "sizeSelects", "colourSelects", "galleryZooms", enquiries, "restockRequests", shares, "loveOn", "loveOff", exits)
+      "productOpens", "sizeSelects", "colourSelects", "galleryZooms", enquiries, "restockRequests", shares, "loveOn", "loveOff", exits,
+      "photoSwipers")
    SELECT $1::date, a."productId", a.slug, a.views, a.viewers, a.dwell_seconds, a.dwell_count, a.photo_views, a.video_starts,
           a.details_shows, a.product_opens, a.size_selects, a.colour_selects, a.gallery_zooms, a.enquiries, a.restock_requests,
-          a.shares, a.love_on, a.love_off, COALESCE(x.n, 0)
+          a.shares, a.love_on, a.love_off, COALESCE(x.n, 0), a.photo_swipers
    FROM agg a LEFT JOIN exits x ON x."productId" = a."productId"`,
 
   `INSERT INTO "AnalyticsDailyPhoto" (day, "productId", "photoIndex", image, slug, views, viewers, "dwellSeconds", "dwellCount")
@@ -158,6 +163,95 @@ const STATEMENTS: string[] = [
    WHERE day = $1::date AND type IN ('video_start', 'video_progress', 'video_replay', 'video_seconds')
      AND "productId" IS NOT NULL AND slug IS NOT NULL
    GROUP BY "productId"`,
+
+  // ── ZP-505 (Insights). One grouped pass over the visit's two days into a
+  // temp table (dropped at the end of the transaction), then journey, depth
+  // and hour rows from it.
+  `DELETE FROM "AnalyticsDailyJourney" WHERE day = $1::date`,
+  `DELETE FROM "AnalyticsDailyDepth" WHERE day = $1::date`,
+  `DELETE FROM "AnalyticsDailyHour" WHERE day = $1::date`,
+  `DELETE FROM "AnalyticsDailyHealth" WHERE day = $1::date`,
+  `DELETE FROM "AnalyticsDailyOption" WHERE day = $1::date`,
+
+  `DROP TABLE IF EXISTS pg_temp.analytics_rollup_visit`,
+  `CREATE TEMP TABLE analytics_rollup_visit (
+     source text, device_class text, campaign text, hour int, looks int, step int, feed_end boolean, taps int
+   ) ON COMMIT DROP`,
+
+  // step = the furthest funnel step: 0 landed, 1 saw a 2nd look, 2 Show details,
+  // 3 opened a piece, 4 chose a size, 5 WhatsApp.
+  `INSERT INTO analytics_rollup_visit (source, device_class, campaign, hour, looks, step, feed_end, taps)
+   WITH pv AS (
+     SELECT "visitId",
+            (ARRAY_AGG(props ORDER BY "occurredAt") FILTER (WHERE type = 'visit_start' AND day = $1::date))[1] AS start_props,
+            MIN("occurredAt") FILTER (WHERE type = 'visit_start' AND day = $1::date) AS started_at,
+            MAX((props->>'looks')::int) FILTER (WHERE type = 'visit_end') AS end_looks,
+            COUNT(DISTINCT "productId") FILTER (WHERE type = 'look_view') AS seen,
+            BOOL_OR(type = 'details_show') AS details,
+            BOOL_OR(type = 'product_open') AS opened,
+            BOOL_OR(type = 'size_select') AS sized,
+            COUNT(*) FILTER (WHERE type = 'whatsapp_enquire') AS taps,
+            BOOL_OR(type = 'feed_end_reached') AS feed_end
+     FROM "AnalyticsEvent"
+     WHERE day BETWEEN $1::date AND $1::date + 1
+       AND type IN ('visit_start', 'visit_end', 'look_view', 'details_show', 'product_open', 'size_select',
+                    'whatsapp_enquire', 'feed_end_reached')
+     GROUP BY "visitId"
+   ),
+   v AS (
+     SELECT COALESCE(start_props->>'ref', 'other') AS source,
+            COALESCE(start_props->>'device', 'desktop') AS device_class,
+            COALESCE(start_props->>'campaign', '') AS campaign,
+            EXTRACT(HOUR FROM (started_at AT TIME ZONE 'UTC') AT TIME ZONE '${ANALYTICS_TIME_ZONE}')::int AS hour,
+            LEAST(GREATEST(COALESCE(end_looks, 0), seen), ${MAX_DEPTH})::int AS looks,
+            details, opened, sized, taps, feed_end
+     FROM pv
+     WHERE start_props IS NOT NULL
+   )
+   SELECT source, device_class, campaign, hour, looks,
+          CASE WHEN taps > 0 THEN 5 WHEN sized THEN 4 WHEN opened THEN 3 WHEN details THEN 2 WHEN looks >= 2 THEN 1 ELSE 0 END,
+          feed_end, taps
+   FROM v`,
+
+  `INSERT INTO "AnalyticsDailyJourney"
+     (day, source, "deviceClass", campaign, visits, "reachedSecondLook", "reachedDetails", "reachedOpen", "reachedSize",
+      "reachedWhatsapp", "feedEndVisits", "whatsappTaps")
+   SELECT $1::date, source, device_class, campaign,
+          COUNT(*)::int,
+          COUNT(*) FILTER (WHERE step >= 1)::int,
+          COUNT(*) FILTER (WHERE step >= 2)::int,
+          COUNT(*) FILTER (WHERE step >= 3)::int,
+          COUNT(*) FILTER (WHERE step >= 4)::int,
+          COUNT(*) FILTER (WHERE step >= 5)::int,
+          COUNT(*) FILTER (WHERE feed_end)::int,
+          COALESCE(SUM(taps), 0)::int
+   FROM analytics_rollup_visit
+   GROUP BY source, device_class, campaign`,
+
+  `INSERT INTO "AnalyticsDailyDepth" (day, looks, visits)
+   SELECT $1::date, looks, COUNT(*)::int FROM analytics_rollup_visit GROUP BY looks`,
+
+  `INSERT INTO "AnalyticsDailyHour" (day, hour, visits, "enquiringVisits", "whatsappTaps")
+   SELECT $1::date, hour, COUNT(*)::int, COUNT(*) FILTER (WHERE taps > 0)::int, COALESCE(SUM(taps), 0)::int
+   FROM analytics_rollup_visit
+   GROUP BY hour`,
+
+  `INSERT INTO "AnalyticsDailyHealth" (day, kind, detail, events, visits)
+   SELECT $1::date, type, COALESCE(props->>'what', props->>'action', ''), COUNT(*)::int, COUNT(DISTINCT "visitId")::int
+   FROM "AnalyticsEvent"
+   WHERE day = $1::date AND type IN ('slow_load', 'load_error', 'action_failed')
+   GROUP BY type, COALESCE(props->>'what', props->>'action', '')`,
+
+  `INSERT INTO "AnalyticsDailyOption" (day, "productId", kind, value, selects, enquiries, "restockRequests")
+   SELECT $1::date, e."productId", o.kind, o.value,
+          COUNT(*) FILTER (WHERE e.type IN ('size_select', 'colour_select'))::int,
+          COUNT(*) FILTER (WHERE e.type = 'whatsapp_enquire')::int,
+          COUNT(*) FILTER (WHERE e.type = 'restock_request')::int
+   FROM "AnalyticsEvent" e
+   CROSS JOIN LATERAL (VALUES ('size', e.props->>'size'), ('colour', e.props->>'colour')) AS o(kind, value)
+   WHERE e.day = $1::date AND e.type IN ('size_select', 'colour_select', 'whatsapp_enquire', 'restock_request')
+     AND e."productId" IS NOT NULL AND o.value IS NOT NULL
+   GROUP BY e."productId", o.kind, o.value`,
 ]
 
 /**
@@ -201,17 +295,37 @@ export async function rollupDay(db: Db, day: string, options: { now?: Date } = {
     if (!raw && rolled) {
       return { day, status: 'skipped' as const, reason: 'no raw events but rollups exist; rollups kept' }
     }
-    for (const sql of STATEMENTS) await tx.$executeRawUnsafe(sql, day)
+    await rollupDayInTransaction(tx, day)
     return { day, status: 'done' as const }
   }, ROLLUP_TRANSACTION)
 }
 
-const ROLLUP_TABLES = [
+/**
+ * The rollup statements for one day, inside a transaction the caller owns
+ * (no checks, no statement timeout). rollupDay uses it; the Insights page
+ * (ZP-505) uses it for "today" inside a transaction it always rolls back,
+ * so live numbers are computed exactly like the nightly ones.
+ */
+export async function rollupDayInTransaction(tx: Pick<PrismaClient, '$executeRawUnsafe'>, day: string): Promise<void> {
+  if (!isDay(day)) throw new Error(`Not a date: ${day}`)
+  for (const sql of STATEMENTS) {
+    if (sql.includes('$1')) await tx.$executeRawUnsafe(sql, day)
+    else await tx.$executeRawUnsafe(sql)
+  }
+}
+
+export const ROLLUP_TABLES = [
   'AnalyticsDailyVisits',
   'AnalyticsDailySource',
   'AnalyticsDailyPiece',
   'AnalyticsDailyPhoto',
   'AnalyticsDailyVideo',
+  // ZP-505
+  'AnalyticsDailyJourney',
+  'AnalyticsDailyDepth',
+  'AnalyticsDailyHour',
+  'AnalyticsDailyHealth',
+  'AnalyticsDailyOption',
 ]
 
 /** Subtract whole months from "YYYY-MM-DD" (clamped to the month's last day). */

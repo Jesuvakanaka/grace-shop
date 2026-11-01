@@ -577,6 +577,8 @@ model AnalyticsDailyPiece {
   loveOff         Int      @default(0)
   /// Visits whose last look (latest visit_end of the day) was this piece.
   exits           Int      @default(0)
+  /// ZP-505: distinct visits that reached a 2nd (or later) photo (photo-swipe rate = photoSwipers / viewers).
+  photoSwipers    Int      @default(0)
 
   @@id([day, productId])
   @@index([productId, day])
@@ -695,4 +697,86 @@ model Review {
 
   @@index([status, productId])
   @@index([photoKey])
+}
+
+// ─── ZP-505: rollups for the Insights page (docs/admin/insights.md) ──────────
+// Same rules as the ZP-493 rollups: keyed by analytics day (Harare) first,
+// rebuilt by src/lib/analytics/rollup.ts, kept 25 months, no foreign keys.
+// Journey, depth and hour rows are by the day the visit STARTED.
+
+/// Funnel per visit. A visit counts for every step up to its FURTHEST step
+/// (landed < 2nd look < Show details < opened piece < chose size < WhatsApp),
+/// so the steps never go up.
+model AnalyticsDailyJourney {
+  day               DateTime @db.Date
+  /// Same buckets as AnalyticsDailySource.
+  source            String   @db.VarChar(16)
+  deviceClass       String   @db.VarChar(16)
+  campaign          String   @default("") @db.VarChar(64)
+  visits            Int      @default(0)
+  reachedSecondLook Int      @default(0)
+  reachedDetails    Int      @default(0)
+  reachedOpen       Int      @default(0)
+  reachedSize       Int      @default(0)
+  reachedWhatsapp   Int      @default(0)
+  /// Visits with a feed_end_reached.
+  feedEndVisits     Int      @default(0)
+  /// whatsapp_enquire events of these visits (that day or the next).
+  whatsappTaps      Int      @default(0)
+
+  @@id([day, source, deviceClass, campaign])
+}
+
+/// Visits by looks seen: the larger of the visit's visit_end "looks" and its
+/// distinct pieces with a look_view, capped at 100 (100 = 100 or more).
+model AnalyticsDailyDepth {
+  day    DateTime @db.Date
+  looks  Int
+  visits Int      @default(0)
+
+  @@id([day, looks])
+}
+
+/// Visits by the hour (0-23, Africa/Harare) their visit_start happened.
+model AnalyticsDailyHour {
+  day             DateTime @db.Date
+  hour            Int
+  visits          Int      @default(0)
+  enquiringVisits Int      @default(0)
+  whatsappTaps    Int      @default(0)
+
+  @@id([day, hour])
+}
+
+/// slow_load / load_error / action_failed events, by day of the event.
+model AnalyticsDailyHealth {
+  day    DateTime @db.Date
+  /// slow_load | load_error | action_failed
+  kind   String   @db.VarChar(16)
+  /// load_error "what" or action_failed "action"; "" for slow_load.
+  detail String   @default("") @db.VarChar(40)
+  events Int      @default(0)
+  /// Distinct visits with one.
+  visits Int      @default(0)
+
+  @@id([day, kind, detail])
+}
+
+/// Size / colour demand per piece, by day of the event. Values are the
+/// piece's own option spelling (checked at ingest).
+model AnalyticsDailyOption {
+  day             DateTime @db.Date
+  productId       Int
+  /// size | colour
+  kind            String   @db.VarChar(8)
+  value           String   @db.VarChar(32)
+  /// size_select / colour_select events.
+  selects         Int      @default(0)
+  /// whatsapp_enquire events carrying this option.
+  enquiries       Int      @default(0)
+  /// restock_request events carrying this size.
+  restockRequests Int      @default(0)
+
+  @@id([day, productId, kind, value])
+  @@index([productId, day])
 }
