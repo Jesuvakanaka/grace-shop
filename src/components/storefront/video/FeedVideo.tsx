@@ -112,6 +112,8 @@ export function FeedVideo({
       <Link
         href={href}
         onClick={onLeave}
+        // ZP-510: in the feed a tap opens the details sheet (FeedSlide captures it).
+        aria-haspopup="dialog"
         tabIndex={linkTabIndex}
         aria-label={linkLabel}
         className="sf-focus absolute inset-0 focus-visible:outline-offset-[-4px]"

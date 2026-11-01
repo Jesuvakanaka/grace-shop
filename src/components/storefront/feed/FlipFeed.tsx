@@ -26,7 +26,9 @@ import {
   writeGuideSeen,
 } from "@/lib/storefront/feed-guide";
 import {
+  customHistoryState,
   isOwnSheetEntry,
+  landingAction,
   landingSheetHistory,
   sheetCloseMethod,
   sheetCloseReason,
@@ -87,13 +89,14 @@ function localStore(): Storage | null {
 }
 
 /**
- * replaceState, never throwing (Safari rate-limits history calls). The
- * entry's state is kept (ZP-510: the details sheet's marker).
+ * replaceState, never throwing (Safari rate-limits history calls). Our part
+ * of the entry's state is kept (ZP-510: the details sheet's marker), without
+ * the Next.js keys, so Next still syncs its router (customHistoryState).
  */
 function replaceUrl(url: string) {
   try {
     if (url !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
-      window.history.replaceState(window.history.state, "", url);
+      window.history.replaceState(customHistoryState(window.history.state), "", url);
     }
   } catch {
     // Rate-limited or blocked: the URL is a convenience; the feed works without it.
@@ -156,7 +159,14 @@ export function FlipFeed({
   const searchParams = useSearchParams();
   const urlTab = resolveFeedTab(searchParams.get(FEED_TAB_PARAM), tabs);
   // ZP-510: the details sheet is open while the URL has ?d=<slug> of a loaded look.
-  const sheetSlug = sheetSlugFromSearch(searchParams.toString());
+  const urlSheetSlug = sheetSlugFromSearch(searchParams.toString());
+  /**
+   * Holds the sheet open across the landing swap (d removed, then pushed
+   * again), so a router update in between never closes and reopens it.
+   */
+  const [heldSheet, setHeldSheet] = useState<{ slug: string; params: ReturnType<typeof useSearchParams> } | null>(null);
+  if (heldSheet && searchParams !== heldSheet.params && urlSheetSlug === heldSheet.slug) setHeldSheet(null);
+  const sheetSlug = heldSheet?.slug ?? urlSheetSlug;
   const sheetItem = sheetSlug ? (items.find((p) => p.slug === sheetSlug) ?? null) : null;
   const detailsRef = useRef<HTMLDialogElement>(null);
   /** The link that opened the sheet (focus returns there). */
@@ -167,6 +177,41 @@ export function FlipFeed({
   const entryBehind = useRef(false);
   /** The slug the sheet was last shown for (open / close events). */
   const shownSheet = useRef<string | null>(null);
+  /** Read in timers (settleLanding), so always the latest render's params. */
+  const paramsRef = useRef(searchParams);
+  useEffect(() => {
+    paramsRef.current = searchParams;
+  }, [searchParams]);
+
+  /**
+   * A landing `?d=<slug>`, once it is known whether the look is loaded
+   * (landingAction): push the sheet entry over the feed (back then closes
+   * the sheet without leaving the site), keep our own entry, or drop `d` in
+   * place. Runs from a timer, after Next.js patched history.
+   */
+  const settleLanding = useCallback((slug: string, found: boolean, loadable: boolean) => {
+    const action = landingAction({ inItems: found, loadable, ownEntry: isOwnSheetEntry(window.history.state, slug) });
+    if (action === "wait") return action;
+    const { pathname, search, hash } = window.location;
+    try {
+      if (action === "keep") {
+        entryBehind.current = true;
+      } else if (action === "drop") {
+        window.history.replaceState(customHistoryState(window.history.state), "", sheetLocation(pathname, search, hash, null));
+      } else {
+        setHeldSheet({ slug, params: paramsRef.current });
+        window.history.replaceState(customHistoryState(window.history.state), "", sheetLocation(pathname, search, hash, null));
+        window.history.pushState(sheetHistoryState(slug), "", sheetLocation(pathname, search, hash, slug));
+        entryBehind.current = true;
+        // Backstop: the hold ends when the router shows d again (render check above), at the latest now.
+        setTimeout(() => setHeldSheet(null), 1500);
+      }
+    } catch {
+      // History blocked or rate-limited: no entry behind, so closing replaces the URL (never history.back()).
+      setHeldSheet(null);
+    }
+    return action;
+  }, []);
 
   const scroller = useRef<HTMLDivElement>(null);
   /** The feed column (the guide covers it). */
@@ -251,19 +296,19 @@ export function FlipFeed({
     [apply],
   );
 
-  /** Show another tab. On failure, fall back to a full page load of that tab. True when the looks arrived. */
+  /** Show another tab. On failure, fall back to a full page load of that tab. The result when the looks arrived, else null. */
   const switchTab = useCallback(
-    async (id: string, slug: string | null): Promise<boolean> => {
+    async (id: string, slug: string | null): Promise<FeedActionResult | null> => {
       const outcome = await load({ tab: id, offset: 0, through: slug }, "replace", slug);
-      if (outcome === "stale") return false;
+      if (outcome === "stale") return null;
       const url = feedLocation(window.location.pathname, window.location.search, id, slug);
       if (outcome === "failed") {
         track("action_failed", { action: "collection_switch" });
         window.location.assign(url);
-        return false;
+        return null;
       }
       replaceUrl(feedLocation(window.location.pathname, window.location.search, outcome.tab, slug));
-      return true;
+      return outcome;
     },
     [load],
   );
@@ -325,58 +370,72 @@ export function FlipFeed({
     }
     const detailsTimer = storedDetails ? setTimeout(() => setDetails(true)) : undefined;
 
-    // ZP-510: opened with ?d=<slug> (a shared link, a reload, back from the
-    // full page). Unless this is our own sheet entry, put the feed (without d)
-    // behind it, so back closes the sheet instead of leaving the site. A look
-    // that cannot be there (last page loaded, not in it) just loses the d.
-    const { pathname, search, hash } = window.location;
-    const landing = landingSheetHistory(pathname, search, hash);
-    if (landing) {
-      const reachable = initialItems.some((p) => p.slug === landing.slug) || initialNextOffset !== null || urlTab !== initialTab;
-      try {
-        if (!reachable) {
-          window.history.replaceState(window.history.state, "", landing.replace);
-        } else if (isOwnSheetEntry(window.history.state, landing.slug)) {
-          entryBehind.current = true;
-        } else {
-          window.history.replaceState(window.history.state, "", landing.replace);
-          window.history.pushState(sheetHistoryState(landing.slug), "", landing.push);
-          entryBehind.current = true;
-        }
-      } catch {
-        // History blocked or rate-limited: the sheet still opens; closing replaces the URL.
-      }
-    }
-
     // ZP-509: the first-visit guide, over the first look ("seen" in
     // localStorage; never on a #look- hash, never over the details sheet). A replay (?guide=1) is the effect below.
-    const guideTimer = isGuideReplay(window.location.search)
+    const decideGuide = () => {
+      const open =
+        initialItems.length > 0 &&
+        shouldOpenGuide({ seen: readGuideSeen(localStore()), hash: window.location.hash, replay: false });
+      setGuide(open ? "open" : "done");
+      if (open) track("guide_shown");
+    };
+
+    // ZP-510: opened with ?d=<slug> (a shared link, a reload, back from the
+    // full page). The history work runs from timers, after Next.js has patched
+    // history (its effect runs after this child effect), so our entries carry
+    // its state. See settleLanding.
+    const { search, hash } = window.location;
+    const landingSlug = landingSheetHistory(window.location.pathname, search, hash)?.slug ?? null;
+    const landingFirst = landingSlug
+      ? landingAction({
+          inItems: urlTab === initialTab && initialItems.some((p) => p.slug === landingSlug),
+          loadable: initialNextOffset !== null || urlTab !== initialTab,
+          ownEntry: false,
+        })
+      : null;
+    // The guide never covers a sheet that opens (or may open after a load); a dropped d does not count.
+    const guideTimer = isGuideReplay(search)
       ? undefined
       : setTimeout(() => {
-          const open =
-            initialItems.length > 0 &&
-            !landing &&
-            shouldOpenGuide({ seen: readGuideSeen(localStore()), hash: window.location.hash, replay: false });
-          setGuide(open ? "open" : "done");
-          if (open) track("guide_shown");
+          if (landingFirst === "push" || landingFirst === "wait") setGuide("done");
+          else decideGuide();
         });
+    const settle = (found: boolean, loadable: boolean) => {
+      if (!landingSlug) return;
+      const action = settleLanding(landingSlug, found, loadable);
+      if (action === "drop" && landingFirst === "wait" && !isGuideReplay(window.location.search)) decideGuide();
+    };
 
     // The look to start on: #look-<slug>, else the details sheet's look.
-    const slug = parseLookHash(hash) ?? landing?.slug ?? null;
+    const slug = parseLookHash(hash) ?? landingSlug;
+    const has = (result: FeedActionResult | null | "stale" | "failed") =>
+      typeof result === "object" && result !== null && landingSlug !== null && result.items.some((p) => p.slug === landingSlug);
     // Loads and state updates start from a timer, not the effect body.
     let timer: ReturnType<typeof setTimeout> | undefined;
     if (urlTab !== initialTab) {
       // Back from a product page after a tab switch: the server rendered the old tab.
-      timer = setTimeout(() => void switchTab(urlTab, slug));
+      timer = setTimeout(() => void switchTab(urlTab, slug).then((result) => settle(has(result), false)));
     } else if (slug && initialItems.some((p) => p.slug === slug)) {
       // The browser may already have scrolled to #look-<slug> before hydration
       // (no scroll event then): jump anyway and read the slide from scrollTop.
       scrollToIndex(initialItems.findIndex((p) => p.slug === slug), false);
-      timer = setTimeout(syncActive);
+      timer = setTimeout(() => {
+        syncActive();
+        // No load follows here: a landing look that is not loaded now is dropped.
+        settle(landingFirst === "push", false);
+      });
     } else if (slug && initialNextOffset !== null) {
-      timer = setTimeout(() => void load({ tab: initialTab, offset: initialItems.length, through: slug }, "append", slug));
+      timer = setTimeout(
+        () =>
+          void load({ tab: initialTab, offset: initialItems.length, through: slug }, "append", slug).then((result) =>
+            settle(landingFirst === "push" || has(result), false),
+          ),
+      );
     } else {
-      timer = setTimeout(syncActive);
+      timer = setTimeout(() => {
+        syncActive();
+        settle(landingFirst === "push", false);
+      });
     }
     return () => {
       clearTimeout(timer);
@@ -579,7 +638,7 @@ export function FlipFeed({
       if (back) window.history.back();
       else {
         const { pathname, search, hash } = window.location;
-        window.history.replaceState(window.history.state, "", sheetLocation(pathname, search, hash, null));
+        window.history.replaceState(customHistoryState(window.history.state), "", sheetLocation(pathname, search, hash, null));
       }
     } catch {
       // Ignore: the sheet is closed; the URL keeps d until the next write.
@@ -597,8 +656,8 @@ export function FlipFeed({
       pendingClose.current = null;
     }
     if (sheetShownSlug) {
-      // Opened by the forward button: the feed entry is behind it.
-      if (!entryBehind.current) entryBehind.current = true;
+      // Opened by the forward button: only our own entry (marker) has the feed entry behind it.
+      if (!entryBehind.current && isOwnSheetEntry(window.history.state, sheetShownSlug)) entryBehind.current = true;
       track("details_sheet_open", { slug: sheetShownSlug, collection: tabRef.current });
     } else {
       entryBehind.current = false;
@@ -686,6 +745,7 @@ export function FlipFeed({
               collection={tab}
               callHref={links.call}
               onOpenDetails={openDetails}
+              sheetOpen={sheetItem?.slug === item.slug}
             />
           ))}
           {nextOffset === null ? (

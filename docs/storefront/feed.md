@@ -262,7 +262,9 @@ sheet over the current look instead of navigating; the feed does not move.
   computers it is as wide as the phone-shaped column and sits at its bottom.
 - **More**: while content continues below (`sheetHasMore`, 24px slack), a
   bottom fade and a "More: store & reviews ⌄" pill (nudging chevron; still
-  with reduced motion). The pill scrolls ~70% of the visible height
+  with reduced motion). Its text names only the sections that exist
+  ("More: store", "More: reviews", else "More"; `morePillText`) and is its
+  accessible name. The pill scrolls ~70% of the visible height
   (smooth; an instant jump where a browser does not run smooth scrolling).
   Both hide at the end.
 - **Close**: drag the handle row down more than 90px (pointer events, pointer
@@ -275,15 +277,30 @@ sheet over the current look instead of navigating; the feed does not move.
   open exactly while the URL has a `d` of a loaded look, so back simply pops
   that entry. Closing from the sheet's own controls calls `history.back()`
   (the feed entry is behind it), so back / forward stay clean. A page
-  opened with `?d=<slug>` (shared link, reload) replaces its entry with the
-  feed without `d` and pushes the sheet entry, so back closes the sheet
-  instead of leaving the site; when it is our own entry (back from the full
-  page) nothing is added. It scrolls to (and if needed loads through) that
-  look first, and the first-visit guide does not open over it. A `d` for a
-  piece that cannot be in the feed is dropped.
+  opened with `?d=<slug>` (shared link, reload) scrolls to (and if needed
+  loads through) that look; once the look is loaded it replaces its entry
+  with the feed without `d` and pushes the sheet entry (`landingAction`), so
+  back closes the sheet instead of leaving the site; when it is our own entry
+  (back from the full page) nothing is added. This history work runs from a
+  timer, after Next.js has patched `history` (its effect runs after the
+  feed's), so the entries carry Next's state and forward / back never
+  reload. A `d` for a piece that is not in the feed (unknown, unpublished,
+  beyond the load) is removed in place and nothing is pushed; the
+  first-visit guide is held back only while the sheet opens or may open.
+  If the push fails, closing replaces the URL (never `history.back()`).
+  `replaceState` calls pass only our part of the entry state
+  (`customHistoryState`): a state carrying Next's `__NA` makes Next skip its
+  router sync.
+- **Video**: the look's playing video pauses while its sheet is open and
+  resumes when it closes.
+- **Short screens** (height ≤ 700px, e.g. 360×580): the rail tightens
+  (44px rings, smaller gaps, no text under Call and the eye; their
+  aria-labels stay), so it stays below the photo arrows.
 - **Semantics**: a native `<dialog>` with `showModal` (the feed behind is
   inert), labelled by the name heading, which takes the focus on open; ✕ is
-  "Close details"; Details and the caption have `aria-haspopup="dialog"`.
+  "Close details"; Details, the caption, the photo and video links have
+  `aria-haspopup="dialog"`. The handle drag reacts to the primary button /
+  touch / pen only.
 - **Data**: the slide's `FeedItem` fields show at once; the rest
   (description, colours / sizes, ref, availability, the WhatsApp settings,
   top 2 reviews with summary and shop rating, store visit) is the public

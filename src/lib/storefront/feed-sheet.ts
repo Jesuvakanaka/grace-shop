@@ -90,6 +90,31 @@ export function isOwnSheetEntry(state: unknown, slug: string): boolean {
   return typeof state === 'object' && state !== null && (state as { vyraSheet?: unknown }).vyraSheet === slug
 }
 
+const NEXT_STATE_KEYS = new Set(['__NA', '_N', '__PRIVATE_NEXTJS_INTERNALS_TREE'])
+
+/**
+ * Our part of a history entry's state (Next.js keys removed), or null. Pass
+ * this, never `history.state` itself, to replaceState: Next.js skips its
+ * router sync for a state carrying `__NA` (then useSearchParams misses the
+ * change and a later router write can drop it). Next copies its keys back.
+ */
+export function customHistoryState(state: unknown): Record<string, unknown> | null {
+  if (typeof state !== 'object' || state === null) return null
+  const own = Object.fromEntries(Object.entries(state).filter(([k]) => !NEXT_STATE_KEYS.has(k)))
+  return Object.keys(own).length > 0 ? own : null
+}
+
+/**
+ * What to do with a landing `?d=<slug>`: "push" the sheet entry over the
+ * feed (the look is loaded), "keep" (our own entry, the feed is already
+ * behind it), "wait" (the look may arrive with a load through it), or
+ * "drop" `d` in place (it cannot be in the feed: unknown, unpublished, too far).
+ */
+export function landingAction(input: { inItems: boolean; loadable: boolean; ownEntry: boolean }): 'push' | 'keep' | 'wait' | 'drop' {
+  if (input.inItems) return input.ownEntry ? 'keep' : 'push'
+  return input.loadable ? 'wait' : 'drop'
+}
+
 /**
  * How a close from the sheet's own controls leaves the URL: "back" (the
  * pushed sheet entry is popped, so back / forward stay clean) when the feed
@@ -130,6 +155,12 @@ export function sheetDragCloses(offset: number): boolean {
 /** Content continues below the inner scroll (show the bottom fade and the "More" pill). */
 export function sheetHasMore(el: { scrollTop: number; clientHeight: number; scrollHeight: number }): boolean {
   return el.scrollTop + el.clientHeight < el.scrollHeight - SHEET_MORE_SLACK_PX
+}
+
+/** The "More" pill's text (also its accessible name): only the sections below that exist. */
+export function morePillText(sections: { store: boolean; reviews: boolean }): string {
+  const parts = [sections.store ? 'store' : null, sections.reviews ? 'reviews' : null].filter(Boolean)
+  return parts.length > 0 ? `More: ${parts.join(' & ')}` : 'More'
 }
 
 export function sheetScrollStep(clientHeight: number): number {

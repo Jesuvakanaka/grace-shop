@@ -25,8 +25,18 @@ const badgeTone: Record<FeedBadge["kind"], string> = {
 };
 
 // The rail: round controls with a small label under them.
-const railItem = "sf-focus flex flex-col items-center gap-1.5 rounded-[2px] text-brand-cream-50";
-const railRing = "flex h-[50px] w-[50px] items-center justify-center rounded-full";
+// ZP-510: short screens (height <= 700px, e.g. 360×580) get a tighter rail
+// (smaller rings and gaps; Call and the eye without their text, the
+// aria-labels stay), so six controls stay below the top bar and photo arrows.
+const railItem =
+  "sf-focus flex flex-col items-center gap-1.5 rounded-[2px] text-brand-cream-50 [@media(max-height:700px)]:gap-1";
+const railRing =
+  "flex h-[50px] w-[50px] items-center justify-center rounded-full [@media(max-height:700px)]:h-11 [@media(max-height:700px)]:w-11";
+/** The smaller round controls (Call, the eye). */
+const railSmall =
+  "flex h-11 w-11 items-center justify-center rounded-full [@media(max-height:700px)]:h-10 [@media(max-height:700px)]:w-10";
+/** Text under Call and the eye: hidden on short screens. */
+const railLabelOptional = "[@media(max-height:700px)]:hidden";
 const railQuiet = "border border-brand-cream-50/25 bg-[rgba(20,20,18,0.45)]";
 const railLabel = "text-[11px] font-medium tracking-[0.06em] [text-shadow:0_1px_3px_rgba(0,0,0,0.6)]";
 
@@ -70,6 +80,8 @@ type FeedSlideProps = {
    * focus back when it closes. Other clicks (new tab) keep the link.
    */
   onOpenDetails: (slug: string, opener: HTMLElement) => void;
+  /** ZP-510: this look's details sheet is open (its playing video pauses until it closes). */
+  sheetOpen: boolean;
 };
 
 /**
@@ -99,6 +111,7 @@ export function FeedSlide({
   collection,
   callHref,
   onOpenDetails,
+  sheetOpen,
 }: FeedSlideProps) {
   const strip = useRef<HTMLDivElement>(null);
   const [photo, setPhoto] = useState(0);
@@ -141,6 +154,18 @@ export function FeedSlide({
   const leave = () => onLeave(item.slug);
   const nav = photoNav(photo, count);
   const rail = railItems({ details, enquire: item.enquireHref !== null, share: item.shareUrl !== null, call: callHref !== null });
+
+  // ZP-510: while the details sheet is open over this look, its playing video
+  // pauses; it resumes when the sheet closes (if it was playing).
+  useEffect(() => {
+    if (!sheetOpen) return;
+    const video = article.current?.querySelector("video");
+    if (!video || video.paused) return;
+    video.pause();
+    return () => {
+      if (video.isConnected) void video.play().catch(() => {});
+    };
+  }, [sheetOpen]);
 
   // ZP-510: every product-page link of this look (the photos, the video, the
   // caption, Details) opens the details sheet on a plain tap. Captured here,
@@ -233,6 +258,7 @@ export function FeedSlide({
               key={`${image.src}-${entryItem.imageIndex}`}
               href={item.href}
               onClick={leave}
+              aria-haspopup="dialog"
               tabIndex={entry ? 0 : -1}
               aria-label={
                 entry
@@ -349,7 +375,7 @@ export function FeedSlide({
       {/* The rail, top to bottom (railItems): [Share, Details: with details only], WhatsApp
           (Enquire / Restock, or Visit us), the heart, the eye. The WhatsApp button, the heart and
           the eye float in clean view too; the eye stays at the bottom and never moves. */}
-      <div className={cn("absolute right-3 flex flex-col items-center gap-3.5", railBottom)}>
+      <div className={cn("absolute right-3 flex flex-col items-center gap-3.5 [@media(max-height:700px)]:gap-2", railBottom)}>
         {rail.map((kind) => {
           switch (kind) {
             case "share":
@@ -408,10 +434,10 @@ export function FeedSlide({
                   className={railItem}
                   aria-label="Call VYRA"
                 >
-                  <span className={cn("flex h-11 w-11 items-center justify-center rounded-full", railQuiet)}>
+                  <span className={cn(railSmall, railQuiet)}>
                     <PhoneIcon className="h-5 w-5" />
                   </span>
-                  <span className={railLabel}>Call</span>
+                  <span className={cn(railLabel, railLabelOptional)}>Call</span>
                 </a>
               );
             case "visit":
@@ -424,7 +450,16 @@ export function FeedSlide({
                 </Link>
               );
             case "love":
-              return <LoveButton key={kind} slug={slug} name={item.name} loves={item.loves} variant="rail" />;
+              return (
+                <LoveButton
+                  key={kind}
+                  slug={slug}
+                  name={item.name}
+                  loves={item.loves}
+                  variant="rail"
+                  className="[@media(max-height:700px)]:gap-1"
+                />
+              );
             case "eye":
               return (
                 <button
@@ -437,10 +472,10 @@ export function FeedSlide({
                   className={railItem}
                 >
                   {/* data-feed-eye: the first-visit guide rings this button (FeedGuide). */}
-                  <span data-feed-eye="" className={cn("flex h-11 w-11 items-center justify-center rounded-full", railQuiet)}>
+                  <span data-feed-eye="" className={cn(railSmall, railQuiet)}>
                     <EyeIcon className="h-5 w-5" />
                   </span>
-                  <span className={railLabel}>{details ? "Hide" : "Show details"}</span>
+                  <span className={cn(railLabel, railLabelOptional)}>{details ? "Hide" : "Show details"}</span>
                 </button>
               );
           }

@@ -10,9 +10,12 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert'
 import {
   buildSheetExtras,
+  customHistoryState,
   isOwnSheetEntry,
   isPlainClick,
+  landingAction,
   landingSheetHistory,
+  morePillText,
   sheetHistoryState,
   SHEET_CLOSE_REASONS,
   SHEET_DRAG_CLOSE_PX,
@@ -120,6 +123,21 @@ describe('sheet URL (?d=<slug>)', () => {
     assert.strictEqual(isOwnSheetEntry('x', 'linen-dress'), false)
   })
 
+  test('customHistoryState: our part of an entry state, without the Next.js keys (else Next skips its router sync)', () => {
+    assert.deepStrictEqual(customHistoryState({ __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: {}, vyraSheet: 'a' }), { vyraSheet: 'a' })
+    assert.strictEqual(customHistoryState({ __NA: true, _N: true, __PRIVATE_NEXTJS_INTERNALS_TREE: {} }), null)
+    assert.strictEqual(customHistoryState(null), null)
+    assert.strictEqual(customHistoryState('x'), null)
+  })
+
+  test('landingAction: push only for a loaded look; wait while it may still load; otherwise drop d', () => {
+    assert.strictEqual(landingAction({ inItems: true, loadable: false, ownEntry: false }), 'push')
+    assert.strictEqual(landingAction({ inItems: true, loadable: true, ownEntry: true }), 'keep')
+    assert.strictEqual(landingAction({ inItems: false, loadable: true, ownEntry: false }), 'wait')
+    assert.strictEqual(landingAction({ inItems: false, loadable: false, ownEntry: false }), 'drop')
+    assert.strictEqual(landingAction({ inItems: false, loadable: false, ownEntry: true }), 'drop')
+  })
+
   test('closing goes back through history when there is a feed entry behind, else replaces', () => {
     assert.strictEqual(sheetCloseMethod(true), 'back')
     assert.strictEqual(sheetCloseMethod(false), 'replace')
@@ -157,6 +175,13 @@ describe('sheet mechanics', () => {
     assert.strictEqual(sheetHasMore({ scrollTop: 580, clientHeight: 300, scrollHeight: 900 }), false)
     assert.strictEqual(sheetHasMore({ scrollTop: 575, clientHeight: 300, scrollHeight: 900 }), true)
     assert.strictEqual(sheetHasMore({ scrollTop: 0, clientHeight: 300, scrollHeight: 310 }), false)
+  })
+
+  test('"More" pill text names only the sections that exist', () => {
+    assert.strictEqual(morePillText({ store: true, reviews: true }), 'More: store & reviews')
+    assert.strictEqual(morePillText({ store: true, reviews: false }), 'More: store')
+    assert.strictEqual(morePillText({ store: false, reviews: true }), 'More: reviews')
+    assert.strictEqual(morePillText({ store: false, reviews: false }), 'More')
   })
 
   test('the pill scrolls about 70% of the visible height', () => {

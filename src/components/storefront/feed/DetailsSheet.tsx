@@ -21,6 +21,7 @@ import {
   sheetDragOffset,
   sheetHasMore,
   sheetMaxHeight,
+  morePillText,
   sheetModel,
   sheetScrollStep,
   type SheetCloseReason,
@@ -65,7 +66,12 @@ const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)"
 
 type Loaded = { slug: string; extras: SheetExtras | null; failed: boolean };
 
-/** One request per slug per page load (the server reads only cached public data). */
+/**
+ * One request per slug while this JavaScript bundle lives (module scope: it
+ * survives client-side navigations and is cleared by a full page load; a
+ * failed request is removed so the next open tries again). The server reads
+ * only cached public data, which is at most a minute old anyway.
+ */
 const extrasCache = new Map<string, Promise<SheetExtras | null>>();
 
 function fetchExtras(slug: string): Promise<SheetExtras | null> {
@@ -190,7 +196,8 @@ export function DetailsSheet({ dialogRef, item, collection, links, onRequestClos
 
   // Drag the handle row down to close (touch-action: none there; buttons keep their clicks).
   const onHandleDown = (event: PointerEvent<HTMLDivElement>) => {
-    if ((event.target as Element).closest("button, a")) return;
+    // Primary button / touch / pen only; buttons and links in the row keep their clicks.
+    if (event.button !== 0 || (event.target as Element).closest("button, a")) return;
     dragStart.current = event.clientY;
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -517,10 +524,10 @@ function SheetLayout({
             <button
               type="button"
               onClick={scrollDown}
-              aria-label="Scroll down for store details and reviews"
               className="sf-focus absolute bottom-2 left-1/2 inline-flex min-h-9 -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-brand-ink/20! bg-brand-cream-50 px-3.5 text-[11px] font-medium uppercase tracking-[0.14em] text-brand-olive-700 shadow-[0_2px_10px_rgba(0,0,0,0.08)]"
             >
-              More: store &amp; reviews
+              {/* The visible text is the accessible name; only the sections that exist. */}
+              {morePillText({ store: visit !== null, reviews: model.showReviews && extras !== null })}
               <ChevronIcon direction="down" className="vy-sheet-nudge h-4 w-4" />
             </button>
           </>
