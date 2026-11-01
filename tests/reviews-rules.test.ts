@@ -223,13 +223,13 @@ describe('aggregates', () => {
     assert.deepStrictEqual(summarizeStars([4]), { average: 4, count: 1 })
     assert.strictEqual(summarizeStars([]), null)
   })
-  test('shop rating: shop stars of piece reviews plus stars of shop-only reviews', () => {
+  test('shop rating: one rating per approved review, its shop stars if given, else its stars', () => {
     const stars = shopRatingStars([
-      { shopOnly: false, stars: 2, shopStars: 5 },
-      { shopOnly: false, stars: 3, shopStars: null },
-      { shopOnly: true, stars: 4, shopStars: null },
+      { stars: 2, shopStars: 5 }, // piece review with shop stars: the shop stars
+      { stars: 3, shopStars: null }, // piece review without: the piece stars
+      { stars: 4, shopStars: null }, // shop-only review: its stars
     ])
-    assert.deepStrictEqual(stars.sort(), [4, 5])
+    assert.deepStrictEqual(stars, [5, 3, 4])
   })
   test('wording, never "0 reviews"', () => {
     const s = { average: 4.8, count: 12 }
@@ -334,21 +334,21 @@ describe('reviews index (approved only, public products only)', () => {
     assert.deepStrictEqual(index.products.velvet.summary, { average: 4.5, count: 2 })
     assert.strictEqual(index.products.velvet.reviews.length, 2)
     assert.strictEqual(index.products.lime, undefined)
-    // shop: 5 (shopStars of #1) + 3 (shop-only #4); #2 gave no shop stars; pending/hidden ignored
-    assert.deepStrictEqual(index.shop, { average: 4, count: 2 })
+    // shop: 5 (shopStars of #1) + 4 (piece stars of #2, no shop stars) + 3 (shop-only #4); pending/hidden ignored
+    assert.deepStrictEqual(index.shop, { average: 4, count: 3 })
   })
   test('owner decision: unpublished or deleted pieces still count towards the shop rating, but are not listed', () => {
     const index = buildReviewsIndex([
       ...rows,
-      // Unpublished piece: shop stars 1 count; the piece is not listed.
+      // Unpublished piece: its shop stars (1) count; the piece is not listed.
       { ...baseRow, id: 6, productId: 3, stars: 2, shopStars: 1, product: { slug: 'draft', name: 'Draft', isPublic: false } },
-      // Deleted piece (productId SET NULL, not shop-only): shop stars 2 count; its piece stars (5) never do.
+      // Deleted piece (productId SET NULL, not shop-only): its shop stars (2) count (one rating per review).
       { ...baseRow, id: 7, productId: null, stars: 5, shopStars: 2, product: null },
     ])
     assert.strictEqual(index.products.draft, undefined)
     assert.deepStrictEqual(Object.keys(index.products), ['velvet'])
-    // shop: 5 + 3 + 1 + 2 = 11 / 4
-    assert.deepStrictEqual(index.shop, { average: 2.8, count: 4 })
+    // shop: 5 + 4 + 3 + 1 + 2 = 15 / 5 ("5 verified customers")
+    assert.deepStrictEqual(index.shop, { average: 3, count: 5 })
   })
   test('no approved reviews: no summaries at all', () => {
     const index = buildReviewsIndex(rows.filter((r) => r.status !== 'APPROVED'))

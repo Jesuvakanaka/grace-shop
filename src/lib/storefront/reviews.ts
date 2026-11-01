@@ -4,7 +4,8 @@
 // `storefront:reviews`): every APPROVED review, turned into allow-listed DTOs
 // (./dto toPublicReview) and aggregates.
 // - Piece lists and piece ratings: only for pieces that are public now.
-// - The shop rating (owner decision): ALL approved shop stars, whether the
+// - The shop rating (spec + owner decision): one rating per approved review
+//   (shop stars if given, else its stars), whether the
 //   piece is still published or even still exists (Review.productId is SET
 //   NULL when a product is deleted; shopOnly tells the two apart).
 // The admin's approve / hide / unpublish / reply / delete expire the tag.

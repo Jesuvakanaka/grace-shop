@@ -16,18 +16,15 @@ export function summarizeStars(stars: readonly number[]): RatingSummary | null {
 }
 
 /**
- * The stars that make up the SHOP rating: the stars of shop-only reviews,
- * plus the optional shop stars of piece reviews. Owner decision: ALL approved
- * reviews count, whether or not the piece is still published (or exists).
- * Pass approved reviews only.
+ * The stars that make up the SHOP rating (ZP-508 spec + owner decision):
+ * exactly ONE rating per approved review, its shop stars when given,
+ * otherwise its stars (a piece review's piece stars; a shop-only review's
+ * stars are the shop rating). Every approved review counts, whether or not
+ * the piece is still published or still exists, so "N verified customers" is
+ * the number of approved reviews. Pass approved reviews only.
  */
-export function shopRatingStars(reviews: readonly { shopOnly: boolean; stars: number; shopStars: number | null }[]): number[] {
-  const out: number[] = []
-  for (const r of reviews) {
-    if (r.shopOnly) out.push(r.stars)
-    else if (r.shopStars !== null) out.push(r.shopStars)
-  }
-  return out
+export function shopRatingStars(reviews: readonly { stars: number; shopStars: number | null }[]): number[] {
+  return reviews.map((r) => r.shopStars ?? r.stars)
 }
 
 const one = (n: number) => n.toFixed(1)

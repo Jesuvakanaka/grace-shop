@@ -67,10 +67,13 @@ Such a review is no longer shown on a product page but keeps counting towards
 the shop rating; an unused piece link for a deleted product stops working
 ("invalid").
 
-**Shop rating** (owner decision) = the `stars` of ALL approved shop-only
-reviews plus the `shopStars` of ALL approved piece reviews, whether the piece
-is still published or even still exists; "N verified customers" is the number
-of those. Piece lists and piece ratings only show for pieces that are public now.
+**Shop rating** (ZP-508 spec, owner decision) = the average of ONE rating per
+approved review: its `shopStars` when the customer gave them, otherwise its
+`stars` (piece stars for a piece review; a shop-only review's stars are the
+shop rating). Every approved review counts, whether the piece is still
+published or even still exists, so "N verified customers" is the number of
+approved reviews. Piece lists and piece ratings only show for pieces that are
+public now.
 
 Migration: `prisma/migrations/20261104090000_reviews` (also adds
 `SiteSettings.googleReviewUrl`).
