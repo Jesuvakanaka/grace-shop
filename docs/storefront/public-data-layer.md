@@ -70,7 +70,7 @@ at any depth, matches
 
 | Function | Returns |
 | --- | --- |
-| `listPublishedProducts({ categorySlug?, newOnly?, featuredOnly?, hideSoldOut?, sort?, page?, pageSize?, includeItemNumber? })` | `{ items, total, page, pageSize, pageCount }` |
+| `listPublishedProducts({ categorySlug?, newOnly?, featuredOnly?, hideSoldOut?, sort?, page?, pageSize?, includeItemNumber? })` | `{ items, total, page, pageSize, pageCount, allPriced }` (`allPriced`: every matching product on every page shows a public price; ZP-489) |
 | `getPublishedProductBySlug(slug, { includeItemNumber? })` | `{ product }`, or `{ redirectTo: <current slug> }` for an old slug (`ProductSlugRedirect`) of a public product, or `null` |
 | `listRelatedProducts(slug, limit = 4)` | Products from the same category first, then the rest of the catalogue, in the default order. It never includes the product itself or sold-out products. At most 12. |
 | `listPublishedCategories()` | Published categories by `sortOrder`, then name |

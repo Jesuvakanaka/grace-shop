@@ -60,6 +60,8 @@ export type PublicProductPage = {
   page: number
   pageSize: number
   pageCount: number
+  /** Every matching product (on all pages) shows a public price. ZP-489 offers price sorts only then. */
+  allPriced: boolean
 }
 
 export type PublishedProductResult = { product: PublicProduct } | { redirectTo: string } | null
@@ -85,6 +87,7 @@ export function selectProducts(catalogue: PublicCatalogue, options: CatalogueLis
     page,
     pageSize,
     pageCount: Math.ceil(sorted.length / pageSize),
+    allPriced: sorted.every((e) => e.product.priceUsd !== null),
   }
 }
 
