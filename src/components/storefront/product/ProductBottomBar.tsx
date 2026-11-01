@@ -6,7 +6,7 @@
 // button is "Visit us". Render it as the last child of the product <article>:
 // it stays pinned while the article is on screen and never covers the footer.
 import Link from "next/link";
-import { WhatsAppIcon } from "../icons";
+import { WhatsAppLogoIcon } from "../icons";
 import { useEnquiry } from "./ProductEnquiry";
 
 const primary =
@@ -26,7 +26,7 @@ export function ProductBottomBar({ tel, visitHref }: { tel: string | null; visit
     <div className="sticky bottom-0 z-30 flex gap-2.5 border-t border-brand-ink/10! bg-brand-cream-50 px-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] pt-3 lg:hidden">
       {href ? (
         <a href={href} className={primary} data-track="enquire">
-          <WhatsAppIcon className="h-5 w-5 shrink-0" />
+          <WhatsAppLogoIcon className="h-5 w-5 shrink-0" />
           {label}
         </a>
       ) : (

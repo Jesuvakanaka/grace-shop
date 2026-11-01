@@ -18,6 +18,9 @@ pure model and tests stay).
 | `src/components/storefront/feed/FlipFeed.tsx` | Client: the feed, top bar, collection pill, clean view, keyboard, end slide, URL state, menu. |
 | `src/components/storefront/feed/FeedSlide.tsx` | Client: one look (photos, progress bars, "Show details" eye, caption, rail). |
 | `src/components/storefront/feed/CollectionSheet.tsx` | Client: the collections bottom sheet. |
+| `src/lib/storefront/feed-sheet.ts` | Pure (ZP-510): details sheet URL / history rules (`?d=`), height, drag, "More" pill, extras DTO, content model. Tested in `tests/storefront-feed-sheet.test.ts`. |
+| `src/lib/storefront/feed-sheet-data.ts`, `feed-sheet-actions.ts` | Server (ZP-510): the sheet's extras for one piece, and the server action that returns them. |
+| `src/components/storefront/feed/DetailsSheet.tsx` | Client (ZP-510): the details bottom sheet. |
 | `src/components/storefront/feed/StorefrontFrame.tsx` | Layout flag: no header/footer on the landing page. |
 | `src/lib/storefront/feed-guide.ts` | Pure (ZP-509): guide "seen" storage, when it opens, `?guide=1`, steps and copy, ring position. Tested in `tests/storefront-feed-guide.test.ts`. |
 | `src/components/storefront/feed/FeedGuide.tsx` | Client (ZP-509): the first-visit guide dialog. |
@@ -166,8 +169,8 @@ once with a React `<style href precedence>`):
 ### Clean view and "Show details"
 
 - The feed opens on the clothes: no caption, no bottom scrim, and a short
-  rail (owner, after the Samsung test): the WhatsApp button (Enquire / Restock,
-  or Visit us), the heart and the eye. The eye at the bottom right reads
+  rail (owner, after the Samsung test): the WhatsApp button (WhatsApp / Restock,
+  or Visit us), Call (ZP-510, when a phone is set), the heart and the eye. The eye at the bottom right reads
   **Show details**. Its accessible
   name is always "Show details" and `aria-pressed` gives the state.
   Tapping it shows the caption, Share and Details on every slide; the visible text
@@ -207,7 +210,91 @@ once with a React `<style href precedence>`):
   (Web Share API, else copy link; hidden when there is no absolute URL).
   **Details**.
 - The photos, the caption and Details are real `<a href>` links to
-  `/p/<slug>` (via `sitePath`).
+  `/p/<slug>` (via `sitePath`). ZP-510: a plain tap on any of them opens the
+  details sheet instead (below); a middle / modifier click still opens the
+  full page in a new tab, and without JavaScript the links work as before.
+
+### Rail: WhatsApp and Call (ZP-510, owner-approved)
+
+- The rail on **every** look, clean view too, top to bottom (`railItems`):
+  [Share, Details: with details only], **WhatsApp**, **Call**, the heart, the eye.
+- WhatsApp: the official WhatsApp logo (`WhatsAppLogoIcon`, Simple Icons
+  "whatsapp" path, CC0) in white on a 50px #25D366 circle with a subtle
+  shadow, labelled **WhatsApp** (**Restock** for sold-out pieces,
+  `railWhatsAppLabel`). No WhatsApp number set: **Visit us** as before.
+- Call: a round phone button labelled **Call** (accessible name "Call VYRA"),
+  a real `<a href="tel:+…">` from the site settings phone (`telHref`:
+  formatting stripped; a leading `+` or the international `00` gives
+  E.164 `+<digits>`). Hidden when no phone is set. Tracks `call`
+  (`screen: feed`).
+- Every "Enquire on WhatsApp" / "Ask about restock" / "Chat on WhatsApp"
+  text button (sheet footer, product page bar and inline button, menu) keeps
+  the VYRA olive background and uses the white WhatsApp logo as its icon.
+- **WhatsApp links open the app on phones**: they stay
+  `https://wa.me/<digits>?text=…` (Android app links / iOS universal links
+  hand them to the installed app; without it, WhatsApp's web / install page).
+  They are plain anchors: no `target="_blank"` (on some Android browsers it
+  forces the in-browser page instead of the app) and no `window.open`.
+
+## Details sheet (ZP-510)
+
+Tapping **Details** (rail), the **caption** or the **photo** opens a bottom
+sheet over the current look instead of navigating; the feed does not move.
+
+- **Content** (details only, no photos): collection label, serif name, price
+  or "Ask for price", tag; star summary + review count ("4.7 · 3 reviews") and
+  the heart pill ("Love it" / "Loved by N"); colour and size chips (the same
+  `ProductEnquiryProvider` / `ProductOptions` as the product page, so the
+  chosen size goes into the WhatsApp message, with the public ref);
+  description; "Try it on in store" (`StoreVisitRow`: today's hours, the week,
+  address, directions; every missing part hidden, never "TBC"); the first 2
+  approved reviews (no review photos), "See all N reviews" (to the full
+  page's `#reviews`, only when there are more) and the VYRA shop rating;
+  a small **View full page** link (`/p/<slug>`, unchanged for shared links
+  and Google).
+- **Pinned footer**: **Enquire on WhatsApp** (or **Ask about restock** with
+  the restock message for sold-out pieces; **Visit us** without a WhatsApp
+  number), **Call** (when a phone is set), **Share** (when there is a share URL).
+- **Height**: at most 62% of the visible viewport (CSS `62dvh`, `62vh`
+  fallback, and from JS `visualViewport.height × 0.62`, again on resize,
+  `sheetMaxHeight`), so the top of the look stays visible; inner scroll;
+  light backdrop (18% ink); safe-area bottom padding on the footer. On
+  computers it is as wide as the phone-shaped column and sits at its bottom.
+- **More**: while content continues below (`sheetHasMore`, 24px slack), a
+  bottom fade and a "More: store & reviews ⌄" pill (nudging chevron; still
+  with reduced motion). The pill scrolls ~70% of the visible height
+  (smooth; an instant jump where a browser does not run smooth scrolling).
+  Both hide at the end.
+- **Close**: drag the handle row down more than 90px (pointer events, pointer
+  capture, `touch-action: none` on the handle; less snaps back), a tap on
+  the backdrop (pointerdown and click both on it), ✕, Escape (the dialog's
+  `cancel` is taken over), and the browser / Android back button. Focus
+  returns to the link that opened it (else the feed).
+- **URL and history**: opening pushes `?d=<slug>` (other parameters and the
+  `#look-` hash kept; history state `{ vyraSheet: slug }`). The sheet is
+  open exactly while the URL has a `d` of a loaded look, so back simply pops
+  that entry. Closing from the sheet's own controls calls `history.back()`
+  (the feed entry is behind it), so back / forward stay clean. A page
+  opened with `?d=<slug>` (shared link, reload) replaces its entry with the
+  feed without `d` and pushes the sheet entry, so back closes the sheet
+  instead of leaving the site; when it is our own entry (back from the full
+  page) nothing is added. It scrolls to (and if needed loads through) that
+  look first, and the first-visit guide does not open over it. A `d` for a
+  piece that cannot be in the feed is dropped.
+- **Semantics**: a native `<dialog>` with `showModal` (the feed behind is
+  inert), labelled by the name heading, which takes the focus on open; ✕ is
+  "Close details"; Details and the caption have `aria-haspopup="dialog"`.
+- **Data**: the slide's `FeedItem` fields show at once; the rest
+  (description, colours / sizes, ref, availability, the WhatsApp settings,
+  top 2 reviews with summary and shop rating, store visit) is the public
+  `SheetExtras` DTO from the server action `loadSheetExtrasAction`, fetched
+  once per slug per page load (client cache; a failure retries on the next
+  open and sends `action_failed` `details_sheet`). The action checks the
+  slug and only reads the cached catalogue, reviews index and site
+  settings: never the item number, stock, the phone number or review photos.
+- **Analytics**: `details_sheet_open` / `details_sheet_close` (`reason`),
+  see `docs/storefront/analytics.md`; the rollup counts a sheet open as a
+  product open for the funnel and per piece.
 
 ## End slide
 

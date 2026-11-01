@@ -76,7 +76,7 @@ describe('event catalogue', () => {
       'feed_load_more', 'feed_end_reached', 'product_open', 'size_select', 'colour_select', 'whatsapp_enquire',
       'restock_request', 'call', 'share', 'directions', 'visit_us', 'gallery_zoom', 'guide_shown', 'guide_step',
       'guide_skipped', 'guide_completed', 'guide_replayed', 'love_on', 'love_off', 'load_error', 'slow_load',
-      'action_failed',
+      'action_failed', 'details_sheet_open', 'details_sheet_close',
     ]
     assert.deepStrictEqual([...ANALYTICS_EVENT_TYPES].sort(), [...expected].sort())
     for (const t of expected) assert.ok(EVENT_SPECS[t as keyof typeof EVENT_SPECS], t)
@@ -168,6 +168,8 @@ describe('validateBatch: accepted', () => {
       guide_replayed: [{}],
       love_on: [{}, { slug: 'a' }],
       love_off: [{}, { slug: 'a' }],
+      details_sheet_open: [{}, { slug: 'a' }],
+      details_sheet_close: [{ reason: 'swipe' }, { slug: 'a' }],
       load_error: [{ what: 'image' }],
       slow_load: [{ lcp: 5200 }],
       action_failed: [{ action: 'feed_load' }],
@@ -447,5 +449,25 @@ describe('storefront host', () => {
       action: 'next',
       noindex: false,
     })
+  })
+})
+
+// ZP-510: the feed's details bottom sheet.
+describe('details_sheet_open / details_sheet_close', () => {
+  test('open needs the slug and takes no props', () => {
+    assert.notStrictEqual(typeof validateEvent(ev('details_sheet_open', {}, { slug: 'linen-dress', collection: 'new' }), NOW), 'string')
+    badEvent(ev('details_sheet_open', {}), /slug/)
+    badEvent(ev('details_sheet_open', { reason: 'swipe' }, { slug: 'a' }), /reason/)
+  })
+
+  test('close needs the slug and one of the five reasons', () => {
+    for (const reason of ['swipe', 'backdrop', 'button', 'back', 'escape']) {
+      const r = validateEvent(ev('details_sheet_close', { reason }, { slug: 'linen-dress' }), NOW)
+      assert.notStrictEqual(typeof r, 'string', `${reason}: ${r}`)
+    }
+    badEvent(ev('details_sheet_close', { reason: 'swipe' }), /slug/)
+    badEvent(ev('details_sheet_close', {}, { slug: 'a' }), /reason/)
+    badEvent(ev('details_sheet_close', { reason: 'link' }, { slug: 'a' }), /reason/)
+    badEvent(ev('details_sheet_close', { reason: 'swipe', seconds: 3 }, { slug: 'a' }), /seconds/)
   })
 })

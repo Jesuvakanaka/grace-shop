@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { track, useActiveDwell, useDwell } from "@/lib/analytics/client";
-import { lookAnchorId, photoLinkLabel, photoNav, railItems, type FeedBadge, type FeedItem } from "@/lib/storefront/feed";
+import { lookAnchorId, photoLinkLabel, photoNav, railItems, railWhatsAppLabel, type FeedBadge, type FeedItem } from "@/lib/storefront/feed";
+import { isPlainClick } from "@/lib/storefront/feed-sheet";
 import { mediaItems } from "@/lib/storefront/feed-media";
 import { enquiryEvent, photoProps } from "@/lib/storefront/tracking";
 import { cn } from "../cn";
@@ -11,7 +12,8 @@ import { LoveButton } from "../loves/LoveButton";
 import { useShare } from "../product/useShare";
 import { ImageFallback, StorefrontImg } from "../StorefrontImage";
 import { FeedVideo } from "../video/FeedVideo";
-import { ChevronIcon, DetailsIcon, EnquireIcon, EyeIcon, PinIcon, ShareIcon } from "./feed-icons";
+import { PhoneIcon, WhatsAppLogoIcon } from "../icons";
+import { ChevronIcon, DetailsIcon, EyeIcon, PinIcon, ShareIcon } from "./feed-icons";
 
 /** Phones: the full width; computers: the phone-shaped column (about 9/16 of the viewport height). */
 const SLIDE_SIZES = "(min-width: 768px) 57vh, 100vw";
@@ -60,6 +62,14 @@ type FeedSlideProps = {
   onLeave: (slug: string) => void;
   /** ZP-493: the feed tab ("new" or a category slug), sent with this look's events. */
   collection: string;
+  /** ZP-510: tel: link of the shop's phone (Call on the rail), or null (hidden). */
+  callHref: string | null;
+  /**
+   * ZP-510: a plain tap on any link to this look's product page (photo,
+   * caption, Details) opens the details sheet instead; `opener` gets the
+   * focus back when it closes. Other clicks (new tab) keep the link.
+   */
+  onOpenDetails: (slug: string, opener: HTMLElement) => void;
 };
 
 /**
@@ -87,6 +97,8 @@ export function FeedSlide({
   visitHref,
   onLeave,
   collection,
+  callHref,
+  onOpenDetails,
 }: FeedSlideProps) {
   const strip = useRef<HTMLDivElement>(null);
   const [photo, setPhoto] = useState(0);
@@ -128,7 +140,19 @@ export function FeedSlide({
   };
   const leave = () => onLeave(item.slug);
   const nav = photoNav(photo, count);
-  const rail = railItems({ details, enquire: item.enquireHref !== null, share: item.shareUrl !== null });
+  const rail = railItems({ details, enquire: item.enquireHref !== null, share: item.shareUrl !== null, call: callHref !== null });
+
+  // ZP-510: every product-page link of this look (the photos, the video, the
+  // caption, Details) opens the details sheet on a plain tap. Captured here,
+  // before the link's own handlers (Next's navigation, onLeave), which then do not run.
+  const onClickCapture = (event: MouseEvent<HTMLElement>) => {
+    if (!isPlainClick(event)) return;
+    const link = (event.target as Element).closest("a");
+    if (!link || !event.currentTarget.contains(link) || link.getAttribute("href") !== item.href) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onOpenDetails(item.slug, link);
+  };
 
   // ZP-493 analytics (docs/storefront/analytics.md). No scroll handlers: the
   // current slide comes from the feed, dwell from IntersectionObserver.
@@ -171,6 +195,7 @@ export function FeedSlide({
       id={lookAnchorId(item.slug)}
       aria-label={item.name}
       data-feed-slide={index}
+      onClickCapture={onClickCapture}
       className="relative h-full w-full snap-start snap-always overflow-hidden bg-[#2a2a26]"
     >
       <span className="sr-only">
@@ -286,6 +311,7 @@ export function FeedSlide({
           <Link
             href={item.href}
             onClick={leave}
+            aria-haspopup="dialog"
             className={cn(
               "sf-focus absolute left-4 right-[84px] flex flex-col gap-[3px] rounded-[2px] p-1 text-brand-cream-50 [text-shadow:0_1px_3px_rgba(0,0,0,0.55)]",
               // Clear of the first-slide swipe hint while it shows.
@@ -343,7 +369,14 @@ export function FeedSlide({
               );
             case "details":
               return (
-                <Link key={kind} href={item.href} onClick={leave} className={railItem} aria-label={`Details of the ${item.name}`}>
+                <Link
+                  key={kind}
+                  href={item.href}
+                  onClick={leave}
+                  className={railItem}
+                  aria-haspopup="dialog"
+                  aria-label={`Details of the ${item.name}`}
+                >
                   <span className={cn(railRing, railQuiet)}>
                     <DetailsIcon className="h-[22px] w-[22px]" />
                   </span>
@@ -359,10 +392,26 @@ export function FeedSlide({
                   className={railItem}
                   aria-label={item.soldOut ? `Ask about a restock of the ${item.name} on WhatsApp` : `Enquire about the ${item.name} on WhatsApp`}
                 >
-                  <span className={cn(railRing, "border border-brand-olive bg-brand-olive")}>
-                    <EnquireIcon className="h-6 w-6" />
+                  {/* The official WhatsApp logo: white on WhatsApp green (#25D366). A plain link, no target. */}
+                  <span className={cn(railRing, "bg-[#25D366] text-white shadow-[0_2px_8px_rgba(0,0,0,0.25)]")}>
+                    <WhatsAppLogoIcon className="h-7 w-7" />
                   </span>
-                  <span className={railLabel}>{item.soldOut ? "Restock" : "Enquire"}</span>
+                  <span className={railLabel}>{railWhatsAppLabel(item.soldOut)}</span>
+                </a>
+              );
+            case "call":
+              return (
+                <a
+                  key={kind}
+                  href={callHref as string}
+                  onClick={() => track("call", { slug, collection, screen: "feed" })}
+                  className={railItem}
+                  aria-label="Call VYRA"
+                >
+                  <span className={cn("flex h-11 w-11 items-center justify-center rounded-full", railQuiet)}>
+                    <PhoneIcon className="h-5 w-5" />
+                  </span>
+                  <span className={railLabel}>Call</span>
                 </a>
               );
             case "visit":

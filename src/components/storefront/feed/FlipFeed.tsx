@@ -25,11 +25,22 @@ import {
   withoutGuideParam,
   writeGuideSeen,
 } from "@/lib/storefront/feed-guide";
+import {
+  isOwnSheetEntry,
+  landingSheetHistory,
+  sheetCloseMethod,
+  sheetCloseReason,
+  sheetHistoryState,
+  sheetLocation,
+  sheetSlugFromSearch,
+  type SheetCloseReason,
+} from "@/lib/storefront/feed-sheet";
 import { Wordmark } from "../Brand";
 import { cn } from "../cn";
 import { ShellMenuDialog } from "../ShellMenu";
 import type { NavItem, SocialLink } from "../types";
 import { CollectionSheet } from "./CollectionSheet";
+import { DetailsSheet } from "./DetailsSheet";
 import { ChevronIcon, MenuLinesIcon } from "./feed-icons";
 import { FeedGuide } from "./FeedGuide";
 import { FeedSlide } from "./FeedSlide";
@@ -49,7 +60,8 @@ export type FlipFeedProps = {
   initialItems: FeedItem[];
   initialNextOffset: number | null;
   initialTotal: number;
-  links: { visit: string };
+  /** /visit, and (ZP-510) tel: of the shop's phone for Call, or null. */
+  links: { visit: string; call: string | null };
   hasWhatsApp: boolean;
   menu: { nav: NavItem[]; whatsappHref: string | null; social: SocialLink[]; current: string };
 };
@@ -74,11 +86,14 @@ function localStore(): Storage | null {
   }
 }
 
-/** replaceState, never throwing (Safari rate-limits history calls). */
+/**
+ * replaceState, never throwing (Safari rate-limits history calls). The
+ * entry's state is kept (ZP-510: the details sheet's marker).
+ */
 function replaceUrl(url: string) {
   try {
     if (url !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
-      window.history.replaceState(null, "", url);
+      window.history.replaceState(window.history.state, "", url);
     }
   } catch {
     // Rate-limited or blocked: the URL is a convenience; the feed works without it.
@@ -140,6 +155,18 @@ export function FlipFeed({
 
   const searchParams = useSearchParams();
   const urlTab = resolveFeedTab(searchParams.get(FEED_TAB_PARAM), tabs);
+  // ZP-510: the details sheet is open while the URL has ?d=<slug> of a loaded look.
+  const sheetSlug = sheetSlugFromSearch(searchParams.toString());
+  const sheetItem = sheetSlug ? (items.find((p) => p.slug === sheetSlug) ?? null) : null;
+  const detailsRef = useRef<HTMLDialogElement>(null);
+  /** The link that opened the sheet (focus returns there). */
+  const sheetOpener = useRef<HTMLElement | null>(null);
+  /** The sheet's own control that started a close (null: the browser back button). */
+  const pendingClose = useRef<SheetCloseReason | null>(null);
+  /** The feed's history entry is right behind the sheet's (close = history.back()). */
+  const entryBehind = useRef(false);
+  /** The slug the sheet was last shown for (open / close events). */
+  const shownSheet = useRef<string | null>(null);
 
   const scroller = useRef<HTMLDivElement>(null);
   /** The feed column (the guide covers it). */
@@ -298,19 +325,44 @@ export function FlipFeed({
     }
     const detailsTimer = storedDetails ? setTimeout(() => setDetails(true)) : undefined;
 
+    // ZP-510: opened with ?d=<slug> (a shared link, a reload, back from the
+    // full page). Unless this is our own sheet entry, put the feed (without d)
+    // behind it, so back closes the sheet instead of leaving the site. A look
+    // that cannot be there (last page loaded, not in it) just loses the d.
+    const { pathname, search, hash } = window.location;
+    const landing = landingSheetHistory(pathname, search, hash);
+    if (landing) {
+      const reachable = initialItems.some((p) => p.slug === landing.slug) || initialNextOffset !== null || urlTab !== initialTab;
+      try {
+        if (!reachable) {
+          window.history.replaceState(window.history.state, "", landing.replace);
+        } else if (isOwnSheetEntry(window.history.state, landing.slug)) {
+          entryBehind.current = true;
+        } else {
+          window.history.replaceState(window.history.state, "", landing.replace);
+          window.history.pushState(sheetHistoryState(landing.slug), "", landing.push);
+          entryBehind.current = true;
+        }
+      } catch {
+        // History blocked or rate-limited: the sheet still opens; closing replaces the URL.
+      }
+    }
+
     // ZP-509: the first-visit guide, over the first look ("seen" in
-    // localStorage; never on a #look- hash). A replay (?guide=1) is the effect below.
+    // localStorage; never on a #look- hash, never over the details sheet). A replay (?guide=1) is the effect below.
     const guideTimer = isGuideReplay(window.location.search)
       ? undefined
       : setTimeout(() => {
           const open =
             initialItems.length > 0 &&
+            !landing &&
             shouldOpenGuide({ seen: readGuideSeen(localStore()), hash: window.location.hash, replay: false });
           setGuide(open ? "open" : "done");
           if (open) track("guide_shown");
         });
 
-    const slug = parseLookHash(window.location.hash);
+    // The look to start on: #look-<slug>, else the details sheet's look.
+    const slug = parseLookHash(hash) ?? landing?.slug ?? null;
     // Loads and state updates start from a timer, not the effect body.
     let timer: ReturnType<typeof setTimeout> | undefined;
     if (urlTab !== initialTab) {
@@ -496,6 +548,67 @@ export function FlipFeed({
   };
   const onMenuClose = () => menuButton.current?.focus();
 
+  // --------------------------------------------- ZP-510: details sheet
+
+  /** Details, the caption or the photo: push `?d=<slug>` (the URL drives the sheet; the feed does not move). */
+  const openDetails = useCallback(
+    (slug: string, opener: HTMLElement) => {
+      sheetOpener.current = opener;
+      pendingClose.current = null;
+      const { pathname, search, hash } = window.location;
+      try {
+        window.history.pushState(sheetHistoryState(slug), "", sheetLocation(pathname, search, hash, slug));
+        entryBehind.current = true;
+      } catch {
+        // History blocked or rate-limited: fall back to the full page.
+        const item = items.find((p) => p.slug === slug);
+        if (item) window.location.assign(item.href);
+      }
+    },
+    [items],
+  );
+
+  /** A close from the sheet's own controls: pop our history entry (or drop `d` in place). */
+  const requestCloseDetails = useCallback((reason: SheetCloseReason) => {
+    if (pendingClose.current) return; // already closing
+    pendingClose.current = reason;
+    detailsRef.current?.close(); // at once; the URL follows
+    const back = sheetCloseMethod(entryBehind.current) === "back";
+    entryBehind.current = false;
+    try {
+      if (back) window.history.back();
+      else {
+        const { pathname, search, hash } = window.location;
+        window.history.replaceState(window.history.state, "", sheetLocation(pathname, search, hash, null));
+      }
+    } catch {
+      // Ignore: the sheet is closed; the URL keeps d until the next write.
+    }
+  }, []);
+
+  // Open / close events, focus return, and the browser back button (d left the URL with no pending reason).
+  const sheetShownSlug = sheetItem?.slug ?? null;
+  useEffect(() => {
+    const previous = shownSheet.current;
+    if (previous === sheetShownSlug) return;
+    shownSheet.current = sheetShownSlug;
+    if (previous) {
+      track("details_sheet_close", { slug: previous, collection: tabRef.current, reason: sheetCloseReason(pendingClose.current) });
+      pendingClose.current = null;
+    }
+    if (sheetShownSlug) {
+      // Opened by the forward button: the feed entry is behind it.
+      if (!entryBehind.current) entryBehind.current = true;
+      track("details_sheet_open", { slug: sheetShownSlug, collection: tabRef.current });
+    } else {
+      entryBehind.current = false;
+      const opener = sheetOpener.current;
+      sheetOpener.current = null;
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+      else scroller.current?.focus({ preventScroll: true });
+    }
+  }, [sheetShownSlug]);
+
   // ------------------------------------------------------------ render
 
   const stepButton =
@@ -571,6 +684,8 @@ export function FlipFeed({
               visitHref={links.visit}
               onLeave={onLeave}
               collection={tab}
+              callHref={links.call}
+              onOpenDetails={openDetails}
             />
           ))}
           {nextOffset === null ? (
@@ -637,6 +752,14 @@ export function FlipFeed({
         current={tab}
         onPick={selectTab}
         onClose={onSheetClose}
+      />
+
+      <DetailsSheet
+        dialogRef={detailsRef}
+        item={sheetItem}
+        collection={tab}
+        links={links}
+        onRequestClose={requestCloseDetails}
       />
 
       <ShellMenuDialog

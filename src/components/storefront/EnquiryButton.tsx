@@ -1,5 +1,5 @@
 import { cn } from "./cn";
-import { WhatsAppIcon } from "./icons";
+import { WhatsAppLogoIcon } from "./icons";
 
 type EnquiryButtonProps = {
   /** wa.me link. Building it from the product (ZP-490) is not this component's job. */
@@ -22,7 +22,7 @@ export function EnquiryButton({ href, label = "Enquire on WhatsApp", placement =
   const link = (
     // data-track: ZP-493, counted as whatsapp_enquire / restock_request on the product page (ProductTracking).
     <a href={href} className={button} data-track="enquire">
-      <WhatsAppIcon className="h-5 w-5 shrink-0" />
+      <WhatsAppLogoIcon className="h-5 w-5 shrink-0" />
       <span>{label}</span>
     </a>
   );

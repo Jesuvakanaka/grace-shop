@@ -38,12 +38,18 @@ export function enquiryLabel(availability: Availability): string {
   return availability === 'SOLD_OUT' ? RESTOCK_LABEL : ENQUIRE_LABEL
 }
 
-/** "tel:+263771234567" from a display phone number, or null when there is no usable number. */
+/**
+ * "tel:+263771234567" from a display phone number, or null when there is no
+ * usable number. Formatting is stripped; a leading "+" (or the international
+ * "00" prefix, ZP-510) gives the E.164 form "+<digits>".
+ */
 export function telHref(phone: string | null | undefined): string | null {
   const raw = (phone ?? '').trim()
-  const digits = raw.replace(/\D/g, '')
+  let digits = raw.replace(/\D/g, '')
+  const international = raw.startsWith('+') || (digits.startsWith('00') && !raw.startsWith('+'))
+  if (!raw.startsWith('+') && digits.startsWith('00')) digits = digits.slice(2)
   if (digits.length < 6 || digits.length > 15) return null
-  return `tel:${raw.startsWith('+') ? '+' : ''}${digits}`
+  return `tel:${international ? '+' : ''}${digits}`
 }
 
 /**

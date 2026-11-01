@@ -248,22 +248,29 @@ function withRating(summary: RatingSummary | null): Pick<FeedItem, 'rating'> {
 }
 
 /** A control of a slide's right-hand rail. */
-export type RailItem = 'share' | 'details' | 'enquire' | 'visit' | 'love' | 'eye'
+export type RailItem = 'share' | 'details' | 'enquire' | 'visit' | 'call' | 'love' | 'eye'
 
 /**
- * The rail, top to bottom. The WhatsApp button (Enquire / Restock, or Visit
- * us without a WhatsApp number), the heart and the eye always show, clean
- * view too; "Show details" adds Share (when there is a share URL) and Details
- * on top. The eye is always last, so it never moves.
+ * The rail, top to bottom. The WhatsApp button (WhatsApp / Restock, or Visit
+ * us without a WhatsApp number), Call (ZP-510, when a phone number is set),
+ * the heart and the eye always show, clean view too; "Show details" adds
+ * Share (when there is a share URL) and Details on top. The eye is always
+ * last, so it never moves.
  */
-export function railItems(input: { details: boolean; enquire: boolean; share: boolean }): RailItem[] {
+export function railItems(input: { details: boolean; enquire: boolean; share: boolean; call?: boolean }): RailItem[] {
   return [
     ...(input.details && input.share ? (['share'] as const) : []),
     ...(input.details ? (['details'] as const) : []),
     input.enquire ? 'enquire' : 'visit',
+    ...(input.call ? (['call'] as const) : []),
     'love',
     'eye',
   ]
+}
+
+/** ZP-510: the label under the rail's WhatsApp button. */
+export function railWhatsAppLabel(soldOut: boolean): 'WhatsApp' | 'Restock' {
+  return soldOut ? 'Restock' : 'WhatsApp'
 }
 
 /** The previous / next photo arrows of a slide's strip: not before the first item, not after the last. */
