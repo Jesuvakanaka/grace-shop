@@ -5,6 +5,7 @@
 // (the migration seeds the row from those). tests/migration-site-settings.test.ts
 // checks that the seeded row equals SITE_SETTINGS_DEFAULTS.
 import type { FeedRankingMode } from '@/lib/ranking/feed-order'
+import type { SizeChartRow } from '@/lib/storefront-model/size-chart'
 
 export const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
 export type Day = (typeof DAYS)[number]
@@ -66,6 +67,12 @@ export type SiteSettingsData = {
   googleReviewUrl: string | null
   // ZP-506: feed order. AUTO = by popularity (also sets Featured automatically); NEWEST = newest first (emergency switch).
   feedRanking: FeedRankingMode
+  // ZP-513 details card. Hours a reserved piece is held (null hides "We hold it for …").
+  holdHours: number | null
+  /** "EcoCash · cash · card"; null hides "Pay in store". */
+  paymentMethods: string | null
+  /** The size chart for pieces without their own; null = none. */
+  defaultSizeChart: SizeChartRow[] | null
 }
 
 export type SiteSettingsField = keyof SiteSettingsData
@@ -103,7 +110,14 @@ export const SITE_SETTINGS_DEFAULTS: Readonly<SiteSettingsData> = Object.freeze(
   showItemNumber: false,
   googleReviewUrl: null,
   feedRanking: 'AUTO',
+  holdHours: 24,
+  paymentMethods: null,
+  defaultSizeChart: null,
 })
+
+/** ZP-513: hours a reserved piece can be held. */
+export const HOLD_HOURS_MIN = 1
+export const HOLD_HOURS_MAX = 168
 
 /** The PUT allow-list. Anything else in a request body is rejected. */
 export const EDITABLE_FIELDS = Object.freeze(Object.keys(SITE_SETTINGS_DEFAULTS) as SiteSettingsField[])
@@ -131,6 +145,7 @@ export const MAX_LENGTH = {
   trustLabel: 40,
   seoTitle: 70,
   seoDescription: 300,
+  paymentMethods: 80,
 } as const
 
 /**

@@ -19,6 +19,10 @@ import { track } from "@/lib/analytics/client";
 import { type FeedBadge, type FeedItem } from "@/lib/storefront/feed";
 import { loadSheetExtrasAction } from "@/lib/storefront/feed-sheet-actions";
 import {
+  alsoLikeTitle,
+  colourSizeLabel,
+  descriptionToggle,
+  howToBuy,
   sheetDragCloses,
   sheetDragOffset,
   sheetHasMore,
@@ -28,17 +32,21 @@ import {
   SHEET_TOP_REVIEWS,
   sheetModel,
   sheetScrollStep,
+  socialLine,
+  tryItOnText,
+  type AlsoLikePiece,
+  type HowToBuyCell,
   type SheetCloseReason,
   type SheetExtras,
   type SheetModel,
 } from "@/lib/storefront/feed-sheet";
 import { todayLine } from "@/lib/storefront/menu-model";
-import { enquiryEvent } from "@/lib/storefront/tracking";
+import { toggleOption } from "@/lib/storefront/product-enquiry";
+import { allowedOption, enquiryEvent } from "@/lib/storefront/tracking";
 import { cn } from "../cn";
-import { CloseIcon, PhoneIcon, WhatsAppLogoIcon } from "../icons";
+import { CloseIcon, MapPinIcon, PhoneIcon, WhatsAppLogoIcon } from "../icons";
 import { LoveButton } from "../loves/LoveButton";
-import { ProductEnquiryProvider, ProductOptions, useEnquiry } from "../product/ProductEnquiry";
-import { StoreVisitRow } from "../product/StoreVisitRow";
+import { ProductEnquiryProvider, useEnquiry } from "../product/ProductEnquiry";
 import { useShare } from "../product/useShare";
 import { ChevronIcon, PinIcon, ShareIcon } from "./feed-icons";
 
@@ -121,6 +129,8 @@ function useSheetExtras(slug: string | null, seed: SheetExtras | null): Loaded |
 
 /** ZP-512: the sheet of an owner preview (unpublished piece): no heart. */
 const SheetPreviewContext = createContext(false);
+/** ZP-513: "You may also like" -> close the sheet and go to that look in the feed (FlipFeed). */
+const GoToLookContext = createContext<((from: string, to: string) => void) | null>(null);
 
 // ---------------------------------------------------------------- sheet
 
@@ -140,6 +150,8 @@ type DetailsSheetProps = {
   seedExtras?: SheetExtras | null;
   /** ZP-512: owner preview of an unpublished piece (no heart). */
   preview?: boolean;
+  /** ZP-513: a "You may also like" tap: close the sheet and go to that look (from = the open piece). */
+  onGoToLook?: (from: string, to: string) => void;
 };
 
 /**
@@ -163,6 +175,7 @@ export function DetailsSheet({
   onRequestClose,
   seedExtras = null,
   preview = false,
+  onGoToLook,
 }: DetailsSheetProps) {
   const titleId = useId();
   const slug = item?.slug ?? null;
@@ -268,6 +281,7 @@ export function DetailsSheet({
       {item ? (
         // Keyed per piece: the chosen size and the scroll start afresh.
         <SheetPreviewContext.Provider value={preview}>
+        <GoToLookContext.Provider value={onGoToLook ?? null}>
         <SheetContent
           key={item.slug}
           item={item}
@@ -278,6 +292,7 @@ export function DetailsSheet({
           onClose={() => onRequestClose("button")}
           handle={{ onPointerDown: onHandleDown, onPointerMove: onHandleMove, onPointerUp: onHandleUp, onPointerCancel: onHandleCancel }}
         />
+        </GoToLookContext.Provider>
         </SheetPreviewContext.Provider>
       ) : null}
     </dialog>
@@ -401,6 +416,20 @@ function SheetLayout({
 
   const visit = extras?.visit ?? null;
   const summary = extras?.reviews.summary ?? null;
+  const reviewsRef = useRef<HTMLElement>(null);
+  // ZP-513: the social line (real numbers, each part from 3), "How to buy", "Try it on".
+  const social = socialLine({ loves: item.loves, asked: extras?.asked ?? 0 });
+  const todayText = visit ? (todayLine(visit.hours, new Date())?.text ?? null) : null;
+  const buyCells = extras
+    ? howToBuy({
+        soldOut: item.soldOut,
+        hasWhatsApp: item.enquireHref !== null,
+        holdHours: extras.buying.holdHours,
+        paymentMethods: extras.buying.paymentMethods,
+        todayText,
+      })
+    : [];
+  const tryItOn = tryItOnText(todayText);
   // ZP-512: the first 2 reviews, more on request (SheetContent is keyed per piece, so this starts afresh).
   const [reviewsShown, setReviewsShown] = useState(SHEET_TOP_REVIEWS);
   const moreReviews = extras && summary
@@ -408,13 +437,7 @@ function SheetLayout({
     : null;
 
   return (
-    <div
-      className="flex max-h-[inherit] flex-col"
-      // ZP-512: "Get directions" in "Try it on in store" (VisitDetails marks it) counts as `directions`.
-      onClickCapture={(event) => {
-        if ((event.target as Element).closest('[data-track="directions"]')) track("directions", { screen: "feed" });
-      }}
-    >
+    <div className="flex max-h-[inherit] flex-col">
       {/* Handle row: drag it down to close. The title and ✕ live here too (the design). */}
       <div
         {...handle}
@@ -451,58 +474,97 @@ function SheetLayout({
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           <div ref={content} className="flex flex-col gap-[18px] px-5 pb-4 pt-1">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <p className="m-0 text-xl font-medium">
-                <span className="sr-only">Price: </span>
-                {item.price}
-              </p>
-              {item.badge ? (
-                <span
-                  className={cn(
-                    "rounded-[2px] px-2 py-1 text-[10px] font-semibold uppercase leading-none tracking-[0.16em]",
-                    badgeTone[item.badge.kind],
-                  )}
-                >
-                  {item.badge.label}
-                </span>
+            {/* ZP-513: price, tag and the heart on one row. */}
+            <div className="flex items-center justify-between gap-2.5">
+              <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+                <p className="m-0 text-xl font-medium">
+                  <span className="sr-only">Price: </span>
+                  {item.price}
+                </p>
+                {item.badge ? (
+                  <span
+                    className={cn(
+                      "rounded-[2px] px-2 py-1 text-[10px] font-semibold uppercase leading-none tracking-[0.16em]",
+                      badgeTone[item.badge.kind],
+                    )}
+                  >
+                    {item.badge.label}
+                  </span>
+                ) : null}
+              </div>
+              {!preview ? (
+                <LoveButton slug={item.slug} name={item.name} loves={item.loves} variant="pill" className="shrink-0" />
               ) : null}
             </div>
 
-            <div className="-mt-2 flex flex-wrap items-center justify-between gap-3">
-              {model.rating ? (
-                <p className="m-0 inline-flex items-center gap-1.5 text-sm">
-                  {model.rating.stars ? (
-                    <span aria-hidden="true" className="tracking-[0.06em] text-brand-olive-700">
-                      {model.rating.stars}
-                    </span>
-                  ) : null}
-                  <span aria-hidden="true">{model.rating.text}</span>
-                  <span className="sr-only">{model.rating.label}</span>
-                </p>
-              ) : (
-                <span />
-              )}
-              {!preview ? <LoveButton slug={item.slug} name={item.name} loves={item.loves} variant="pill" /> : null}
-            </div>
+            {/* Rating (jumps to the reviews below) and the social line; hidden when neither. */}
+            {model.rating || social ? (
+              <div className="-mt-2.5 flex flex-col gap-1">
+                {model.rating ? (
+                  <button
+                    type="button"
+                    onClick={() => reviewsRef.current?.scrollIntoView({ block: "start", behavior: reducedMotion() ? "auto" : "smooth" })}
+                    className="sf-focus inline-flex items-center gap-1.5 self-start rounded-[2px] text-[13px] text-brand-ink"
+                  >
+                    {model.rating.stars ? (
+                      <span aria-hidden="true" className="tracking-[0.06em] text-brand-olive-700">
+                        {model.rating.stars}
+                      </span>
+                    ) : null}
+                    <span aria-hidden="true">{model.rating.text}</span>
+                    <span className="sr-only">{model.rating.label}. Go to the reviews</span>
+                  </button>
+                ) : null}
+                {social ? <p className="m-0 text-xs text-brand-olive-700">{social}</p> : null}
+              </div>
+            ) : null}
 
             {extras ? (
-              <ProductOptions colours={extras.colours} sizes={extras.sizes} />
+              <SizeAndFit extras={extras} slug={item.slug} />
             ) : loading ? (
               <p role="status" className="m-0 text-sm text-brand-ink-soft">
                 Loading details…
               </p>
             ) : null}
 
-            {extras?.description ? (
-              <p className="m-0 whitespace-pre-line text-[15px] leading-[1.6] text-brand-ink-soft">{extras.description}</p>
+            {buyCells.length > 0 ? <HowToBuy cells={buyCells} /> : null}
+
+            {extras && (extras.description || extras.fabric || extras.care) ? <Description extras={extras} /> : null}
+
+            {tryItOn || visit?.directionsHref ? (
+              <div className="-mt-1.5 flex min-h-11 items-center justify-between gap-2.5">
+                {tryItOn ? (
+                  <p className="m-0 inline-flex items-center gap-2 text-[13px]">
+                    <MapPinIcon className="h-4 w-4 shrink-0 text-brand-olive-700" />
+                    <span>
+                      Try it on: <span className="text-brand-ink-soft">{tryItOn}</span>
+                    </span>
+                  </p>
+                ) : (
+                  <span />
+                )}
+                {visit?.directionsHref ? (
+                  <a
+                    href={visit.directionsHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => track("directions", { screen: "feed" })}
+                    className="sf-focus inline-flex min-h-11 items-center rounded-[2px] text-xs font-medium text-brand-olive-700"
+                  >
+                    Directions<span className="sr-only"> (opens Google Maps in a new tab)</span>
+                  </a>
+                ) : null}
+              </div>
             ) : null}
 
-            {visit ? <StoreVisitRow visit={visit} today={todayLine(visit.hours, new Date())} /> : null}
+            {extras && extras.alsoLike.length > 0 ? (
+              <AlsoLike title={alsoLikeTitle(item.soldOut)} pieces={extras.alsoLike} from={item.slug} />
+            ) : null}
 
             {model.showReviews && extras ? (
-              <section aria-labelledby={reviewsId} className="flex flex-col gap-3">
+              <section ref={reviewsRef} aria-labelledby={reviewsId} className="flex scroll-mt-2 flex-col gap-2.5">
                 <div className="flex items-baseline justify-between gap-3">
-                  <h3 id={reviewsId} className="m-0 font-serif text-[22px] font-medium">
+                  <h3 id={reviewsId} className="m-0 font-serif text-xl font-medium">
                     Reviews
                   </h3>
                   {model.shopRating ? (
@@ -562,7 +624,7 @@ function SheetLayout({
               className="sf-focus absolute bottom-2 left-1/2 inline-flex min-h-9 -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-brand-ink/20! bg-brand-cream-50 px-3.5 text-[11px] font-medium uppercase tracking-[0.14em] text-brand-olive-700 shadow-[0_2px_10px_rgba(0,0,0,0.08)]"
             >
               {/* The visible text is the accessible name; only the sections that exist. */}
-              {morePillText({ store: visit !== null, reviews: model.showReviews && extras !== null })}
+              {morePillText({ store: buyCells.length > 0 || tryItOn !== null, reviews: model.showReviews && extras !== null })}
               <ChevronIcon direction="down" className="vy-sheet-nudge h-4 w-4" />
             </button>
           </>
@@ -571,6 +633,247 @@ function SheetLayout({
 
       <EnquiryFooter item={item} model={model} collection={collection} links={links} />
     </div>
+  );
+}
+
+// ------------------------------------------------------- ZP-513 sections
+
+const chip =
+  "sf-focus inline-flex min-h-[42px] min-w-12 items-center justify-center rounded-[2px] border px-2.5 text-sm transition-colors duration-200";
+const chipOn = "border-brand-ink! bg-brand-ink text-brand-cream-50";
+const chipOff = "border-brand-ink/20! bg-white text-brand-ink hover:border-brand-ink!";
+const sectionLabel = "text-[11px] font-medium uppercase tracking-[0.16em] text-brand-ink-soft";
+
+/**
+ * "Colour: Olive · Size" (a colour picker only with more than one colour),
+ * the size chips (the chosen size goes into the WhatsApp message), "Size
+ * guide" (an inline table of the piece's sizes; only when there is a chart)
+ * and the fit note. Hidden parts leave no gap.
+ */
+function SizeAndFit({ extras, slug }: { extras: SheetExtras; slug: string }) {
+  const { colour, size, setColour, setSize } = useEnquiry();
+  const [guide, setGuide] = useState(false);
+  const tableId = useId();
+  const heading = colourSizeLabel(extras.colours, extras.sizes);
+  if (!heading && !extras.fit) return null;
+  const pickColour = (value: string) => {
+    const next = toggleOption(colour, value);
+    setColour(next);
+    const c = allowedOption("colour", next);
+    if (c) track("colour_select", { slug, colour: c });
+  };
+  const pickSize = (value: string) => {
+    const next = toggleOption(size, value);
+    setSize(next);
+    const s = allowedOption("size", next);
+    if (s) track("size_select", { slug, size: s });
+  };
+  const toggleGuide = () => {
+    if (!guide) track("size_guide_open", { slug });
+    setGuide((v) => !v);
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      {heading?.picker ? (
+        <div role="group" aria-label="Colour" className="flex flex-col gap-2">
+          <span className={sectionLabel}>
+            Colour{colour ? <span className="text-brand-ink">: {colour}</span> : null}
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {extras.colours.map((c) => (
+              <button key={c} type="button" aria-pressed={c === colour} onClick={() => pickColour(c)} className={cn(chip, c === colour ? chipOn : chipOff)}>
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {heading && (heading.label || heading.colour) ? (
+        <div className="flex items-baseline justify-between gap-2">
+          <span className={sectionLabel}>
+            {heading.colour ? (
+              <>
+                Colour: <span className="text-brand-ink">{heading.colour}</span>
+                {heading.label ? " · " : ""}
+              </>
+            ) : null}
+            {heading.label}
+            {heading.label && size ? <span className="text-brand-ink">: {size}</span> : null}
+          </span>
+          {extras.sizeChart && heading.label ? (
+            <button
+              type="button"
+              onClick={toggleGuide}
+              aria-expanded={guide}
+              aria-controls={tableId}
+              className="sf-focus min-h-8 rounded-[2px] text-xs font-medium text-brand-olive-700 underline underline-offset-2"
+            >
+              Size guide
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {extras.sizes.length > 0 ? (
+        <div role="group" aria-label="Size" className="flex flex-wrap gap-2">
+          {extras.sizes.map((s) => (
+            <button key={s} type="button" aria-pressed={s === size} onClick={() => pickSize(s)} className={cn(chip, s === size ? chipOn : chipOff)}>
+              {s}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {extras.fit ? <p className="m-0 text-xs leading-normal text-brand-ink-soft">{extras.fit}</p> : null}
+      {guide && extras.sizeChart ? (
+        <table id={tableId} className="w-full border-collapse text-xs text-brand-ink">
+          <caption className="pb-1.5 text-left text-[11px] text-brand-ink-soft">Body measurements in cm</caption>
+          <thead>
+            <tr>
+              {["Size", "Bust", "Waist", "Hips"].map((h) => (
+                <th key={h} scope="col" className="border-b border-brand-ink/15! px-1 py-1.5 text-left font-semibold">
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {extras.sizeChart.map((r) => (
+              <tr key={r.size}>
+                <th scope="row" className="border-b border-brand-ink/10! px-1 py-1.5 text-left font-medium">
+                  {r.size}
+                </th>
+                <td className="border-b border-brand-ink/10! px-1 py-1.5">{r.bust}</td>
+                <td className="border-b border-brand-ink/10! px-1 py-1.5">{r.waist}</td>
+                <td className="border-b border-brand-ink/10! px-1 py-1.5">{r.hips}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+    </div>
+  );
+}
+
+function BuyIcon({ kind }: { kind: HowToBuyCell["kind"] }) {
+  if (kind === "reserve") return <WhatsAppLogoIcon className="h-5 w-5 text-[#25D366]" />;
+  const d =
+    kind === "pay"
+      ? ["M3 6h18v13H3z", "M3 10h18", "M7 15h3"]
+      : ["M4 10l1.5-5h13L20 10", "M4 10h16v9H4z", "M9 19v-5h6v5"];
+  return (
+    <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" className="h-5 w-5 text-brand-olive-700" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+      {d.map((p) => (
+        <path key={p} d={p} />
+      ))}
+    </svg>
+  );
+}
+
+/** "How to buy": Reserve on WhatsApp · Pay in store · Collect in store (only the cells with data). */
+function HowToBuy({ cells }: { cells: HowToBuyCell[] }) {
+  return (
+    <ul
+      aria-label="How to buy"
+      className="m-0 grid list-none gap-2 border-y border-brand-ink/10! px-0 py-2.5"
+      style={{ gridTemplateColumns: `repeat(${cells.length}, minmax(0, 1fr))` }}
+    >
+      {cells.map((c) => (
+        <li key={c.kind} className="flex flex-col items-center gap-1 text-center">
+          <BuyIcon kind={c.kind} />
+          <span className="text-[11px] font-semibold leading-tight">{c.title}</span>
+          {c.text ? <span className="text-[11px] leading-snug text-brand-ink-soft">{c.text}</span> : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The description on 2 lines with "More · fabric & care" (or "More"), and fabric / care when open. */
+function Description({ extras }: { extras: SheetExtras }) {
+  const [open, setOpen] = useState(false);
+  const toggle = descriptionToggle({ description: extras.description, fabric: extras.fabric, care: extras.care });
+  const panelId = useId();
+  return (
+    <div className="flex flex-col gap-1">
+      {extras.description ? (
+        <p className={cn("m-0 whitespace-pre-line text-sm leading-[1.6] text-brand-ink-soft", !open && toggle && "line-clamp-2")}>
+          {extras.description}
+        </p>
+      ) : null}
+      {toggle ? (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-controls={panelId}
+          className="sf-focus min-h-8 self-start rounded-[2px] text-xs font-medium text-brand-olive-700"
+        >
+          {open ? "Less" : toggle}
+        </button>
+      ) : null}
+      {open && (extras.fabric || extras.care) ? (
+        <dl id={panelId} className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
+          {extras.fabric ? (
+            <>
+              <dt className="text-brand-ink-soft">Fabric</dt>
+              <dd className="m-0">{extras.fabric}</dd>
+            </>
+          ) : null}
+          {extras.care ? (
+            <>
+              <dt className="text-brand-ink-soft">Care</dt>
+              <dd className="m-0">{extras.care}</dd>
+            </>
+          ) : null}
+        </dl>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * "You may also like" / "Available now": up to 4 available pieces (small
+ * photo, name, price). A tap closes the sheet and takes the shopper to that
+ * piece's look in the feed (FlipFeed's goToLook), tracked as also_like_open.
+ */
+function AlsoLike({ title, pieces, from }: { title: string; pieces: AlsoLikePiece[]; from: string }) {
+  const goToLook = useContext(GoToLookContext);
+  const headingId = useId();
+  return (
+    <section aria-labelledby={headingId} className="flex flex-col gap-2.5">
+      <h3 id={headingId} className="m-0 font-serif text-xl font-medium">
+        {title}
+      </h3>
+      <ul className="-mx-5 m-0 flex list-none gap-2.5 overflow-x-auto px-5 py-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {pieces.map((p) => (
+          <li key={p.slug} className="flex-none basis-[104px]">
+            <button
+              type="button"
+              onClick={() => goToLook?.(from, p.slug)}
+              className="sf-focus flex w-[104px] flex-col gap-1 rounded-[2px] text-left text-brand-ink"
+            >
+              {p.image ? (
+                // eslint-disable-next-line @next/next/no-img-element -- storefront photos use <img srcset> (public data layer)
+                <img
+                  src={p.image.src}
+                  srcSet={p.image.srcSet || undefined}
+                  sizes="104px"
+                  alt=""
+                  width={104}
+                  height={132}
+                  loading="lazy"
+                  decoding="async"
+                  className="block h-[132px] w-[104px] rounded-[2px] bg-brand-cream-200 object-cover object-[50%_20%]"
+                />
+              ) : (
+                <span aria-hidden="true" className="block h-[132px] w-[104px] rounded-[2px] bg-brand-cream-200" />
+              )}
+              <span className="text-xs leading-snug">{p.name}</span>
+              <span className="text-xs font-medium">{p.price}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

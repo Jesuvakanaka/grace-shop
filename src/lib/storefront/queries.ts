@@ -54,6 +54,11 @@ export const PRODUCT_SELECT = {
   currentQuantity: true,
   // ZP-507: public as `loves` (cached with the catalogue, never per tap).
   loveCount: true,
+  // ZP-513: details card fields.
+  fitNote: true,
+  fabric: true,
+  care: true,
+  sizeChart: true,
   category: { select: { slug: true, name: true, published: true } },
   images: { select: { id: true, imageKey: true, alt: true, sortOrder: true, isPrimary: true } },
   // ZP-501: the DTO keeps only { src, poster, width, height } of a READY video.

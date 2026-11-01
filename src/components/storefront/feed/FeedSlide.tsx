@@ -224,6 +224,8 @@ export function FeedSlide({
       ref={article}
       id={lookAnchorId(item.slug)}
       aria-label={item.name}
+      // ZP-513: focusable by script only (the feed moves focus here after "You may also like").
+      tabIndex={-1}
       data-feed-slide={index}
       onClickCapture={onClickCapture}
       className="relative h-full w-full snap-start snap-always overflow-hidden bg-[#2a2a26]"

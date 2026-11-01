@@ -19,6 +19,8 @@ import {
   type WebsiteStatus,
 } from '@/lib/website/labels';
 import { STOREFRONT_PRODUCT_PAGE_READY } from '@/lib/website/preview-config';
+import { CARE_MAX, FABRIC_MAX, FIT_NOTE_MAX } from '@/lib/website/validation';
+import { readSizeChart, sizeChartFromText, sizeChartToText } from '@/lib/storefront-model/size-chart';
 import { WebsiteVideo } from './WebsiteVideo';
 import { ReviewLinkCreator } from '@/components/ReviewLinkCreator';
 
@@ -40,6 +42,11 @@ interface WebsiteProduct {
   featured: boolean;
   colours: string | null;
   sizes: string | null;
+  /** ZP-513: details card fields. */
+  fitNote: string | null;
+  fabric: string | null;
+  care: string | null;
+  sizeChart: unknown;
   published: boolean;
   publishedAt: string | null;
   sellingPriceUsd: number;
@@ -70,6 +77,11 @@ type Fields = {
   colours: string;
   sizes: string;
   featured: boolean;
+  fitNote: string;
+  fabric: string;
+  care: string;
+  /** One row per line: "size | bust | waist | hips". */
+  sizeChart: string;
 };
 
 const DAY_MS = 86_400_000;
@@ -97,6 +109,10 @@ function fieldsFrom(p: WebsiteProduct): Fields {
     colours: p.colours ?? '',
     sizes: p.sizes ?? '',
     featured: p.featured,
+    fitNote: p.fitNote ?? '',
+    fabric: p.fabric ?? '',
+    care: p.care ?? '',
+    sizeChart: sizeChartToText(readSizeChart(p.sizeChart)),
   };
 }
 
@@ -190,6 +206,11 @@ export function WebsiteSection({
       priceDisplay: fields.priceDisplay,
       colours: fields.colours || null,
       sizes: fields.sizes || null,
+      // ZP-513
+      fitNote: fields.fitNote || null,
+      fabric: fields.fabric || null,
+      care: fields.care || null,
+      sizeChart: fields.sizeChart.trim() ? sizeChartFromText(fields.sizeChart) : null,
     };
     // ZP-506: Featured is read-only while the feed ranks automatically.
     if (!product.featuredAuto) body.featured = fields.featured;
@@ -522,6 +543,38 @@ export function WebsiteSection({
           <label className="label" htmlFor="website-sizes">Sizes</label>
           <input id="website-sizes" className="input w-full" maxLength={200} placeholder="e.g. S–XL" value={fields.sizes} onChange={(e) => set('sizes', e.target.value)} data-testid="website-sizes" />
         </div>
+      </div>
+
+      {/* ZP-513: the details card's size & fit, fabric & care and size guide. Empty fields are hidden on the site. */}
+      <div>
+        <label className="label" htmlFor="website-fit">Fit note</label>
+        <input id="website-fit" className="input w-full" maxLength={FIT_NOTE_MAX} placeholder="e.g. Model is 1.70 m, wearing M · fits true to size" value={fields.fitNote} onChange={(e) => set('fitNote', e.target.value)} data-testid="website-fit" />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="label" htmlFor="website-fabric">Fabric</label>
+          <input id="website-fabric" className="input w-full" maxLength={FABRIC_MAX} placeholder="e.g. Stretch velvet" value={fields.fabric} onChange={(e) => set('fabric', e.target.value)} data-testid="website-fabric" />
+        </div>
+        <div>
+          <label className="label" htmlFor="website-care">Care</label>
+          <input id="website-care" className="input w-full" maxLength={CARE_MAX} placeholder="e.g. Hand wash cold, dry flat" value={fields.care} onChange={(e) => set('care', e.target.value)} data-testid="website-care" />
+        </div>
+      </div>
+      <div>
+        <label className="label" htmlFor="website-size-chart">Size chart (optional)</label>
+        <textarea
+          id="website-size-chart"
+          className="input w-full font-mono text-sm"
+          rows={4}
+          placeholder={'S | 86–90 | 68–72 | 94–98\nM | 91–95 | 73–77 | 99–103'}
+          value={fields.sizeChart}
+          onChange={(e) => set('sizeChart', e.target.value)}
+          aria-describedby="website-size-chart-help"
+          data-testid="website-size-chart"
+        />
+        <p id="website-size-chart-help" className="text-xs text-slate-500 mt-1">
+          One size per line: size | bust | waist | hips (cm). Empty uses the default chart from Website settings.
+        </p>
       </div>
 
       {product.featuredAuto ? (

@@ -192,7 +192,9 @@ removed, then trimmed; 1..max characters; no control characters.
 | `guide_skipped` | – | `step`? 1..20 |
 | `love_on`, `love_off` | req | – |
 | `details_sheet_open` | req | `from`? `shared` (ZP-512: the landing of a /p/<slug> link). ZP-510: the rollup counts it as an open (`OPEN_TYPES`) |
-| `details_sheet_close` | req | `reason` swipe/backdrop/button/back/escape |
+| `details_sheet_close` | req | `reason` swipe/backdrop/button/back/escape/also_like (ZP-513: a "You may also like" piece tapped) |
+| `size_guide_open` | req | – (ZP-513: the details card's size guide opened) |
+| `also_like_open` | req | `to` = the tapped piece's slug (ZP-513; `slug` = the open piece) |
 | `load_error` | opt | `what` image/video/feed/page/other |
 | `slow_load` | – | `lcp` ms 0..600000 (send when LCP > 4000) |
 | `action_failed` | opt | `action` tag ≤ 40 `[a-z0-9_-]` (e.g. `feed_load`) |

@@ -2,7 +2,7 @@
 // Publishing goes only through publishProduct; the gallery only through the
 // storefront-model helpers, so Product.imageUrl always mirrors the primary
 // image. See docs/storefront/admin-website-tools.md.
-import type { Prisma, PrismaClient } from '@prisma/client'
+import { Prisma, type PrismaClient } from '@prisma/client'
 import {
   compareGalleryImages,
   getPublishReadiness,
@@ -56,6 +56,11 @@ export async function getWebsiteProduct(db: PrismaClient, productId: number, now
       featured: true,
       colours: true,
       sizes: true,
+      // ZP-513: details card fields.
+      fitNote: true,
+      fabric: true,
+      care: true,
+      sizeChart: true,
       published: true,
       publishedAt: true,
       sellingPriceUsd: true,
@@ -146,7 +151,10 @@ export async function updateWebsiteFields(
       if (!category) throw new WebsiteError(400, 'That category no longer exists.', { field: 'categoryId' })
     }
 
-    const { slug: newSlug, ...fields } = patch
+    const { slug: newSlug, sizeChart, ...rest } = patch
+    // ZP-513: a JSON column is cleared with DbNull, not null.
+    const fields =
+      sizeChart === undefined ? rest : { ...rest, sizeChart: sizeChart === null ? Prisma.DbNull : (sizeChart as Prisma.InputJsonArray) }
     if (Object.keys(fields).length > 0) await tx.product.update({ where: { id: productId }, data: fields })
 
     let slug = product.slug
