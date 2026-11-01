@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Footer, Header, SiteBaseProvider } from "@/components/storefront";
+import { StorefrontFrame } from "@/components/storefront/feed/StorefrontFrame";
 import { getShellData } from "@/lib/storefront/shell";
 
 // ZP-487: the VYRA storefront shell. Served at /site/** on the admin/UAT host
@@ -11,6 +12,9 @@ import { getShellData } from "@/lib/storefront/shell";
 // Landmarks: skip link, <header> (banner), <main id="main">, <footer>
 // (contentinfo). Reads the request host for link prefixing, so storefront
 // pages render dynamically; their data comes from the cached reads.
+//
+// ZP-500: the landing page (/) is a full-screen feed with no header or
+// footer; StorefrontFrame decides that from the selected layout segment.
 export const metadata: Metadata = {
   title: {
     template: "%s – VYRA",
@@ -29,31 +33,36 @@ export default async function StorefrontLayout({
   const shell = await getShellData();
   return (
     <SiteBaseProvider base={shell.base}>
-      <div className="flex min-h-screen flex-col bg-brand-cream text-brand-ink">
-        <a
-          href="#main"
-          className="sf-focus sf-label sr-only z-50 bg-brand-ink px-4 py-4 text-brand-cream focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:inline-flex focus:min-h-11 focus:items-center"
-        >
-          Skip to content
-        </a>
-        <Header nav={shell.nav} homeHref={shell.homeHref} whatsappHref={shell.whatsappHref} social={shell.social} />
-        <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
-          {children}
-        </main>
-        <Footer
-          tagline={shell.tagline}
-          address={shell.address}
-          hours={shell.hours}
-          holidayNote={shell.holidayNote}
-          phone={shell.phone}
-          email={shell.email}
-          whatsappHref={shell.whatsappHref}
-          columns={shell.footerColumns}
-          social={shell.social}
-          homeHref={shell.homeHref}
-          year={new Date().getFullYear()}
-        />
-      </div>
+      <StorefrontFrame
+        skipLink={
+          <a
+            href="#main"
+            className="sf-focus sf-label sr-only z-50 bg-brand-ink px-4 py-4 text-brand-cream focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:inline-flex focus:min-h-11 focus:items-center"
+          >
+            Skip to content
+          </a>
+        }
+        header={
+          <Header nav={shell.nav} homeHref={shell.homeHref} whatsappHref={shell.whatsappHref} social={shell.social} />
+        }
+        footer={
+          <Footer
+            tagline={shell.tagline}
+            address={shell.address}
+            hours={shell.hours}
+            holidayNote={shell.holidayNote}
+            phone={shell.phone}
+            email={shell.email}
+            whatsappHref={shell.whatsappHref}
+            columns={shell.footerColumns}
+            social={shell.social}
+            homeHref={shell.homeHref}
+            year={new Date().getFullYear()}
+          />
+        }
+      >
+        {children}
+      </StorefrontFrame>
     </SiteBaseProvider>
   );
 }

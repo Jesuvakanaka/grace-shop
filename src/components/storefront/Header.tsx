@@ -5,8 +5,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 import { Wordmark } from "./Brand";
 import { cn } from "./cn";
-import { ChevronDownIcon, CloseIcon, MenuIcon, WhatsAppIcon } from "./icons";
-import { SocialIcons } from "./SocialIcons";
+import { ChevronDownIcon, MenuIcon, WhatsAppIcon } from "./icons";
+import { ShellMenuDialog } from "./ShellMenu";
 import type { NavItem, NavLink, SocialLink } from "./types";
 
 /** Clean paths; real pages pass the prefixed nav from getShellData(). */
@@ -138,7 +138,6 @@ export function Header({ nav = DEFAULT_NAV, homeHref = "/", whatsappHref, social
     document.documentElement.style.overflow = "hidden";
     setMenuOpen(true);
   };
-  const closeMenu = () => dialogRef.current?.close();
   const onDialogClose = () => {
     document.documentElement.style.overflow = "";
     setMenuOpen(false);
@@ -217,68 +216,15 @@ export function Header({ nav = DEFAULT_NAV, homeHref = "/", whatsappHref, social
         {whatsappButton}
       </div>
 
-      <dialog
-        ref={dialogRef}
+      <ShellMenuDialog
+        dialogRef={dialogRef}
         id={dialogId}
-        aria-label="Menu"
+        nav={nav}
+        whatsappHref={whatsappHref}
+        social={social}
+        current={current}
         onClose={onDialogClose}
-        className="sf-dialog bg-brand-cream text-brand-ink backdrop:bg-brand-cream"
-      >
-        <div className="flex min-h-full flex-col px-2 pb-10 sm:px-4">
-          <div className="grid h-16 grid-cols-[44px_1fr_44px] items-center gap-2">
-            <button type="button" className={iconButton} aria-label="Close menu" onClick={closeMenu}>
-              <CloseIcon />
-            </button>
-            <Wordmark className="h-[18px] w-auto justify-self-center" title="" />
-          </div>
-          <nav aria-label="Main" className="mt-8 px-4">
-            <ul className="flex flex-col">
-              {nav.map((item) => (
-                <li key={item.href} className="border-b border-brand-ink/10!">
-                  <Link
-                    href={item.href}
-                    onClick={closeMenu}
-                    aria-current={item.href === current ? "page" : undefined}
-                    className="sf-focus flex min-h-16 items-center rounded-[2px] font-serif text-[2.5rem] font-medium leading-[1.1] text-brand-ink aria-[current=page]:text-brand-olive-700"
-                  >
-                    {item.label}
-                  </Link>
-                  {item.children?.length ? (
-                    <ul aria-label={item.label} className="-mt-1 flex flex-wrap gap-x-5 pb-4">
-                      {item.children
-                        .filter((child) => child.href !== item.href)
-                        .map((child) => (
-                          <li key={child.href}>
-                            <Link
-                              href={child.href}
-                              onClick={closeMenu}
-                              aria-current={child.href === current ? "page" : undefined}
-                              className="sf-focus sf-label-lg inline-flex min-h-11 items-center rounded-[2px] text-brand-ink-soft hover:text-brand-ink aria-[current=page]:text-brand-olive-700"
-                            >
-                              {child.label}
-                            </Link>
-                          </li>
-                        ))}
-                    </ul>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </nav>
-          <div className="mt-auto flex flex-col gap-6 px-4 pt-12">
-            {whatsappHref ? (
-              <a
-                href={whatsappHref}
-                className="sf-focus sf-label-lg inline-flex min-h-11 w-fit items-center gap-3 rounded-[2px] text-brand-ink"
-              >
-                <WhatsAppIcon className="h-6 w-6" />
-                Chat with us on WhatsApp
-              </a>
-            ) : null}
-            {social.length > 0 ? <SocialIcons social={social} tone="light" /> : null}
-          </div>
-        </div>
-      </dialog>
+      />
     </header>
   );
 }
