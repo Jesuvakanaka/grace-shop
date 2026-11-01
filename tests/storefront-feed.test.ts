@@ -9,6 +9,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import {
   FEED_MAX_PAGE_SIZE,
+  FEED_MAX_THROUGH,
   FEED_NEW_TAB,
   FEED_PAGE_SIZE,
   RESTOCK_TEMPLATE,
@@ -22,6 +23,7 @@ import {
   orderFeed,
   parseLookHash,
   resolveFeedTab,
+  slideIndexAt,
   toFeedItem,
 } from '../src/lib/storefront/feed';
 import type { PublicCategory, PublicImage, PublicProduct } from '../src/lib/storefront/dto';
@@ -178,6 +180,30 @@ describe('feedPage', () => {
     // A slug on the first page or an unknown slug changes nothing.
     assert.strictEqual(feedPage(items, { offset: 0, through: 'p3' }).items.length, 12);
     assert.strictEqual(feedPage(items, { offset: 0, through: 'missing' }).items.length, 12);
+  });
+
+  test('"through" never loads more than FEED_MAX_THROUGH pieces in one go', () => {
+    assert.strictEqual(FEED_MAX_THROUGH, 96);
+    const many = Array.from({ length: 300 }, (_, i) => product(`m${i}`));
+    const far = feedPage(many, { offset: 0, through: 'm250' });
+    assert.strictEqual(far.items.length, FEED_MAX_THROUGH);
+    assert.strictEqual(far.nextOffset, FEED_MAX_THROUGH);
+    // Within the cap it still rounds up to whole pages.
+    assert.strictEqual(feedPage(many, { offset: 12, through: 'm40' }).items.length, 36);
+    assert.strictEqual(feedPage(many, { offset: 12, through: 'm150' }).items.length, FEED_MAX_THROUGH);
+  });
+});
+
+describe('slideIndexAt', () => {
+  test('the slide under the scroll position, clamped to the slides that exist', () => {
+    assert.strictEqual(slideIndexAt(0, 800, 5), 0);
+    assert.strictEqual(slideIndexAt(1600, 800, 5), 2);
+    assert.strictEqual(slideIndexAt(1990, 800, 5), 2, 'rounds to the nearest slide');
+    assert.strictEqual(slideIndexAt(2010, 800, 5), 3);
+    assert.strictEqual(slideIndexAt(99_999, 800, 5), 4);
+    assert.strictEqual(slideIndexAt(-50, 800, 5), 0);
+    assert.strictEqual(slideIndexAt(500, 0, 5), 0, 'no height yet');
+    assert.strictEqual(slideIndexAt(500, 800, 0), 0);
   });
 });
 

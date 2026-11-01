@@ -16,6 +16,12 @@ import { productEnquiryHref } from './product-enquiry'
 export const FEED_PAGE_SIZE = 12
 /** Upper bound for one load (also the "load through" result is a whole number of pages). */
 export const FEED_MAX_PAGE_SIZE = 48
+/**
+ * Most pieces one "load through a remembered slide" may return (8 pages).
+ * A slide further down than that is not restored; the feed opens at the
+ * first slide of the load instead.
+ */
+export const FEED_MAX_THROUGH = 96
 /** The first tab: every published piece. */
 export const FEED_NEW_TAB = 'new'
 export const FEED_NEW_TAB_LABEL = 'New in'
@@ -104,10 +110,16 @@ export function feedPage<T extends { slug: string }>(
   let end = offset + limit
   if (options.through) {
     const at = items.findIndex((p) => p.slug === options.through)
-    if (at >= end) end = offset + Math.ceil((at + 1 - offset) / limit) * limit
+    if (at >= end) end = Math.min(offset + FEED_MAX_THROUGH, offset + Math.ceil((at + 1 - offset) / limit) * limit)
   }
   const slice = items.slice(offset, end)
   return { items: slice, nextOffset: end < items.length ? end : null, total: items.length }
+}
+
+/** The index of the full-height slide under `scrollTop` (nearest), clamped to 0..count-1. */
+export function slideIndexAt(scrollTop: number, slideHeight: number, count: number): number {
+  if (!(slideHeight > 0) || count <= 0) return 0
+  return Math.min(count - 1, Math.max(0, Math.round(scrollTop / slideHeight)))
 }
 
 // ------------------------------------------------------------------ slide

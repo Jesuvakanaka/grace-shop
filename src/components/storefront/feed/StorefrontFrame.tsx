@@ -34,7 +34,8 @@ export function StorefrontFrame({
   const home = segment === null && (pathname === STOREFRONT_PREFIX || pathname === "/");
   if (home) {
     return (
-      <div className="h-svh overflow-hidden bg-brand-cream text-brand-ink">
+      // 100vh where svh is unsupported, else 100svh (never jumps with the iOS URL bar).
+      <div className="h-screen overflow-hidden supports-[height:100svh]:h-svh bg-brand-cream text-brand-ink">
         {skipLink}
         <main id="main" tabIndex={-1} className="h-full focus:outline-none">
           {children}

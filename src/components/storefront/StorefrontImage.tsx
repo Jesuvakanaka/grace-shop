@@ -50,6 +50,8 @@ type StorefrontImgProps = {
   sources?: ImageSource[];
   /** Above the fold (hero, first gallery photo): load eagerly, high priority, no fade. */
   eager?: boolean;
+  /** With `eager`: fetchpriority "high" (default). Pass false for an eager photo that is not the LCP. */
+  highPriority?: boolean;
   sizes?: string;
   /** "cover" fills a fixed-ratio frame; "contain" shows the whole photo (zoom view). */
   fit?: "cover" | "contain";
@@ -63,6 +65,7 @@ export function StorefrontImg({
   image,
   sources,
   eager = false,
+  highPriority = true,
   sizes,
   fit = "cover",
   className,
@@ -81,7 +84,7 @@ export function StorefrontImg({
       height={image.height}
       sizes={sizes}
       loading={eager ? "eager" : "lazy"}
-      fetchPriority={eager ? "high" : undefined}
+      fetchPriority={eager && highPriority ? "high" : undefined}
       decoding="async"
       onLoad={onLoad}
       onError={onError}

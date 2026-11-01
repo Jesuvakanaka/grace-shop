@@ -27,8 +27,11 @@ type FeedSlideProps = {
   item: FeedItem;
   index: number;
   total: number;
-  /** Only the first slide's first photo is eager (LCP). */
-  eager: boolean;
+  /**
+   * The first photo: "high" (first slide, the LCP: eager + fetchpriority
+   * high), "eager" (second slide, ready for the first flick), else "lazy".
+   */
+  priority: "high" | "eager" | "lazy";
   visitHref: string;
   /** Remember this slide before the visitor leaves for its product page. */
   onLeave: (slug: string) => void;
@@ -40,7 +43,7 @@ type FeedSlideProps = {
  * the rail (Enquire / Restock on WhatsApp or Visit us, Share, Details).
  * Every way into the product page is a real <a href>.
  */
-export function FeedSlide({ item, index, total, eager, visitHref, onLeave }: FeedSlideProps) {
+export function FeedSlide({ item, index, total, priority, visitHref, onLeave }: FeedSlideProps) {
   const strip = useRef<HTMLDivElement>(null);
   const [photo, setPhoto] = useState(0);
   const { status, share } = useShare();
@@ -62,10 +65,10 @@ export function FeedSlide({ item, index, total, eager, visitHref, onLeave }: Fee
   const leave = () => onLeave(item.slug);
 
   return (
-    <section
+    // An <article> (not a region landmark) labelled by the look's name.
+    <article
       id={lookAnchorId(item.slug)}
       aria-labelledby={titleId}
-      aria-roledescription="look"
       data-feed-slide={index}
       className="relative h-full w-full snap-start snap-always overflow-hidden bg-[#2a2a26]"
     >
@@ -83,12 +86,14 @@ export function FeedSlide({ item, index, total, eager, visitHref, onLeave }: Fee
             href={item.href}
             onClick={leave}
             tabIndex={-1}
+            aria-label={image.alt.trim() ? undefined : `${item.name}, photo ${i + 1} of ${count}`}
             className="relative block h-full w-full flex-none snap-start"
           >
             <ImageFallback />
             <StorefrontImg
               image={{ src: image.src, srcSet: image.srcSet || undefined, alt: image.alt }}
-              eager={eager && i === 0}
+              eager={priority !== "lazy" && i === 0}
+              highPriority={priority === "high"}
               sizes={SLIDE_SIZES}
               className="object-[50%_20%]"
             />
@@ -222,6 +227,6 @@ export function FeedSlide({ item, index, total, eager, visitHref, onLeave }: Fee
       >
         {status === "copied" ? "Link copied. Paste it anywhere to share." : status === "failed" ? `Copy this link: ${item.shareUrl}` : ""}
       </p>
-    </section>
+    </article>
   );
 }
