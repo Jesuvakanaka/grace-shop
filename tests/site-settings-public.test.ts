@@ -95,7 +95,7 @@ describe('buildWhatsAppLink', () => {
 describe('public DTO', () => {
   test('allow-listed shape from the defaults', () => {
     const dto = toPublicSiteSettings({ ...SITE_SETTINGS_DEFAULTS })
-    assert.deepStrictEqual(Object.keys(dto).sort(), ['about', 'contacts', 'fewLeftThreshold', 'home', 'seo', 'showItemNumber', 'social', 'visit'])
+    assert.deepStrictEqual(Object.keys(dto).sort(), ['about', 'contacts', 'fewLeftThreshold', 'home', 'reviews', 'seo', 'showItemNumber', 'social', 'visit'])
     assert.deepStrictEqual(dto.home.trustLabels, ['Premium Quality', 'Visit Our Store', 'Enquire on WhatsApp'])
     assert.strictEqual(dto.home.heroHeadline, 'Style Your Way')
     assert.strictEqual(dto.home.heroImageUrls.desktop, null)

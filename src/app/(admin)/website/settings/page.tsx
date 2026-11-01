@@ -415,6 +415,17 @@ export default function WebsiteSettingsPage() {
         </div>
       </Section>
 
+      <Section id="reviews" title="Reviews" hint="After a customer sends a review, the thank-you screen can ask for a Google review too.">
+        <Field
+          label="Google review link"
+          name="googleReviewUrl"
+          error={errors.googleReviewUrl}
+          hint="Your Google Business “Ask for reviews” link (https://g.page/r/… or search.google.com/…). Leave empty to hide the button."
+        >
+          {input('googleReviewUrl', { type: 'url', inputMode: 'url', placeholder: 'https://g.page/r/…/review' })}
+        </Field>
+      </Section>
+
       <Section id="about" title="About">
         <Field label="Headline" name="aboutHeadline" error={errors.aboutHeadline}>
           {input('aboutHeadline', { maxLength: MAX_LENGTH.aboutHeadline })}

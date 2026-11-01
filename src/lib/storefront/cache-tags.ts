@@ -14,6 +14,8 @@ export const STOREFRONT_TAGS = {
   settings: 'storefront:settings',
   /** Home page entries that embed settings (hero, statement, trust strip). */
   home: 'storefront:home',
+  /** ZP-508: approved reviews and their aggregates (one entry, ./reviews.ts). */
+  reviews: 'storefront:reviews',
 } as const
 
 /**
@@ -35,6 +37,8 @@ export type RevalidateScope = {
   categorySlugs?: readonly (string | null | undefined)[]
   /** Site settings changed (ZP-486): `storefront:settings` and `storefront:home`. */
   settings?: boolean
+  /** ZP-508: a review was approved, hidden, unpublished, replied to or deleted: `storefront:reviews`. */
+  reviews?: boolean
 }
 
 type RevalidateDeps = { revalidateTag: (tag: string, profile: { expire: number }) => void }
@@ -70,6 +74,7 @@ export function revalidateStorefront(scope?: RevalidateScope, deps: RevalidateDe
       tags.push(STOREFRONT_TAGS.categories, ...scope.categorySlugs.filter(isValidSlug).map(storefrontCategoryTag))
     }
     if (scope.settings) tags.push(STOREFRONT_TAGS.settings, STOREFRONT_TAGS.home)
+    if (scope.reviews) tags.push(STOREFRONT_TAGS.reviews)
   }
   const unique = [...new Set(tags)]
   for (const tag of unique) deps.revalidateTag(tag, { expire: 0 })

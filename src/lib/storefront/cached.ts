@@ -1,7 +1,7 @@
 // Cached storefront reads (ZP-484). Server only.
 //
-// Exactly TWO cache entries exist, whatever the request: the public
-// catalogue and the category list. Their keys take no arguments, so
+// Exactly THREE cache entries exist, whatever the request: the public
+// catalogue, the category list and (ZP-508) the approved reviews. Their keys take no arguments, so
 // anonymous traffic (any category, page, sort or unknown slug) can never add
 // entries. Everything else is answered in memory from those two (./catalogue).
 // `cache` is unstable_cache in ./index; tests pass a recording stand-in.
@@ -21,6 +21,7 @@ import {
 } from './catalogue'
 import type { PublicCategory, PublicProduct } from './dto'
 import { loadPublicCatalogue, loadPublicCategories } from './queries'
+import { loadPublicReviews, type PublicReviewsIndex } from './reviews'
 
 if (typeof window !== 'undefined') throw new Error('src/lib/storefront is server-only')
 
@@ -52,6 +53,17 @@ export function createStorefront(deps: { db: Db; cache: CacheFn }) {
     ['storefront', 'categories', CACHE_VERSION],
     { tags: [STOREFRONT_TAGS.all, STOREFRONT_TAGS.categories], revalidate: STOREFRONT_REVALIDATE_SECONDS },
   )
+  // ZP-508: a third argument-free entry: approved reviews and aggregates.
+  // Keyed by product slug and limited to public pieces, so it also carries
+  // the products and categories tags (a slug change or unpublish refreshes it).
+  const reviews = deps.cache(
+    (): Promise<PublicReviewsIndex> => loadPublicReviews(deps.db),
+    ['storefront', 'reviews', CACHE_VERSION],
+    {
+      tags: [STOREFRONT_TAGS.all, STOREFRONT_TAGS.reviews, STOREFRONT_TAGS.products, STOREFRONT_TAGS.categories],
+      revalidate: STOREFRONT_REVALIDATE_SECONDS,
+    },
+  )
 
   return {
     /** One page of public products. */
@@ -76,6 +88,10 @@ export function createStorefront(deps: { db: Db; cache: CacheFn }) {
     async getPublishedCategory(slug: string): Promise<PublicCategory | null> {
       if (!isValidSlug(slug)) return null
       return (await categories()).find((c) => c.slug === slug) ?? null
+    },
+    /** ZP-508: approved reviews by product slug, plus the shop rating. */
+    getReviewsIndex(): Promise<PublicReviewsIndex> {
+      return reviews()
     },
   }
 }

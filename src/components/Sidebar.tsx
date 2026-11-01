@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
+import { pendingReviewsLabel, usePendingReviews } from '@/components/usePendingReviews';
 
 const navItems = [
   { label: 'Dashboard', href: '/', icon: '📊', testId: 'sidebar-dashboard' },
@@ -32,6 +33,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const router = useRouter();
   const { user, logout } = useAuth();
   const visibleNavItems = navItems.filter((item) => !(item.ownerOnly && user?.role !== 'OWNER'));
+  // ZP-508: reviews waiting for the owner, as a badge on "Website".
+  const pendingReviews = usePendingReviews();
 
   return (
     <aside className="hidden lg:flex w-64 shrink-0 bg-white border-r border-slate-200 flex-col h-screen sticky top-0 no-print">
@@ -62,6 +65,12 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             >
               <span>{item.icon}</span>
               <span>{item.label}</span>
+              {item.href === '/website' && pendingReviews > 0 ? (
+                <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-xs font-semibold text-white" data-testid="nav-reviews-badge">
+                  {pendingReviews}
+                  <span className="sr-only"> {pendingReviewsLabel(pendingReviews)}</span>
+                </span>
+              ) : null}
             </Link>
           );
         })}

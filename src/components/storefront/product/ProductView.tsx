@@ -23,6 +23,7 @@ import type { PublicProduct } from "../types";
 import { ProductBottomBar } from "./ProductBottomBar";
 import { ProductEnquiryButton, ProductEnquiryProvider, ProductOptions } from "./ProductEnquiry";
 import { ProductTopBar } from "./ProductTopBar";
+import { ProductReviews, RatingSummaryLink, type ProductReviewsData } from "../reviews/ProductReviews";
 import { RelatedRow } from "./RelatedRow";
 import { ShareButton } from "./ShareButton";
 import { StoreVisitRow } from "./StoreVisitRow";
@@ -43,6 +44,8 @@ type ProductViewProps = {
   visit: StoreVisit | null;
   /** Today's hours for the row's summary (server time, shop time zone). */
   today: TodayLine | null;
+  /** ZP-508: approved reviews of the piece and the shop rating; null/absent hides the blocks. */
+  reviews?: ProductReviewsData | null;
 };
 
 /** Sold out, else Few left, else New (the feed's tag rule). */
@@ -64,6 +67,7 @@ export function ProductView({
   base,
   visit,
   today,
+  reviews,
 }: ProductViewProps) {
   const price = formatPriceUsd(product.priceUsd);
   const tag = productTag(product);
@@ -151,6 +155,7 @@ export function ProductView({
                   {tag ? <Badge tone={tag.tone}>{tag.label}</Badge> : null}
                   {itemNumber ? <span className="sf-label text-brand-ink-soft">Ref {itemNumber}</span> : null}
                 </div>
+                <RatingSummaryLink summary={reviews?.summary ?? null} />
               </div>
 
               <ProductOptions colours={colours} sizes={sizes} />
@@ -158,6 +163,8 @@ export function ProductView({
               {product.description ? (
                 <p className="whitespace-pre-line text-[15px] leading-[1.65] text-brand-ink-soft">{product.description}</p>
               ) : null}
+
+              <ProductReviews data={reviews} />
 
               {visit ? <StoreVisitRow visit={visit} today={today} /> : null}
 

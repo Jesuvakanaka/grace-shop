@@ -20,6 +20,7 @@ import {
 } from '@/lib/website/labels';
 import { STOREFRONT_PRODUCT_PAGE_READY } from '@/lib/website/preview-config';
 import { WebsiteVideo } from './WebsiteVideo';
+import { ReviewLinkCreator } from '@/components/ReviewLinkCreator';
 
 interface GalleryImage {
   id: number;
@@ -380,6 +381,9 @@ export function WebsiteSection({
 
       {/* Video (ZP-501): optional, separate from the photo gallery and readiness. */}
       <WebsiteVideo productId={productId} />
+
+      {/* Reviews (ZP-508): a one-time review link for a customer who bought this piece. */}
+      <ReviewLinkCreator productId={productId} />
 
       {/* Fields */}
       <div>

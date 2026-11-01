@@ -47,7 +47,10 @@ export const {
   listRelatedProducts,
   listPublishedCategories,
   getPublishedCategory,
+  getReviewsIndex,
 } = storefront
+export type { PublicReview } from './dto'
+export type { PublicReviewsIndex, PieceReviews } from './reviews'
 
 // ZP-490: owner preview of an unpublished product page. UNCACHED (never
 // touches the two public cache entries). Only use the result after

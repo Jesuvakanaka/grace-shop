@@ -85,6 +85,9 @@ model Product {
   images         ProductImage[]
   slugRedirects  ProductSlugRedirect[]
   video          ProductVideo?
+  // ZP-508: verified customer reviews (owner-moderated) and their one-time links.
+  reviews        Review[]
+  reviewInvites  ReviewInvite[]
 
   @@index([categoryId])
 }
@@ -463,6 +466,9 @@ model SiteSettings {
   fewLeftThreshold Int     @default(3)
   showItemNumber   Boolean @default(false)
 
+  // Reviews (ZP-508): optional "Review us on Google" link on the thank-you screen.
+  googleReviewUrl String?
+
   updatedBy String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -609,4 +615,74 @@ model AnalyticsDailyVideo {
 
   @@id([day, productId])
   @@index([productId, day])
+}
+
+// ─── Customer reviews (ZP-508). See docs/storefront/reviews.md.
+// Only verified buyers can review: the OWNER creates a one-time link
+// (ReviewInvite) and sends it on WhatsApp. Only the SHA-256 hash of the
+// link's token is stored. Every review is PENDING until the owner approves
+// it; the storefront only ever reads APPROVED reviews. The admin cannot
+// author reviews (no API creates a Review except the public token submit).
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  HIDDEN
+}
+
+model ReviewInvite {
+  id           Int       @id @default(autoincrement())
+  /// sha256(token) as 64 lowercase hex. The token itself is never stored.
+  tokenHash    String    @unique
+  /// null = shop-only review link.
+  productId    Int?
+  /// Optional first name the owner typed, to prefill the form.
+  customerHint String?
+  expiresAt    DateTime
+  /// Set atomically when the review is submitted (single use).
+  usedAt       DateTime?
+  /// A photo the customer uploaded with this link but has not submitted yet.
+  photoKey     String?
+  createdBy    String
+  createdAt    DateTime  @default(now())
+
+  product Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+  review  Review?
+
+  @@index([productId])
+}
+
+model Review {
+  id           Int          @id @default(autoincrement())
+  inviteId     Int          @unique
+  /// null = shop-only review (then `stars` is the shop rating).
+  productId    Int?
+  /// 1-5: the piece (or the shop for a shop-only review).
+  stars        Int
+  /// 1-5, optional: the shop, given alongside a piece review.
+  shopStars    Int?
+  /// Plain text, 10-1000 characters. Rendered escaped, never as HTML or links.
+  comment      String
+  /// "Tendai M.", derived from the name the customer typed (the full name is not stored).
+  displayName  String
+  photoKey     String?
+  /// Shown publicly only when true AND the review is APPROVED.
+  photoConsent Boolean      @default(false)
+  status       ReviewStatus @default(PENDING)
+  /// Simple word-list match at submit; shown to the owner only.
+  flagged      Boolean      @default(false)
+  ownerReply   String?
+  ownerReplyAt DateTime?
+  /// Owner-only note when hiding a review. Never public.
+  privateNote  String?
+  approvedAt   DateTime?
+  moderatedBy  String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  invite  ReviewInvite @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+  product Product?     @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([status, productId])
+  @@index([photoKey])
 }

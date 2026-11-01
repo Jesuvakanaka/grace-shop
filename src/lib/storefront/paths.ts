@@ -22,6 +22,8 @@ export const SITE_ROUTES = {
   visit: '/visit',
   privacy: '/privacy',
   product: (slug: string) => `/p/${encodeURIComponent(slug)}`,
+  /** ZP-508: the one-time customer review form. */
+  review: (token: string) => `/review/${encodeURIComponent(token)}`,
 } as const
 
 /** The site base for a request's Host header. */
