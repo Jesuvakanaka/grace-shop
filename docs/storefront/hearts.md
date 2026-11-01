@@ -86,7 +86,7 @@ Limits are per instance, like analytics.
   ON CONFLICT DO NOTHING and +1 only if it is new; delete it and −1 only if a
   row went and the count is above 0. Concurrent duplicate taps count once.
   The counter is updated with SQL so `Product.updatedAt` is not touched.
-- Migration `20261104100000_product_loves`.
+- Migration `20261106090000_product_loves`.
 
 ## Admin
 
