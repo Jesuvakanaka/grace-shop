@@ -2,8 +2,8 @@
 
 import { usePathname, useSelectedLayoutSegment } from "next/navigation";
 import { useEffect, useRef, type ReactNode } from "react";
-import { STOREFRONT_PREFIX } from "@/lib/host-routing";
 import { frameHeightFix } from "@/lib/storefront/feed";
+import { isFeedFrame } from "@/lib/storefront/product-landing";
 
 /**
  * Samsung Internet and some Android Chrome versions size 100dvh / 100svh /
@@ -76,7 +76,8 @@ export function StorefrontFrame({
 }) {
   const segment = useSelectedLayoutSegment();
   const pathname = usePathname();
-  const home = segment === null && (pathname === STOREFRONT_PREFIX || pathname === "/");
+  // ZP-512: /p/<slug> is the feed too (isFeedFrame); its 404 keeps the header.
+  const home = isFeedFrame({ segment, pathname });
   const frameRef = useVisibleViewportHeight(home);
   if (home) {
     return (

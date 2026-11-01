@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Footer, Header, SiteBaseProvider } from "@/components/storefront";
 import { StorefrontFrame } from "@/components/storefront/feed/StorefrontFrame";
-import { NavMemory } from "@/components/storefront/product/NavMemory";
 import { ShellMenuProvider } from "@/components/storefront/ShellMenu";
 import { getMenuData } from "@/lib/storefront/menu-data";
 import { getShellData } from "@/lib/storefront/shell";
@@ -39,9 +38,8 @@ export default async function StorefrontLayout({
     <SiteBaseProvider base={shell.base}>
       {/* ZP-493: first-party, anonymous analytics (visit_start / visit_end). See /privacy. */}
       <AnalyticsProvider />
-      {/* ZP-503: the menu's content for the header and the landing feed; NavMemory feeds the product page's back button. */}
+      {/* ZP-503: the menu's content for the header and the landing feed. */}
       <ShellMenuProvider menu={menu}>
-        <NavMemory />
         <StorefrontFrame
           skipLink={
             <a

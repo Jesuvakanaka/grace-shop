@@ -35,10 +35,12 @@ the owner.
    simple word-list match shows "Check the wording" on the card (it never blocks
    anything). The admin nav's "Website" item shows the pending count.
 4. **Display** (approved only):
-   - Product page: "★★★★★ 4.8 · 3 reviews" near the price (links to
-     `#reviews`); the Reviews section with the shop rating box, each review's
-     stars, comment, name, Verified buyer badge, relative date, owner reply and
-     photo; photos first then newest, 5 at a time with "Show more". Schema.org
+   - Details sheet (ZP-510 / ZP-512; the product page is gone): "★★★★☆ 4.8 ·
+     3 reviews" next to the heart; the Reviews block with the shop rating,
+     each review's stars, comment, name, Verified buyer, relative date and
+     owner reply (no review photos in the sheet); photos first then newest,
+     2 at first, then "See all N reviews" / "Show more reviews", 5 at a time,
+     inside the sheet. On /p/<slug> (server render), Schema.org
      `Product` + `AggregateRating` + `Review` JSON-LD only when the piece has
      approved reviews.
    - Feed caption (with details shown): "★ 4.8 (12)" when the piece has at

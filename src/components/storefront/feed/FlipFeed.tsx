@@ -37,6 +37,8 @@ import {
   sheetSlugFromSearch,
   type SheetCloseReason,
 } from "@/lib/storefront/feed-sheet";
+import type { SheetExtras } from "@/lib/storefront/feed-sheet";
+import { productLandingHistory } from "@/lib/storefront/product-landing";
 import { Wordmark } from "../Brand";
 import { cn } from "../cn";
 import { ShellMenuDialog } from "../ShellMenu";
@@ -62,10 +64,18 @@ export type FlipFeedProps = {
   initialItems: FeedItem[];
   initialNextOffset: number | null;
   initialTotal: number;
-  /** /visit, and (ZP-510) tel: of the shop's phone for Call, or null. */
-  links: { visit: string; call: string | null };
+  /** /visit, (ZP-510) tel: of the shop's phone for Call or null, and (ZP-512) the feed's home path on this host. */
+  links: { visit: string; call: string | null; home: string };
   hasWhatsApp: boolean;
   menu: { nav: NavItem[]; whatsappHref: string | null; social: SocialLink[]; current: string };
+  /**
+   * ZP-512: this feed is a /p/<slug> page. "product": start on that look
+   * with its sheet open, then turn the URL into the feed's (`<home>?d=<slug>`,
+   * the feed on that look behind it). "preview": the owner preview of an
+   * unpublished piece (just that look, its sheet open, the URL untouched;
+   * `extras` from the server, as the action only knows published pieces).
+   */
+  landing?: { slug: string; mode: "product" | "preview"; extras?: SheetExtras | null };
 };
 
 type Mode = "replace" | "append";
@@ -123,6 +133,7 @@ export function FlipFeed({
   links,
   hasWhatsApp,
   menu,
+  landing,
 }: FlipFeedProps) {
   /** The tab of the items on screen (changes only together with them). */
   const [tab, setTab] = useState(initialTab);
@@ -161,10 +172,15 @@ export function FlipFeed({
   // ZP-510: the details sheet is open while the URL has ?d=<slug> of a loaded look.
   const urlSheetSlug = sheetSlugFromSearch(searchParams.toString());
   /**
-   * Holds the sheet open across the landing swap (d removed, then pushed
-   * again), so a router update in between never closes and reopens it.
+   * Holds the sheet open regardless of the URL: across the landing swap (d
+   * removed, then pushed again), so a router update in between never closes
+   * and reopens it; and (ZP-512) from the first render of a /p/<slug> page
+   * (open in the server HTML too) until its URL carries d, or for an owner
+   * preview until it is closed.
    */
-  const [heldSheet, setHeldSheet] = useState<{ slug: string; params: ReturnType<typeof useSearchParams> } | null>(null);
+  const [heldSheet, setHeldSheet] = useState<{ slug: string; params: ReturnType<typeof useSearchParams> } | null>(() =>
+    landing ? { slug: landing.slug, params: searchParams } : null,
+  );
   if (heldSheet && searchParams !== heldSheet.params && urlSheetSlug === heldSheet.slug) setHeldSheet(null);
   const sheetSlug = heldSheet?.slug ?? urlSheetSlug;
   const sheetItem = sheetSlug ? (items.find((p) => p.slug === sheetSlug) ?? null) : null;
@@ -177,6 +193,8 @@ export function FlipFeed({
   const entryBehind = useRef(false);
   /** The slug the sheet was last shown for (open / close events). */
   const shownSheet = useRef<string | null>(null);
+  /** ZP-512: a /p/<slug> landing's look, until its sheet open is tracked (from: "shared"). */
+  const sharedLanding = useRef(landing?.mode === "product" ? landing.slug : null);
   /** Read in timers (settleLanding), so always the latest render's params. */
   const paramsRef = useRef(searchParams);
   useEffect(() => {
@@ -189,7 +207,7 @@ export function FlipFeed({
    * the sheet without leaving the site), keep our own entry, or drop `d` in
    * place. Runs from a timer, after Next.js patched history.
    */
-  const settleLanding = useCallback((slug: string, found: boolean, loadable: boolean) => {
+  const settleLanding = useCallback((slug: string, found: boolean, loadable: boolean, productHome: string | null = null) => {
     const action = landingAction({ inItems: found, loadable, ownEntry: isOwnSheetEntry(window.history.state, slug) });
     if (action === "wait") return action;
     const { pathname, search, hash } = window.location;
@@ -200,15 +218,20 @@ export function FlipFeed({
         window.history.replaceState(customHistoryState(window.history.state), "", sheetLocation(pathname, search, hash, null));
       } else {
         setHeldSheet({ slug, params: paramsRef.current });
-        window.history.replaceState(customHistoryState(window.history.state), "", sheetLocation(pathname, search, hash, null));
-        window.history.pushState(sheetHistoryState(slug), "", sheetLocation(pathname, search, hash, slug));
+        // ZP-512: a /p/<slug> landing becomes the feed URL on that look, with the sheet entry on top.
+        const entries = productHome
+          ? productLandingHistory({ homePath: productHome, search, slug })
+          : { replace: sheetLocation(pathname, search, hash, null), push: sheetLocation(pathname, search, hash, slug) };
+        window.history.replaceState(customHistoryState(window.history.state), "", entries.replace);
+        window.history.pushState(sheetHistoryState(slug), "", entries.push);
         entryBehind.current = true;
         // Backstop: the hold ends when the router shows d again (render check above), at the latest now.
         setTimeout(() => setHeldSheet(null), 1500);
       }
     } catch {
       // History blocked or rate-limited: no entry behind, so closing replaces the URL (never history.back()).
-      setHeldSheet(null);
+      // A /p/<slug> landing keeps its sheet held open (its URL has no d); closing releases it.
+      if (!productHome) setHeldSheet(null);
     }
     return action;
   }, []);
@@ -384,9 +407,19 @@ export function FlipFeed({
     // full page). The history work runs from timers, after Next.js has patched
     // history (its effect runs after this child effect), so our entries carry
     // its state. See settleLanding.
+    // ZP-512: a /p/<slug> page lands like ?d=<slug> (its look is always in the
+    // first load); an owner preview writes no history at all.
     const { search, hash } = window.location;
-    const landingSlug = landingSheetHistory(window.location.pathname, search, hash)?.slug ?? null;
-    const landingFirst = landingSlug
+    const productHome = landing?.mode === "product" ? links.home : null;
+    const landingSlug =
+      landing?.mode === "product"
+        ? landing.slug
+        : landing?.mode === "preview"
+          ? null
+          : (landingSheetHistory(window.location.pathname, search, hash)?.slug ?? null);
+    const landingFirst = landing
+      ? "push"
+      : landingSlug
       ? landingAction({
           inItems: urlTab === initialTab && initialItems.some((p) => p.slug === landingSlug),
           loadable: initialNextOffset !== null || urlTab !== initialTab,
@@ -402,12 +435,12 @@ export function FlipFeed({
         });
     const settle = (found: boolean, loadable: boolean) => {
       if (!landingSlug) return;
-      const action = settleLanding(landingSlug, found, loadable);
+      const action = settleLanding(landingSlug, found, loadable, productHome);
       if (action === "drop" && landingFirst === "wait" && !isGuideReplay(window.location.search)) decideGuide();
     };
 
-    // The look to start on: #look-<slug>, else the details sheet's look.
-    const slug = parseLookHash(hash) ?? landingSlug;
+    // The look to start on: the /p/<slug> look, else #look-<slug>, else the details sheet's look.
+    const slug = landing?.slug ?? parseLookHash(hash) ?? landingSlug;
     const has = (result: FeedActionResult | null | "stale" | "failed") =>
       typeof result === "object" && result !== null && landingSlug !== null && result.items.some((p) => p.slug === landingSlug);
     // Loads and state updates start from a timer, not the effect body.
@@ -632,6 +665,7 @@ export function FlipFeed({
     if (pendingClose.current) return; // already closing
     pendingClose.current = reason;
     detailsRef.current?.close(); // at once; the URL follows
+    setHeldSheet(null); // an owner preview's (or an unsettled /p/<slug> landing's) sheet, held without d
     const back = sheetCloseMethod(entryBehind.current) === "back";
     entryBehind.current = false;
     try {
@@ -658,7 +692,10 @@ export function FlipFeed({
     if (sheetShownSlug) {
       // Opened by the forward button: only our own entry (marker) has the feed entry behind it.
       if (!entryBehind.current && isOwnSheetEntry(window.history.state, sheetShownSlug)) entryBehind.current = true;
-      track("details_sheet_open", { slug: sheetShownSlug, collection: tabRef.current });
+      // ZP-512: the first open of a /p/<slug> landing is a shared link's.
+      const shared = sharedLanding.current === sheetShownSlug;
+      sharedLanding.current = null;
+      track("details_sheet_open", { slug: sheetShownSlug, collection: tabRef.current, ...(shared ? { from: "shared" } : {}) });
     } else {
       entryBehind.current = false;
       const opener = sheetOpener.current;
@@ -746,6 +783,7 @@ export function FlipFeed({
               callHref={links.call}
               onOpenDetails={openDetails}
               sheetOpen={sheetItem?.slug === item.slug}
+              preview={landing?.mode === "preview"}
             />
           ))}
           {nextOffset === null ? (
@@ -820,6 +858,8 @@ export function FlipFeed({
         collection={tab}
         links={links}
         onRequestClose={requestCloseDetails}
+        seedExtras={landing?.mode === "preview" ? (landing.extras ?? null) : null}
+        preview={landing?.mode === "preview"}
       />
 
       <ShellMenuDialog

@@ -28,7 +28,6 @@ about/visit ZP-491) use. Brand rules: `docs/storefront/brand-refinements.md`
 | `src/components/storefront/VisitDetails.tsx` | ZP-503: today's hours, week, holiday note, address, directions (menu "Visit us" and product "Try it on in store"). |
 | `src/lib/storefront/menu-model.ts` | ZP-503, pure: `buildMenuModel`, `buildStoreVisit`, `todayLine`, `aboutExcerpt`, `GUIDE_PARAM`. |
 | `src/lib/storefront/menu-data.ts` | ZP-503, server: `getMenuData()` (cached reads only). |
-| `src/components/storefront/product/NavMemory.tsx` | ZP-503: rendered by the layout; remembers the previous in-app pathname for the product page's back button. |
 
 ## The menu (ZP-503)
 

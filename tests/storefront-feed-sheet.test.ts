@@ -4,7 +4,7 @@
  *   a landing ?d= gets an entry behind it, close reasons.
  * - Sheet mechanics: max height (visible viewport), drag-to-close, "More" pill, plain clicks.
  * - The content model (rating line, primary button, reviews links) and the
- *   lazily loaded extras DTO (public fields only, top 2 reviews without photos).
+ *   lazily loaded extras DTO (public fields only, approved reviews without photos).
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert'
@@ -16,6 +16,8 @@ import {
   landingAction,
   landingSheetHistory,
   morePillText,
+  reviewsMore,
+  SHEET_TOP_REVIEWS,
   sheetHistoryState,
   SHEET_CLOSE_REASONS,
   SHEET_DRAG_CLOSE_PX,
@@ -230,18 +232,19 @@ describe('buildSheetExtras (the lazily loaded part)', () => {
       ref: 'V-0042',
       availability: 'IN_STOCK',
       contacts,
-      reviews: { summary: null, top: [], shop: null },
+      reviews: { summary: null, list: [], shop: null },
       visit,
     })
     assert.ok(!JSON.stringify(extras).includes('SECRET-1'), 'never the item number')
     assert.ok(!JSON.stringify(extras).includes('+263 4 000'), 'only the WhatsApp fields of the contacts')
   })
 
-  test('the first two approved reviews, without photos, formatted on the server', () => {
+  test('ZP-512: every approved review (display order), without photos, formatted on the server', () => {
     const reviews = { summary: { average: 4.7, count: 3 }, reviews: [review(0, true), review(1), review(2)] }
     const extras = buildSheetExtras(product(), { contacts, reviews, shop: { average: 4.8, count: 36 }, visit: null, now })
-    assert.strictEqual(extras.reviews.top.length, 2)
-    assert.deepStrictEqual(extras.reviews.top[0], {
+    assert.strictEqual(extras.reviews.list.length, 3)
+    assert.deepStrictEqual(extras.reviews.list.map((r) => r.comment), ['Comment 0', 'Comment 1', 'Comment 2'])
+    assert.deepStrictEqual(extras.reviews.list[0], {
       stars: 5,
       starsText: '★★★★★',
       starsLabel: '5 out of 5 stars',
@@ -251,7 +254,7 @@ describe('buildSheetExtras (the lazily loaded part)', () => {
       dateTime: '2026-10-20T10:00:00.000Z',
       reply: 'Thank you',
     })
-    assert.ok(!('photo' in extras.reviews.top[0]))
+    assert.ok(!('photo' in extras.reviews.list[0]))
     assert.deepStrictEqual(extras.reviews.summary, { average: 4.7, count: 3 })
     assert.deepStrictEqual(extras.reviews.shop, { average: 4.8, count: 36 })
   })
@@ -283,7 +286,7 @@ describe('sheetModel', () => {
     ref: 'V-0042',
     availability: 'IN_STOCK',
     contacts,
-    reviews: { summary: { average: 4.7, count: 3 }, top: [], shop: { average: 4.8, count: 36 } },
+    reviews: { summary: { average: 4.7, count: 3 }, list: [], shop: { average: 4.8, count: 36 } },
     visit: null,
     ...over,
   })
@@ -307,22 +310,32 @@ describe('sheetModel', () => {
       label: 'Rated 4.7 out of 5 from 3 reviews',
     })
     assert.strictEqual(sheetModel(item(), null).rating, null)
-    assert.strictEqual(sheetModel(item(), extras({ reviews: { summary: null, top: [], shop: null } })).rating, null)
+    assert.strictEqual(sheetModel(item(), extras({ reviews: { summary: null, list: [], shop: null } })).rating, null)
   })
 
-  test('links: full page, reviews on the full page; "See all N reviews" only when there are more than shown', () => {
-    const m = sheetModel(item(), extras())
-    assert.strictEqual(m.fullPageHref, '/site/p/linen-dress')
-    assert.deepStrictEqual(m.seeAll, { text: 'See all 3 reviews', href: '/site/p/linen-dress#reviews' })
-    const two = sheetModel(item(), extras({ reviews: { summary: { average: 5, count: 2 }, top: [], shop: null } }))
-    assert.strictEqual(two.seeAll, null)
+  test('ZP-512: no full-page link in the model', () => {
+    const m = sheetModel(item(), extras()) as unknown as Record<string, unknown>
+    assert.ok(!('fullPageHref' in m))
+    assert.ok(!('seeAll' in m))
+  })
+
+  test('ZP-512: reviews expand inside the sheet: 2 first, "See all N reviews", then 5 more at a time', () => {
+    assert.strictEqual(SHEET_TOP_REVIEWS, 2)
+    // Nothing to expand.
+    assert.strictEqual(reviewsMore({ shown: 2, total: 2, count: 2 }), null)
+    assert.strictEqual(reviewsMore({ shown: 2, total: 1, count: 1 }), null)
+    // First step names the piece's review count.
+    assert.deepStrictEqual(reviewsMore({ shown: 2, total: 12, count: 12 }), { label: 'See all 12 reviews', next: 7 })
+    assert.deepStrictEqual(reviewsMore({ shown: 7, total: 12, count: 12 }), { label: 'Show more reviews (5)', next: 12 })
+    assert.deepStrictEqual(reviewsMore({ shown: 2, total: 4, count: 4 }), { label: 'See all 4 reviews', next: 4 })
+    assert.strictEqual(reviewsMore({ shown: 12, total: 12, count: 12 }), null)
   })
 
   test('shop rating line and whether the reviews block shows', () => {
     const m = sheetModel(item(), extras())
     assert.deepStrictEqual(m.shopRating, { text: 'VYRA shop rating 4.8 ★', label: 'Rated 4.8 out of 5 by 36 verified customers' })
     assert.strictEqual(m.showReviews, true)
-    const none = sheetModel(item(), extras({ reviews: { summary: null, top: [], shop: null } }))
+    const none = sheetModel(item(), extras({ reviews: { summary: null, list: [], shop: null } }))
     assert.strictEqual(none.shopRating, null)
     assert.strictEqual(none.showReviews, false)
     assert.strictEqual(sheetModel(item(), null).showReviews, false)

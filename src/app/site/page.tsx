@@ -34,7 +34,7 @@ export default async function StorefrontHome({ searchParams }: Props) {
       initialNextOffset={page.nextOffset}
       initialTotal={page.total}
       // ZP-510: Call on the rail and in the details sheet (hidden without a phone number).
-      links={{ visit: to(SITE_ROUTES.visit), call: telHref(shell.settings.contacts.phone) }}
+      links={{ visit: to(SITE_ROUTES.visit), call: telHref(shell.settings.contacts.phone), home: to(SITE_ROUTES.home) }}
       hasWhatsApp={buildWhatsAppLink(shell.settings) !== null}
       menu={{ nav: shell.nav, whatsappHref: shell.whatsappHref, social: shell.social, current: shell.homeHref }}
     />

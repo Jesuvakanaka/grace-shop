@@ -2,7 +2,6 @@
  * ZP-490: storefront product page, pure parts.
  * - WhatsApp enquiry link (encoding round trip, chip variants, labels)
  *   src/lib/storefront/product-enquiry.ts
- * - "You may also like" selection: src/lib/storefront/related.ts
  * - Route decision (published / old slug / unpublished / unknown / preview),
  *   preview-request detection for the proxy, absolute product URL:
  *   src/lib/storefront/product-route.ts
@@ -20,7 +19,6 @@ import {
   telHref,
   toggleOption,
 } from '../src/lib/storefront/product-enquiry'
-import { pickRelated, RELATED_LIMIT } from '../src/lib/storefront/related'
 import {
   decideProductRoute,
   isProductPreviewRequest,
@@ -181,54 +179,6 @@ describe('colour and size chips', () => {
     assert.strictEqual(toggleOption(null, 'M'), 'M')
     assert.strictEqual(toggleOption('M', 'L'), 'L')
     assert.strictEqual(toggleOption('L', 'L'), null)
-  })
-})
-
-describe('related products ("You may also like")', () => {
-  const current = product('current')
-
-  test('same category only, never the product itself, at most 4', () => {
-    const list = [
-      product('current'),
-      product('a'),
-      product('other-cat', { category: { slug: 'tops', name: 'Tops' } }),
-      product('b'),
-      product('c'),
-      product('d'),
-      product('e'),
-    ]
-    assert.strictEqual(RELATED_LIMIT, 4)
-    assert.deepStrictEqual(pickRelated(list, current).map((p) => p.slug), ['a', 'b', 'c', 'd'])
-  })
-
-  test('sold-out products are left out when enough others exist', () => {
-    const list = [
-      product('s1', { availability: 'SOLD_OUT' }),
-      product('a'),
-      product('b', { availability: 'FEW_LEFT' }),
-      product('c'),
-      product('d'),
-    ]
-    assert.deepStrictEqual(pickRelated(list, current).map((p) => p.slug), ['a', 'b', 'c', 'd'])
-  })
-
-  test('sold-out products fill the remaining places, last', () => {
-    const list = [product('s1', { availability: 'SOLD_OUT' }), product('a'), product('s2', { availability: 'SOLD_OUT' }), product('b')]
-    assert.deepStrictEqual(pickRelated(list, current).map((p) => p.slug), ['a', 'b', 's1', 's2'])
-  })
-
-  test('keeps the input order within each group and honours a smaller limit', () => {
-    const list = [product('c'), product('a'), product('b')]
-    assert.deepStrictEqual(pickRelated(list, current, 2).map((p) => p.slug), ['c', 'a'])
-  })
-
-  test('nothing in the category: empty (the page hides the block)', () => {
-    assert.deepStrictEqual(pickRelated([product('x', { category: { slug: 'tops', name: 'Tops' } })], current), [])
-    assert.deepStrictEqual(pickRelated([], current), [])
-  })
-
-  test('duplicate slugs in the input appear once', () => {
-    assert.deepStrictEqual(pickRelated([product('a'), product('a')], current).map((p) => p.slug), ['a'])
   })
 })
 

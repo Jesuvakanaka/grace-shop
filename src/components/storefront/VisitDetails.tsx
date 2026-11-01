@@ -35,7 +35,7 @@ export function VisitDetails({ visit, showToday = true }: { visit: StoreVisit; s
       {visit.directionsHref ? (
         <a
           href={visit.directionsHref}
-          // ZP-493: counted as `directions` where a page listens (the product page, ProductTracking).
+          // ZP-493: counted as `directions` where a page listens (ZP-512: the feed's details sheet).
           data-track="directions"
           target="_blank"
           rel="noopener noreferrer"

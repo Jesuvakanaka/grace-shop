@@ -73,3 +73,21 @@ export async function loadFeed(input: { tab: unknown; offset?: number; limit?: n
   }
   return { tab, tabs, page: { ...page, items: page.items.map((p) => toFeedItem(p, ctx)) } }
 }
+
+/**
+ * ZP-512: the slide of one piece outside a feed load (a /p/<slug> look
+ * further down than one load reaches, or an owner preview of an unpublished
+ * piece, which has no Share link: it is not public yet).
+ */
+export async function feedItemFor(product: PublicProduct, options: { preview: boolean }): Promise<FeedItem> {
+  const [settings, base, h, reviews] = await Promise.all([getPublicSiteSettings(), getSiteBase(), headers(), getReviewsIndex()])
+  const storefrontHosts = hostRoutingConfigFromEnv().storefrontHosts
+  const host = h.get('host')
+  const item = toFeedItem(product, {
+    base,
+    contacts: settings.contacts,
+    productUrl: (slug: string) => productAbsoluteUrl({ slug, storefrontHosts, host }),
+    rating: (slug: string) => (options.preview ? null : (reviews.products[slug]?.summary ?? null)),
+  })
+  return options.preview ? { ...item, shareUrl: null } : item
+}
