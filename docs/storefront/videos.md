@@ -258,6 +258,57 @@ createdBy are never copied (`tests/video-dto.test.ts`). The owner preview
 is optional in the TypeScript type so hand-written DTOs need not list it;
 `toPublicProduct` always sets it.
 
+## Playback on the public site (ZP-502)
+
+Pure rules in `src/lib/storefront/feed-media.ts` (tested in
+`tests/storefront-feed-media.test.ts`); components in
+`src/components/storefront/video/`.
+
+- **Order** (`mediaItems`): the video is the **first** item of the feed
+  slide's sideways strip and of the product page gallery, then the photos.
+  Feed progress bars, gallery dots and thumbnails count it. A video without
+  both URLs and a positive size is left out.
+- **Element**: `<video muted loop playsInline preload poster>` (also
+  `disablePictureInPicture`), accessible name "<name> – video".
+- **Which one plays** (`useVideoPlayback`, `videoShouldPlay`): an
+  IntersectionObserver on each `<video>` (threshold 0.6, viewport root). It
+  measures the element clipped by its scrolling ancestors, so it covers both
+  the vertical feed and a sideways strip / gallery: only the visible slide's
+  visible strip item plays (at least 60% on screen); every other video is
+  paused. The visitor's own play / pause (the button, or native controls)
+  wins over autoplay until changed.
+- **Preload** (`videoPreload`, feed): `auto` for the current slide's video
+  (it is playing), `metadata` for the next slide only, `none` otherwise and
+  always in the server HTML (autoplay is decided after hydration), so the
+  first slide's poster stays the LCP.
+- **Poster** is a real `<img>` underneath the video (`StorefrontImg`): eager
+  with `fetchpriority="high"` on the first feed slide (and on the product
+  page), shown without JavaScript, while loading and after a failure. The
+  video fades in over it only once it actually plays (`playing` event).
+- **No autoplay** with `prefers-reduced-motion: reduce` or
+  `navigator.connection.saveData` (`autoplayAllowed`, `useAutoplayAllowed`):
+  the feed shows the poster with a large play button; the product page shows
+  the poster with native controls. If the browser refuses muted autoplay
+  (`NotAllowedError`, e.g. iOS Low Power Mode) the play button shows too.
+- **Failures**: a load error, or no playable data 8 s
+  (`VIDEO_STALL_MS`) after asking to play / while buffering, marks the video
+  failed: it stays hidden, the poster (and the photos after it) remain, and
+  the feed's play button is removed.
+- **Feed** (`FeedVideo`): the whole item is a link to the product page like
+  the photos (in clean view it is the slide's way in, named like the first
+  photo); a separate round play / pause button (44px, under the progress
+  bars on the left; centred and larger when waiting for the visitor) is
+  keyboard reachable.
+- **Product page** (`GalleryVideo` in `Gallery.tsx`): the first gallery
+  item, inline with native controls (keyboard play / pause, unmute is the
+  visitor's choice), muted, plays while visible. It does not open the
+  full-screen view; full screen shows the photos only (from the video it
+  starts at photo 1). `ProductView` passes `product.video` to `Gallery`.
+
+Local check data: create a product with a video through the admin API (see
+above; set `GRACE_FFMPEG_PATH` / `GRACE_FFPROBE_PATH` in the gitignored
+`.env` on Windows). UAT: `lime-pleated-midi-dress` has a test video.
+
 ## Revalidation
 
 A successfully processed video and a removed one call

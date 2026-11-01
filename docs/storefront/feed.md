@@ -19,6 +19,10 @@ pure model and tests stay).
 | `src/components/storefront/feed/FeedSlide.tsx` | Client: one look (photos, progress bars, "Show details" eye, caption, rail). |
 | `src/components/storefront/feed/CollectionSheet.tsx` | Client: the collections bottom sheet. |
 | `src/components/storefront/feed/StorefrontFrame.tsx` | Layout flag: no header/footer on the landing page. |
+| `src/lib/storefront/feed-guide.ts` | Pure (ZP-509): guide "seen" storage, when it opens, `?guide=1`, steps and copy, ring position. Tested in `tests/storefront-feed-guide.test.ts`. |
+| `src/components/storefront/feed/FeedGuide.tsx` | Client (ZP-509): the first-visit guide dialog. |
+| `src/lib/storefront/feed-media.ts` | Pure (ZP-502): strip / gallery item list with the video first, autoplay and preload rules. Tested in `tests/storefront-feed-media.test.ts`. |
+| `src/components/storefront/video/*` | Client (ZP-502): `FeedVideo` (strip item), `GalleryVideo` (product page), `useVideoPlayback`. See `docs/storefront/videos.md`. |
 | `src/components/storefront/ShellMenu.tsx` | The storefront menu dialog, moved out of `Header` so the feed opens the same menu (ZP-503 redesigns it). |
 | `src/components/storefront/product/useShare.ts` | Share logic (Web Share API, else copy link), shared by `ShareButton` and the feed. |
 
@@ -31,7 +35,9 @@ pure model and tests stay).
   sold-out flag, photo `src`/`srcSet`/`alt`, product link, absolute share URL
   and the WhatsApp link.
 - Pieces without a photo are left out (the feed is photo-first).
-- No dependency on the product video field (ZP-501).
+- ZP-502: the slide DTO also carries the piece's public video
+  (`video: { src, poster, width, height } | null`, copied field by field
+  with `pickVideo`; nothing else from the DTO).
 
 ## Order (`orderFeed`, `feedProducts`)
 
@@ -98,6 +104,50 @@ Input is the catalogue's "newest" sort (newest published first). Output:
   start on photo 1 too.
 - Top: a light scrim (130px, 50% ink at the top) behind the slim top bar
   (menu, wordmark, collection pill), which always shows.
+- ZP-502: when the piece has a video, it is the **first item** of the strip,
+  then the photos; the progress bars count it. Muted, looping, inline; only
+  the visible slide's visible strip item plays. Details (preload, poster as
+  LCP, reduced motion / Save-Data, fallbacks) in `docs/storefront/videos.md`.
+
+## First-visit guide (ZP-509)
+
+On the first visit, over the first look, a native modal `<dialog>`
+(`FeedGuide`, `showModal`) with a see-through dark layer (70% ink backdrop)
+and an animated finger (SVG, the design's `vy-anim-*` keyframes, hoisted
+once with a React `<style href precedence>`):
+
+| Step | Phones | Computers (md and up, fine pointer) | Finger |
+| --- | --- | --- | --- |
+| 1 | **Swipe up** – "Flick up for the next look, down to go back." | **Next look** – "Scroll or press ↓ for the next look" | moves up |
+| 2 | **Swipe sideways** – "Swipe left and right for more photos of the same piece." | **More photos** – "Click the arrows or swipe for more photos" | moves sideways |
+| 3 | **Tap for details** – "Tap the eye for the price and buttons. Tap the photo to open the piece." | same | taps the eye |
+
+- Step 3: the fingertip and a pulsing ring are placed on the **real** eye
+  button of the look on screen (its `[data-feed-eye]` rect, measured, again
+  on resize; `guideRing`), not hard-coded.
+- Controls: "1 of 3" (lime-200), dots, **Skip**, **Next** / **Got it**
+  (olive). Tapping the layer advances; doing the step's gesture on it (a
+  swipe up on step 1, sideways on step 2, the mouse wheel down on step 1)
+  completes that step.
+- Dialog semantics: labelled by the step title, described by "n of 3" and
+  the body (an `aria-live` region, so step changes are announced); focus
+  moves to Next and stays in the dialog; the feed behind is inert;
+  **Escape skips**; focus returns where it was (else to the feed).
+- `prefers-reduced-motion`: no animation; a still finger with arrows
+  (up / left-right), the ring stays still.
+- Contrast: cream text and the lime-200 step label stay above 4.5:1 even
+  over a white photo (70% ink layer plus a text shadow); Next is cream on olive.
+- **When**: only on the landing feed (`FlipFeed`), decided after hydration
+  (nothing in the server HTML; the swipe hint waits for it). "Seen" is
+  `localStorage` `vyra:feed:guide` = `seen`, written when the guide is
+  finished, skipped or closed (read and written in try/catch: storage
+  unavailable means it shows again next time). Never when the page opens on
+  a `#look-<slug>` hash (shared look, back from a product page) and never
+  when there are no looks.
+- **Replay** (contract with the menu, ZP-503): `/?guide=1` (also a soft
+  navigation while on the page) scrolls to the first look and opens the
+  guide even if seen, then removes `guide` from the URL with the safe
+  `replaceState` wrapper (other parameters and the hash kept).
 
 ### Clean view and "Show details"
 
@@ -114,8 +164,8 @@ Input is the catalogue's "newest" sort (newest published first). Output:
   "<name>, <price>[, <tag>]. View details" (`photoLinkLabel`), and an
   sr-only `<h2>` keeps the look's heading, so keyboard and screen reader
   users still get the name, price and tag and reach the product page.
-- The first-slide swipe hint always shows (until the first scroll). While it
-  shows, the caption and the rail sit higher (48px from the bottom) so they
+- The first-slide swipe hint shows after the first-visit guide (below),
+  until the first scroll. While it shows, the caption and the rail sit higher (48px from the bottom) so they
   never touch it.
 
 ### With details
@@ -172,7 +222,8 @@ scrolled to the anchor before hydration, which fires no scroll event).
   Page Up/Down, Space (on the feed itself), Home and End move between
   slides. Keys are handled on the feed element only (no global keydown).
 - `prefers-reduced-motion`: every programmatic scroll is instant.
-- "Swipe up for the next look" shows until the first scroll.
+- "Swipe up for the next look" shows once the first-visit guide is done (or
+  was not shown), until the first scroll.
 
 ## Header and footer
 
@@ -199,6 +250,9 @@ stays at least 4.5:1 on light photos.
 
 ## Performance and SEO
 
+- With a video first, its poster `<img>` takes the first photo's place
+  (eager, and `fetchpriority="high"` on slide 1: the LCP), and the video
+  itself is `preload="none"` in the server HTML.
 - The first slide's first photo is eager with `fetchpriority="high"`; the
   second slide's first photo is eager (normal priority), ready for the first
   flick; every other photo is `loading="lazy"`.

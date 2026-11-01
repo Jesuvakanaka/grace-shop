@@ -16,12 +16,21 @@ import {
   type FeedItem,
   type FeedTab,
 } from "@/lib/storefront/feed";
+import {
+  FEED_GUIDE_PARAM,
+  isGuideReplay,
+  readGuideSeen,
+  shouldOpenGuide,
+  withoutGuideParam,
+  writeGuideSeen,
+} from "@/lib/storefront/feed-guide";
 import { Wordmark } from "../Brand";
 import { cn } from "../cn";
 import { ShellMenuDialog } from "../ShellMenu";
 import type { NavItem, SocialLink } from "../types";
 import { CollectionSheet } from "./CollectionSheet";
 import { ChevronIcon, MenuLinesIcon } from "./feed-icons";
+import { FeedGuide } from "./FeedGuide";
 import { FeedSlide } from "./FeedSlide";
 
 /** Start loading the next page this many slides before the end. */
@@ -53,6 +62,15 @@ const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)"
 /** After a deploy the old page's action id is unknown to the server: only a reload helps. */
 function isStaleDeployment(error: unknown): boolean {
   return error instanceof Error && /server action/i.test(error.message);
+}
+
+/** localStorage, or null where reading it throws (blocked storage, some private modes). */
+function localStore(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 /** replaceState, never throwing (Safari rate-limits history calls). */
@@ -97,6 +115,12 @@ export function FlipFeed({
   const [loadFailed, setLoadFailed] = useState(false);
   /** Caption and rail shown. Clean view (photos only) by default; the choice is kept for the session. */
   const [details, setDetails] = useState(false);
+  /**
+   * ZP-509 first-visit guide: "pending" until the browser has been asked
+   * (server render and hydration: no guide, no swipe hint), then "open" or
+   * "done". The swipe hint shows only once it is "done".
+   */
+  const [guide, setGuide] = useState<"pending" | "open" | "done">("pending");
 
   // A soft navigation back to this page (new server props) starts afresh.
   const [source, setSource] = useState(initialItems);
@@ -114,6 +138,8 @@ export function FlipFeed({
   const urlTab = resolveFeedTab(searchParams.get(FEED_TAB_PARAM), tabs);
 
   const scroller = useRef<HTMLDivElement>(null);
+  /** The feed column (the guide covers it). */
+  const frame = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   const sheetRef = useRef<HTMLDialogElement>(null);
@@ -138,6 +164,8 @@ export function FlipFeed({
   const slideCount = items.length + 1; // the looks, then the end (or loading) slide
   const tabLabel = tabs.find((t) => t.id === tab)?.label ?? tabs[0]?.label ?? "";
   const atEnd = nextOffset === null && active >= items.length;
+  /** "Swipe up for the next look": after the guide (or when it is not shown), until the first scroll. */
+  const showHint = !hinted && items.length > 0 && guide === "done";
 
   // ------------------------------------------------------------ helpers
 
@@ -261,6 +289,17 @@ export function FlipFeed({
     }
     const detailsTimer = storedDetails ? setTimeout(() => setDetails(true)) : undefined;
 
+    // ZP-509: the first-visit guide, over the first look ("seen" in
+    // localStorage; never on a #look- hash). A replay (?guide=1) is the effect below.
+    const guideTimer = isGuideReplay(window.location.search)
+      ? undefined
+      : setTimeout(() => {
+          const open =
+            initialItems.length > 0 &&
+            shouldOpenGuide({ seen: readGuideSeen(localStore()), hash: window.location.hash, replay: false });
+          setGuide(open ? "open" : "done");
+        });
+
     const slug = parseLookHash(window.location.hash);
     // Loads and state updates start from a timer, not the effect body.
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -280,6 +319,7 @@ export function FlipFeed({
     return () => {
       clearTimeout(timer);
       clearTimeout(detailsTimer);
+      clearTimeout(guideTimer);
       html.style.overflow = previous;
     };
     // Mount only: the initial props describe the server render.
@@ -294,6 +334,42 @@ export function FlipFeed({
     const timer = setTimeout(() => void switchTab(urlTab, null));
     return () => clearTimeout(timer);
   }, [urlTab, switchTab]);
+
+  // ZP-509 replay: /?guide=1 (the menu's "How to use VYRA", also as a soft
+  // navigation while on the page) opens the guide over the first look even
+  // if seen, and the parameter is removed from the URL. Not on a #look- hash.
+  const guideParam = searchParams.get(FEED_GUIDE_PARAM);
+  useEffect(() => {
+    if (guideParam !== "1") return;
+    const open = items.length > 0 && shouldOpenGuide({ seen: true, hash: window.location.hash, replay: true });
+    if (open) scrollToIndex(0, false);
+    const timer = setTimeout(() => {
+      if (open) {
+        syncActive();
+        setGuide("open");
+      } else {
+        setGuide((g) => (g === "pending" ? "done" : g));
+      }
+      // Last: removing the parameter changes `guideParam` (this effect then does nothing).
+      replaceUrl(withoutGuideParam(window.location.pathname, window.location.search, window.location.hash));
+    });
+    return () => clearTimeout(timer);
+  }, [guideParam, items.length, scrollToIndex, syncActive]);
+
+  const onGuideDone = useCallback(() => {
+    writeGuideSeen(localStore());
+    setGuide("done");
+  }, []);
+
+  /** The eye button of the look on screen (the guide's third step rings it). */
+  const findEye = useCallback(() => {
+    const el = scroller.current;
+    if (!el) return null;
+    const index = slideIndexAt(el.scrollTop, el.clientHeight, el.childElementCount);
+    return el.querySelector(`[data-feed-slide="${index}"] [data-feed-eye]`);
+  }, []);
+
+  const focusFeed = useCallback(() => scroller.current?.focus({ preventScroll: true }), []);
 
   // ------------------------------------------- scroll: the current slide
 
@@ -404,7 +480,7 @@ export function FlipFeed({
       {/* Keeps the column centred against the step buttons on computers. */}
       <span aria-hidden="true" className="hidden w-12 md:block" />
 
-      <div className="relative h-full w-full overflow-hidden bg-brand-ink text-brand-cream-50 md:h-[calc(100%-32px)] md:w-auto md:aspect-[9/16] md:max-w-[calc(100vw-160px)] md:rounded-[4px] md:shadow-[0_18px_50px_rgba(30,30,30,0.22)]">
+      <div ref={frame} className="relative h-full w-full overflow-hidden bg-brand-ink text-brand-cream-50 md:h-[calc(100%-32px)] md:w-auto md:aspect-[9/16] md:max-w-[calc(100vw-160px)] md:rounded-[4px] md:shadow-[0_18px_50px_rgba(30,30,30,0.22)]">
         {/* Slim top bar, first in reading and tab order, drawn on top: menu, wordmark, collection pill. Ink over the cream end slide. */}
         <div
           className={cn(
@@ -461,8 +537,9 @@ export function FlipFeed({
               item={item}
               index={i}
               total={total}
-              lifted={!hinted}
+              lifted={showHint}
               priority={i === 0 ? "high" : i === 1 ? "eager" : "lazy"}
+              slideOffset={i - active}
               details={details}
               onToggleDetails={toggleDetails}
               visitHref={links.visit}
@@ -505,7 +582,7 @@ export function FlipFeed({
           )}
         </div>
 
-        {!hinted && items.length > 0 ? (
+        {showHint ? (
           <div
             aria-hidden="true"
             className="pointer-events-none absolute inset-x-0 bottom-2.5 z-10 flex flex-col items-center text-brand-cream motion-safe:animate-pulse"
@@ -530,6 +607,10 @@ export function FlipFeed({
           <ChevronIcon direction="down" className="h-5 w-5" />
         </button>
       </div>
+
+      {guide === "open" ? (
+        <FeedGuide frameRef={frame} findEye={findEye} onDone={onGuideDone} fallbackFocus={focusFeed} />
+      ) : null}
 
       <CollectionSheet
         dialogRef={sheetRef}

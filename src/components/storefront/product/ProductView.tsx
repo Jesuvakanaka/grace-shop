@@ -128,7 +128,7 @@ export function ProductView({
           <div className="grid grid-cols-[minmax(0,1fr)] gap-[22px] lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:gap-16">
             {/* Phones: full width under the top bar. */}
             <div className="-mx-4 min-w-0 sm:-mx-6 lg:mx-0">
-              <Gallery images={product.images.map(toImageData)} label={product.name} eager counter />
+              <Gallery images={product.images.map(toImageData)} video={product.video} label={product.name} eager counter />
             </div>
 
             <div className="flex flex-col gap-[22px] lg:sticky lg:top-28 lg:gap-7 lg:self-start">

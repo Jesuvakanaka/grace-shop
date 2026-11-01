@@ -261,6 +261,7 @@ describe('toFeedItem', () => {
       'shareUrl',
       'slug',
       'soldOut',
+      'video',
     ]);
     assert.strictEqual(item.href, '/site/p/lime-midi');
     assert.strictEqual(item.price, '$65');
