@@ -18,9 +18,6 @@ import { addressLines, dayInTimeZone, directionsLink, meaningfulText, SHOP_TIME_
 /** `/?guide=1` replays the first-visit guide on the landing feed (ZP-509 reads and removes it; one constant, from feed-guide). */
 export const GUIDE_PARAM = FEED_GUIDE_PARAM
 
-/** Longest About excerpt in the menu, in characters (an ellipsis is added when cut). */
-export const ABOUT_EXCERPT_MAX = 180
-
 // ------------------------------------------------------------------ hours
 
 export type TodayLine = { text: string; open: boolean }
@@ -35,19 +32,17 @@ export function todayLine(hours: OpeningHours | null, now: Date, timeZone: strin
 
 // ------------------------------------------------------------------ about
 
-/** The story's first paragraph, cut at a word to at most ABOUT_EXCERPT_MAX characters; null when not set. */
-export function aboutExcerpt(story: string | null | undefined, max: number = ABOUT_EXCERPT_MAX): string | null {
-  const first = (story ?? '')
+/** ZP-514: the whole story as paragraphs (blank-line separated, placeholders dropped); [] when not set. */
+export function aboutParagraphs(story: string | null | undefined): string[] {
+  return (story ?? '')
     .replace(/\r\n?/g, '\n')
     .split(/\n\s*\n/)
-    .map((p) => meaningfulText(p.replace(/\s+/g, ' ')))
-    .find((p): p is string => p !== null)
-  if (!first) return null
-  if (first.length <= max) return first
-  const cut = first.slice(0, max)
-  const space = cut.lastIndexOf(' ')
-  return `${(space > max / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:.–-]+$/, '')}…`
+    .map((p) => meaningfulText(p.trim()))
+    .filter((p): p is string => p !== null)
 }
+
+/** ZP-514: the menu's About VYRA (the /about page lives here now). */
+export type MenuAbout = { headline: string | null; paragraphs: string[]; imageUrl: string | null }
 
 // ------------------------------------------------------------------ visit
 
@@ -88,12 +83,12 @@ export type MenuModel = {
   homeHref: string
   /** New in (the landing feed), then each published category that has looks (`/?c=<slug>`). */
   collections: MenuCollection[]
-  /** About excerpt; null shows "About VYRA" as a plain link to /about. */
-  about: string | null
-  aboutHref: string
-  /** Null shows "Visit us" as a plain link to /visit. */
+  /** ZP-514: the whole About story (headline, paragraphs, picture); null hides the row. */
+  about: MenuAbout | null
+  /** Null hides the Visit us row. */
   visit: StoreVisit | null
-  visitHref: string
+  /** ZP-514: the owner's map link (Visit us), or null. */
+  mapHref: string | null
   /** The landing page with ?guide=1. */
   guideHref: string
   /** General-enquiry wa.me link; null hides the button. */
@@ -110,6 +105,12 @@ export type MenuShopRating = { average: string; stars: string; line: string }
 export function menuShopRating(summary: RatingSummary | null | undefined): MenuShopRating | null {
   const line = shopRatingLine(summary ?? null)
   return summary && line ? { average: formatAverage(summary.average), stars: starsText(summary.average), line } : null
+}
+
+function menuAbout(settings: PublicSiteSettings): MenuAbout | null {
+  const paragraphs = aboutParagraphs(settings.about.story)
+  if (paragraphs.length === 0) return null
+  return { headline: meaningfulText(settings.about.headline), paragraphs, imageUrl: settings.about.imageUrl }
 }
 
 export function buildMenuModel(input: {
@@ -131,10 +132,9 @@ export function buildMenuModel(input: {
       href: t.id === FEED_NEW_TAB ? homeHref : to(`/?${FEED_TAB_PARAM}=${encodeURIComponent(t.id)}`),
       count: t.count > 0 ? looksLabel(t.count) : null,
     })),
-    about: aboutExcerpt(settings.about.story),
-    aboutHref: to(SITE_ROUTES.about),
+    about: menuAbout(settings),
     visit: buildStoreVisit(settings),
-    visitHref: to(SITE_ROUTES.visit),
+    mapHref: meaningfulText(settings.visit.mapUrl),
     guideHref: to(`/?${GUIDE_PARAM}=1`),
     whatsappHref: buildWhatsAppLink(settings),
     // Same social list (labels, order) as the header and footer.

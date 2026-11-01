@@ -317,8 +317,8 @@ Pure rules in `src/lib/storefront/feed-media.ts` (tested in
   photo); a separate round play / pause button (44px, under the progress
   bars on the left; centred and larger when waiting for the visitor) is
   keyboard reachable.
-- **Gallery** (`GalleryVideo` in `Gallery.tsx`; ZP-512: only the
-  /site/preview component gallery uses it since the product page is gone): the first gallery
+- **Gallery** (`GalleryVideo` in `Gallery.tsx`; removed in ZP-514 with
+  /site/preview, described here for the record): the first gallery
   item, inline with native controls (keyboard play / pause, unmute is the
   visitor's choice), muted, plays while visible. It does not open the
   full-screen view; full screen shows the photos only (from the video it

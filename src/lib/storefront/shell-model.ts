@@ -1,7 +1,7 @@
 // ZP-487: what the storefront shell (header, footer, privacy page) shows,
 // built from the public site settings and the published categories. Pure:
 // the data comes in, nothing is fetched here (see ./shell.ts for that).
-import type { FooterColumn, NavItem, SocialLink } from '@/components/storefront/types'
+import type { NavItem, SocialLink } from '@/components/storefront/types'
 import { buildWhatsAppLink } from '@/lib/site-settings/whatsapp'
 import type { PublicSiteSettings } from '@/lib/site-settings/dto'
 import { DAYS, type Day, type OpeningHours } from '@/lib/site-settings/schema'
@@ -28,7 +28,6 @@ export type ShellModel = {
   holidayNote: string | null
   phone: string | null
   email: string | null
-  footerColumns: FooterColumn[]
   tagline: string
 }
 
@@ -72,20 +71,14 @@ export function buildShellModel(input: {
   const { settings, categories, base } = input
   const to = (path: string) => sitePath(base, path)
 
-  const collections: NavItem = { label: 'Collections', href: to(SITE_ROUTES.collections) }
-  if (categories.length > 0) {
-    collections.children = [
-      { label: 'All collections', href: to(SITE_ROUTES.collections) },
-      ...categories.map((c) => ({ label: c.name, href: to(SITE_ROUTES.collection(c.slug)) })),
-    ]
-  }
-
+  // ZP-514: only what remains (the menu's fallback without its provider): the feed's
+  // collections (New in, then ?c=<slug>), About and Visit us (they open the menu), Privacy.
   const nav: NavItem[] = [
-    { label: 'Shop', href: to(SITE_ROUTES.shop) },
-    collections,
-    { label: 'New Arrivals', href: to(SITE_ROUTES.newArrivals) },
+    { label: 'New in', href: to(SITE_ROUTES.home) },
+    ...categories.map((c) => ({ label: c.name, href: to(`/?c=${encodeURIComponent(c.slug)}`) })),
     { label: 'About', href: to(SITE_ROUTES.about) },
-    { label: 'Visit Us', href: to(SITE_ROUTES.visit) },
+    { label: 'Visit us', href: to(SITE_ROUTES.visit) },
+    { label: 'Privacy', href: to(SITE_ROUTES.privacy) },
   ]
 
   const social: SocialLink[] = []
@@ -105,24 +98,6 @@ export function buildShellModel(input: {
     holidayNote: meaningfulText(settings.visit.holidayNote),
     phone: settings.contacts.phone,
     email: settings.contacts.email,
-    footerColumns: [
-      {
-        title: 'Shop',
-        links: [
-          { label: 'Shop', href: to(SITE_ROUTES.shop) },
-          { label: 'New Arrivals', href: to(SITE_ROUTES.newArrivals) },
-          { label: 'Collections', href: to(SITE_ROUTES.collections) },
-        ],
-      },
-      {
-        title: 'VYRA',
-        links: [
-          { label: 'About', href: to(SITE_ROUTES.about) },
-          { label: 'Visit Us', href: to(SITE_ROUTES.visit) },
-          { label: 'Privacy', href: to(SITE_ROUTES.privacy) },
-        ],
-      },
-    ],
     tagline: VYRA_TAGLINE,
   }
 }

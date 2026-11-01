@@ -102,7 +102,7 @@ App icons in `src/app/`:
 
 ## Storefront
 
-The public VYRA site (ZP-481). Components live in `src/components/storefront/`, the storefront CSS utilities (`sf-*`) at the end of `src/app/globals.css`, and a design preview of every component at `/site/preview` (only when `GRACE_STOREFRONT_PREVIEW=true`; never indexed).
+The public VYRA site (ZP-481). Components live in `src/components/storefront/`, the storefront CSS utilities (`sf-*`) at the end of `src/app/globals.css`. (The design preview at `/site/preview` and its `GRACE_STOREFRONT_PREVIEW` switch were removed in ZP-514; the storefront is the flip feed, docs/storefront/feed.md.)
 
 ### Personality
 
@@ -223,4 +223,4 @@ Computed with the WCAG 2.x relative-luminance formula. Text needs 4.5:1 and non-
 - The admin CSS sets `* { border-color: … }` outside any cascade layer, which beats Tailwind's layered `border-*` colour utilities. Storefront components therefore use the important form (`border-brand-ink/10!`, `divide-brand-ink/10!`) wherever the border colour matters.
 - The `sf-*` typography and scroller classes sit in `@layer components`, so Tailwind utilities can still override them; focus, image-state and motion rules sit outside layers on purpose.
 - Plain `<img>` is used for now (local files and preview SVGs with explicit sizes). Switch `StorefrontImg` to `next/image` once ZP-484 serves real photos.
-- The design preview draws its placeholder "photography" as SVG (`src/app/site/preview/placeholder-art.ts`, served by `src/app/site/preview/art/[key]/route.ts`). It never uses the private August packing shots or any external image host.
+- (ZP-514: the design preview and its placeholder SVG art are gone.) Storefront images are the owner's product photos only, never the private August packing shots or any external image host.

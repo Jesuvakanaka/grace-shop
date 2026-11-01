@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { Footer, Header, SiteBaseProvider } from "@/components/storefront";
+import { SiteBaseProvider } from "@/components/storefront";
+import { SimpleTopBar } from "@/components/storefront/SimpleTopBar";
 import { StorefrontFrame } from "@/components/storefront/feed/StorefrontFrame";
 import { ShellMenuProvider } from "@/components/storefront/ShellMenu";
 import { getMenuData } from "@/lib/storefront/menu-data";
@@ -12,8 +13,9 @@ import { AnalyticsProvider } from "@/lib/analytics/provider";
 // no login screen, no admin chrome. Fonts (Cormorant Garamond, Jost) and
 // globals.css come from the root layout.
 //
-// Landmarks: skip link, <header> (banner), <main id="main">, <footer>
-// (contentinfo). Reads the request host for link prefixing, so storefront
+// Landmarks: skip link, <main id="main">; ZP-514: the few pages that are
+// not the feed (privacy, review form, 404) get a simple top bar (wordmark +
+// "Back to the looks"), no header navigation and no footer. Reads the request host for link prefixing, so storefront
 // pages render dynamically; their data comes from the cached reads.
 //
 // ZP-500: the landing page (/) is a full-screen feed with no header or
@@ -49,24 +51,7 @@ export default async function StorefrontLayout({
               Skip to content
             </a>
           }
-          header={
-            <Header nav={shell.nav} homeHref={shell.homeHref} whatsappHref={shell.whatsappHref} social={shell.social} />
-          }
-          footer={
-            <Footer
-              tagline={shell.tagline}
-              address={shell.address}
-              hours={shell.hours}
-              holidayNote={shell.holidayNote}
-              phone={shell.phone}
-              email={shell.email}
-              whatsappHref={shell.whatsappHref}
-              columns={shell.footerColumns}
-              social={shell.social}
-              homeHref={shell.homeHref}
-              year={new Date().getFullYear()}
-            />
-          }
+          header={<SimpleTopBar homeHref={shell.homeHref} />}
         >
           {children}
         </StorefrontFrame>

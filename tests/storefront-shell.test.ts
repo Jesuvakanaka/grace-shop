@@ -2,20 +2,15 @@
  * ZP-487: storefront shell, pure parts.
  * - Link prefixing for the two front doors (src/lib/storefront/paths.ts).
  * - The shell model built from public settings + categories (src/lib/storefront/shell-model.ts).
- * - The lookbook photo manifest (src/components/storefront/lookbook.ts).
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
-import sharp from 'sharp';
 import { SITE_ROUTES, siteBaseForHost, sitePath } from '../src/lib/storefront/paths';
 import { buildShellModel, formatOpeningHours, splitAddress } from '../src/lib/storefront/shell-model';
 import { toPublicSiteSettings } from '../src/lib/site-settings/dto';
 import { SITE_SETTINGS_DEFAULTS } from '../src/lib/site-settings/schema';
 import type { OpeningHours } from '../src/lib/site-settings/schema';
 import type { PublicCategory } from '../src/lib/storefront/dto';
-import { LOOKBOOK, LOOKBOOK_STEMS, lookbookImage, lookbookSrcSet } from '../src/components/storefront/lookbook';
 
 describe('sitePath: storefront links on both front doors', () => {
   test('admin/UAT host: everything under /site', () => {
@@ -129,20 +124,19 @@ const categories: PublicCategory[] = [
 ];
 
 describe('buildShellModel', () => {
-  test('defaults (nothing configured): nav prefixed, no WhatsApp, no socials, no address or hours', () => {
+  test('defaults (nothing configured): fallback nav to what remains (ZP-514), no WhatsApp, no socials, no address or hours', () => {
     const m = buildShellModel({ settings: settings(), categories: [], base: '/site' });
     assert.strictEqual(m.homeHref, '/site');
     assert.deepStrictEqual(
       m.nav.map((n) => [n.label, n.href]),
       [
-        ['Shop', '/site/shop'],
-        ['Collections', '/site/collections'],
-        ['New Arrivals', '/site/new'],
+        ['New in', '/site'],
         ['About', '/site/about'],
-        ['Visit Us', '/site/visit'],
+        ['Visit us', '/site/visit'],
+        ['Privacy', '/site/privacy'],
       ],
     );
-    assert.strictEqual(m.nav[1].children, undefined, 'no categories, no sub-menu');
+    assert.ok(!('footerColumns' in m), 'no footer any more');
     assert.strictEqual(m.whatsappHref, null);
     assert.deepStrictEqual(m.social, []);
     assert.deepStrictEqual(m.address, []);
@@ -153,35 +147,21 @@ describe('buildShellModel', () => {
     assert.strictEqual(m.tagline, 'WEAR DIFFERENT.');
   });
 
-  test('categories become the Collections sub-menu (All collections first)', () => {
+  test('categories are feed collections (?c=<slug>) after New in', () => {
     const m = buildShellModel({ settings: settings(), categories, base: '/site' });
-    assert.deepStrictEqual(m.nav[1].children, [
-      { label: 'All collections', href: '/site/collections' },
-      { label: 'Dresses', href: '/site/collections/dresses' },
-      { label: 'Sets', href: '/site/collections/sets' },
+    assert.deepStrictEqual(m.nav.slice(0, 3).map((n) => [n.label, n.href]), [
+      ['New in', '/site'],
+      ['Dresses', '/site?c=dresses'],
+      ['Sets', '/site?c=sets'],
     ]);
   });
 
   test('storefront host: clean links everywhere', () => {
     const m = buildShellModel({ settings: settings(), categories, base: '' });
     assert.strictEqual(m.homeHref, '/');
-    assert.strictEqual(m.nav[0].href, '/shop');
-    assert.strictEqual(m.nav[1].children?.[1].href, '/collections/dresses');
-    const links = m.footerColumns.flatMap((c) => c.links.map((l) => l.href));
+    const links = m.nav.map((n) => n.href);
     assert.ok(links.every((href) => !href.startsWith('/site')), links.join(' '));
-    assert.ok(links.includes('/privacy'));
-  });
-
-  test('footer links include About, Visit Us and Privacy', () => {
-    const m = buildShellModel({ settings: settings(), categories, base: '/site' });
-    const all = m.footerColumns.flatMap((c) => c.links);
-    for (const [label, href] of [
-      ['About', '/site/about'],
-      ['Visit Us', '/site/visit'],
-      ['Privacy', '/site/privacy'],
-    ]) {
-      assert.ok(all.some((l) => l.label === label && l.href === href), `${label} ${href}`);
-    }
+    assert.ok(links.includes('/privacy') && links.includes('/?c=dresses'));
   });
 
   test('configured settings: WhatsApp general enquiry link, only the socials set, address and hours', () => {
@@ -214,45 +194,5 @@ describe('buildShellModel', () => {
     assert.strictEqual(m.holidayNote, 'Closed on public holidays');
     assert.strictEqual(m.phone, '+263 77 123 4567');
     assert.strictEqual(m.email, 'hello@vyra.example');
-  });
-});
-
-describe('lookbook manifest', () => {
-  test('the five owner photos, each with outfit alt text', () => {
-    assert.deepStrictEqual([...LOOKBOOK_STEMS].sort(), [
-      'bronze-pleated-set',
-      'chartreuse-fringe-knit-set',
-      'lime-pleated-dress',
-      'olive-print-jumpsuit',
-      'olive-print-pleated-dress',
-    ]);
-    for (const stem of LOOKBOOK_STEMS) {
-      assert.match(LOOKBOOK[stem].alt, /^Model in /, stem);
-    }
-  });
-
-  test('both files exist and the manifest sizes match the real files (honest srcset descriptors)', async () => {
-    for (const stem of LOOKBOOK_STEMS) {
-      const entry = LOOKBOOK[stem];
-      for (const variant of [entry.small, entry.large]) {
-        const file = path.join(process.cwd(), 'public', variant.src);
-        assert.ok(existsSync(file), file);
-        const meta = await sharp(file).metadata();
-        assert.deepStrictEqual([meta.width, meta.height], [variant.width, variant.height], variant.src);
-      }
-    }
-  });
-
-  test('srcset and image data', () => {
-    assert.strictEqual(
-      lookbookSrcSet('lime-pleated-dress'),
-      '/brand/lookbook/lime-pleated-dress-640.webp 640w, /brand/lookbook/lime-pleated-dress-1200.webp 1024w',
-    );
-    const img = lookbookImage('olive-print-jumpsuit');
-    assert.strictEqual(img.src, '/brand/lookbook/olive-print-jumpsuit-1200.webp');
-    assert.strictEqual(img.srcSet, lookbookSrcSet('olive-print-jumpsuit'));
-    assert.strictEqual(img.alt, LOOKBOOK['olive-print-jumpsuit'].alt);
-    assert.deepStrictEqual([img.width, img.height], [1024, 1536]);
-    assert.strictEqual(lookbookImage('olive-print-jumpsuit', { alt: '' }).alt, '');
   });
 });
