@@ -4,6 +4,7 @@
 // columns (updatedBy, timestamps) and raw storage keys are never included.
 import { isValidImageKey, PRODUCT_IMAGE_PREFIX } from '@/lib/storage/keys'
 import type { OpeningHours, SiteSettingsData } from './schema'
+import type { SizeChartRow } from '@/lib/storefront-model/size-chart'
 
 /**
  * Public URL for a settings picture: /api/images/public/<hash>.webp.
@@ -59,6 +60,8 @@ export type PublicSiteSettings = {
   showItemNumber: boolean
   /** ZP-508: the optional "Review us on Google" link (validated https Google link). */
   reviews: { googleReviewUrl: string | null }
+  /** ZP-513: the details card's "How to buy" and default "Size guide". */
+  buying: { holdHours: number | null; paymentMethods: string | null; sizeChart: SizeChartRow[] | null }
 }
 
 export function toPublicSiteSettings(s: SiteSettingsData): PublicSiteSettings {
@@ -94,5 +97,6 @@ export function toPublicSiteSettings(s: SiteSettingsData): PublicSiteSettings {
     fewLeftThreshold: s.fewLeftThreshold,
     showItemNumber: s.showItemNumber,
     reviews: { googleReviewUrl: s.googleReviewUrl },
+    buying: { holdHours: s.holdHours, paymentMethods: s.paymentMethods, sizeChart: s.defaultSizeChart },
   }
 }

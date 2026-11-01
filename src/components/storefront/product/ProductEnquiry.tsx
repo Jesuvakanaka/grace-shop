@@ -7,13 +7,10 @@
 // buildWhatsAppLink (via productPageEnquiryHref: the site settings template,
 // or the feed's restock message for sold-out pieces, ZP-503).
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
-import { track } from "@/lib/analytics/client";
 import type { WhatsAppContactSettings } from "@/lib/site-settings/whatsapp";
-import { enquiryLabel, toggleOption } from "@/lib/storefront/product-enquiry";
+import { enquiryLabel } from "@/lib/storefront/product-enquiry";
 import { productPageEnquiryHref } from "@/lib/storefront/product-page-enquiry";
-import { allowedOption } from "@/lib/storefront/tracking";
 import type { Availability } from "@/lib/storefront-model/rules";
-import { cn } from "../cn";
 
 type EnquiryState = {
   colour: string | null;
@@ -42,6 +39,7 @@ export function ProductEnquiryProvider({
   availability,
   productRef,
   slug = null,
+  defaultColour = null,
   children,
 }: {
   /** Only the WhatsApp fields of the public site settings. */
@@ -54,89 +52,25 @@ export function ProductEnquiryProvider({
   productRef?: string | null;
   /** ZP-493: the piece's slug, for the size / colour / enquiry analytics events. */
   slug?: string | null;
+  /** ZP-513 review: a piece's only colour (no picker): in the message unless another is picked. */
+  defaultColour?: string | null;
   children: ReactNode;
 }) {
   const [colour, setColour] = useState<string | null>(null);
   const [size, setSize] = useState<string | null>(null);
   const value = useMemo<EnquiryState>(
     () => ({
-      colour,
+      colour: colour ?? defaultColour,
       size,
       setColour,
       setSize,
       // ZP-503: sold-out pieces send the restock message; ZP-504: the public ref goes along.
-      href: productPageEnquiryHref(contacts, availability, { name: productName, url: productUrl, colour, size, ref: productRef }),
+      href: productPageEnquiryHref(contacts, availability, { name: productName, url: productUrl, colour: colour ?? defaultColour, size, ref: productRef }),
       label: enquiryLabel(availability),
       slug,
       soldOut: availability === "SOLD_OUT",
     }),
-    [colour, size, contacts, productName, productUrl, availability, productRef, slug],
+    [colour, defaultColour, size, contacts, productName, productUrl, availability, productRef, slug],
   );
   return <EnquiryContext.Provider value={value}>{children}</EnquiryContext.Provider>;
-}
-
-function OptionGroup({
-  legend,
-  options,
-  selected,
-  onSelect,
-}: {
-  legend: string;
-  options: string[];
-  selected: string | null;
-  onSelect: (value: string | null) => void;
-}) {
-  return (
-    <fieldset>
-      <legend className="sf-label mb-3 text-brand-ink">
-        {legend}
-        {selected ? <span className="text-brand-ink-soft">: {selected}</span> : null}
-      </legend>
-      <div className="flex flex-wrap gap-2">
-        {options.map((option) => {
-          const active = option === selected;
-          return (
-            <button
-              key={option}
-              type="button"
-              aria-pressed={active}
-              onClick={() => onSelect(toggleOption(selected, option))}
-              className={cn(
-                "sf-focus sf-label inline-flex min-h-11 min-w-11 items-center justify-center rounded-[2px] border px-3 transition-colors duration-200",
-                active
-                  ? "border-brand-ink! bg-brand-ink text-brand-cream"
-                  : "border-brand-ink/20! bg-white text-brand-ink hover:border-brand-ink!",
-              )}
-            >
-              {option}
-            </button>
-          );
-        })}
-      </div>
-    </fieldset>
-  );
-}
-
-/** Colour and size chips (single select each; press again to clear). Hidden when there are none. */
-export function ProductOptions({ colours, sizes }: { colours: string[]; sizes: string[] }) {
-  const { colour, size, setColour, setSize, slug } = useEnquiry();
-  if (colours.length === 0 && sizes.length === 0) return null;
-  // ZP-493: a chip picked (not cleared), sent exactly as the chip shows it;
-  // skipped when it is longer than the allow-list takes (allowedOption).
-  const pickColour = (value: string | null) => {
-    setColour(value);
-    const colour = allowedOption("colour", value);
-    if (colour && slug) track("colour_select", { slug, colour });
-  };
-  const pickSize = (value: string | null) => {
-    setSize(value);
-    const size = allowedOption("size", value);
-    if (size && slug) track("size_select", { slug, size });
-  };
-  return (
-    <div className="flex flex-col gap-6">
-      {colours.length > 0 ? <OptionGroup legend="Colour" options={colours} selected={colour} onSelect={pickColour} /> : null}
-      {sizes.length > 0 ? <OptionGroup legend="Size" options={sizes} selected={size} onSelect={pickSize} /> : null}
-    </div>
-  );
 }

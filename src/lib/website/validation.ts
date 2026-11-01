@@ -2,6 +2,7 @@
 // Anything not listed is refused, so a client can never write columns such as
 // published, publishedAt, cost or stock through these routes.
 import { imageKeyFromImageUrl } from '@/lib/storefront-model'
+import { parseSizeChart, type SizeChartRow } from '@/lib/storefront-model/size-chart'
 import {
   ALT_TEXT_MAX,
   BULK_MAX_IDS,
@@ -75,7 +76,17 @@ export type ProductWebsitePatch = {
   colours?: string | null
   sizes?: string | null
   featured?: boolean
+  // ZP-513: details card "size & fit" and "fabric & care".
+  fitNote?: string | null
+  fabric?: string | null
+  care?: string | null
+  sizeChart?: SizeChartRow[] | null
 }
+
+/** ZP-513 limits (characters, after trimming). */
+export const FIT_NOTE_MAX = 160
+export const FABRIC_MAX = 80
+export const CARE_MAX = 80
 
 const PRODUCT_FIELDS = [
   'publicName',
@@ -86,6 +97,10 @@ const PRODUCT_FIELDS = [
   'colours',
   'sizes',
   'featured',
+  'fitNote',
+  'fabric',
+  'care',
+  'sizeChart',
 ] as const
 
 export function parseProductWebsitePatch(body: unknown): Parsed<ProductWebsitePatch> {
@@ -94,17 +109,30 @@ export function parseProductWebsitePatch(body: unknown): Parsed<ProductWebsitePa
   if (unknownKey) return fail(unknownKey)
   const data: ProductWebsitePatch = {}
 
-  const texts: [keyof ProductWebsitePatch & ('publicName' | 'publicDescription' | 'colours' | 'sizes'), string, number][] = [
+  const texts: [
+    keyof ProductWebsitePatch & ('publicName' | 'publicDescription' | 'colours' | 'sizes' | 'fitNote' | 'fabric' | 'care'),
+    string,
+    number,
+  ][] = [
     ['publicName', 'Public name', PUBLIC_NAME_MAX],
     ['publicDescription', 'Description', PUBLIC_DESCRIPTION_MAX],
     ['colours', 'Colours', SHORT_TEXT_MAX],
     ['sizes', 'Sizes', SHORT_TEXT_MAX],
+    ['fitNote', 'Fit note', FIT_NOTE_MAX],
+    ['fabric', 'Fabric', FABRIC_MAX],
+    ['care', 'Care', CARE_MAX],
   ]
   for (const [key, label, max] of texts) {
     if (body[key] === undefined) continue
     const r = optionalText(body[key], label, max, key)
     if (!r.ok) return r
     data[key] = r.data
+  }
+
+  if (body.sizeChart !== undefined) {
+    const r = parseSizeChart(body.sizeChart)
+    if (!r.ok) return fail(r.error, 'sizeChart')
+    data.sizeChart = r.value
   }
 
   if (body.slug !== undefined) {

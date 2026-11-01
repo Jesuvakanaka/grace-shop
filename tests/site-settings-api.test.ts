@@ -45,7 +45,7 @@ describe('/api/website/settings', () => {
   })
   after(async () => {
     await prisma.siteSettings.deleteMany({})
-    if (saved) await prisma.siteSettings.create({ data: { ...saved, openingHours: saved.openingHours ?? undefined } })
+    if (saved) await prisma.siteSettings.create({ data: { ...saved, openingHours: saved.openingHours ?? undefined, defaultSizeChart: saved.defaultSizeChart ?? undefined } })
     await prisma.$disconnect()
   })
 

@@ -8,11 +8,14 @@
 // body as a whole).
 import { FEED_RANKING_MODES } from '@/lib/ranking/feed-order'
 import { isValidImageKey } from '@/lib/storage/keys'
+import { parseSizeChart } from '@/lib/storefront-model/size-chart'
 import {
   DAYS,
   EDITABLE_FIELDS,
   FEW_LEFT_MAX,
   FEW_LEFT_MIN,
+  HOLD_HOURS_MAX,
+  HOLD_HOURS_MIN,
   GOOGLE_MAPS_HOSTS,
   GOOGLE_REVIEW_HOSTS,
   MAX_LENGTH,
@@ -234,6 +237,18 @@ const CHECKS: Record<Exclude<SiteSettingsField, 'openingHours'>, Check> = {
       ? { value: v }
       : fail(`Must be a whole number from ${FEW_LEFT_MIN} to ${FEW_LEFT_MAX}.`),
   showItemNumber: (v) => (typeof v === 'boolean' ? { value: v } : fail('Must be on or off.')),
+  // ZP-513
+  holdHours: (v) => {
+    if (v === null || v === undefined || v === '') return { value: null }
+    return Number.isInteger(v) && (v as number) >= HOLD_HOURS_MIN && (v as number) <= HOLD_HOURS_MAX
+      ? { value: v }
+      : fail(`Must be a whole number of hours from ${HOLD_HOURS_MIN} to ${HOLD_HOURS_MAX}, or empty.`)
+  },
+  paymentMethods: text(MAX_LENGTH.paymentMethods),
+  defaultSizeChart: (v) => {
+    const r = parseSizeChart(v)
+    return r.ok ? { value: r.value } : fail(r.error)
+  },
   // ZP-506
   feedRanking: (v) =>
     (FEED_RANKING_MODES as readonly unknown[]).includes(v) ? { value: v } : fail('Choose "Rank automatically" or "Newest first".'),

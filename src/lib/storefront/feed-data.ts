@@ -47,6 +47,11 @@ const feedSource = cache(async (): Promise<{ ordered: PublicProduct[]; tabs: Fee
   return { ordered, tabs: feedTabs(categories, ordered) }
 })
 
+/** ZP-513: every feed piece in feed (ranking) order, for the details card's "You may also like". */
+export async function orderedFeedPieces(): Promise<PublicProduct[]> {
+  return (await feedSource()).ordered
+}
+
 export type FeedLoad = { tab: string; tabs: FeedTab[]; page: FeedPage<FeedItem> }
 
 /**

@@ -6,17 +6,24 @@ import { STOREFRONT_PREFIX } from '@/lib/host-routing'
 import { lookAnchorId } from './feed'
 import { SHEET_PARAM } from './feed-sheet'
 
-/** The URL segment of the product route under the storefront layout. */
-export const PRODUCT_SEGMENT = 'p'
+/**
+ * The attribute the feed puts on its root (FlipFeed). The storefront frame
+ * becomes the full-screen feed frame (no header / footer) when its main
+ * holds an element with it (CSS :has(), so it holds in the server HTML too):
+ * the page itself says it is the feed (review: a /p/<unknown> 404 still has
+ * the route segment "p" but no feed, so it keeps the header).
+ */
+export const FEED_PAGE_ATTR = 'data-feed-page'
+
+/** The document title of the feed (the layout default), set again when a /p/<slug> landing becomes the feed URL. */
+export const FEED_DOCUMENT_TITLE = 'VYRA – Wear Different.'
 
 /**
- * The full-screen feed frame (no header / footer): the home page (segment
- * null on a home path) and the product route (segment "p", whatever the
- * address bar says after the landing rewrote it). A 404 renders with
- * segment null on its own path, so it keeps the header.
+ * The home page (segment null on a home path) gets the feed frame from the
+ * first render. Every other route only through FEED_PAGE_ATTR, never by its
+ * segment alone.
  */
 export function isFeedFrame(input: { segment: string | null; pathname: string }): boolean {
-  if (input.segment === PRODUCT_SEGMENT) return true
   return input.segment === null && (input.pathname === STOREFRONT_PREFIX || input.pathname === '/')
 }
 

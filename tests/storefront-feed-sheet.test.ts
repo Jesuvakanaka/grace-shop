@@ -146,7 +146,7 @@ describe('sheet URL (?d=<slug>)', () => {
   })
 
   test('close reasons: the UI reason when one is pending, else the browser back button', () => {
-    assert.deepStrictEqual([...SHEET_CLOSE_REASONS], ['swipe', 'backdrop', 'button', 'back', 'escape'])
+    assert.deepStrictEqual([...SHEET_CLOSE_REASONS], ['swipe', 'backdrop', 'button', 'back', 'escape', 'also_like'])
     assert.strictEqual(sheetCloseReason(null), 'back')
     assert.strictEqual(sheetCloseReason('swipe'), 'swipe')
     assert.strictEqual(sheetCloseReason('escape'), 'escape')
@@ -234,9 +234,53 @@ describe('buildSheetExtras (the lazily loaded part)', () => {
       contacts,
       reviews: { summary: null, list: [], shop: null },
       visit,
+      // ZP-513: none given (an owner preview): empty, never placeholders.
+      fit: null,
+      fabric: null,
+      care: null,
+      sizeChart: null,
+      asked: 0,
+      buying: { holdHours: null, paymentMethods: null },
+      alsoLike: [],
     })
     assert.ok(!JSON.stringify(extras).includes('SECRET-1'), 'never the item number')
     assert.ok(!JSON.stringify(extras).includes('+263 4 000'), 'only the WhatsApp fields of the contacts')
+  })
+
+  test('ZP-513: fit, fabric, care, size chart (piece else default, its sizes), asked, buying, also-like', () => {
+    const S = { size: 'S', bust: '86', waist: '68', hips: '94' }
+    const M = { size: 'M', bust: '91', waist: '73', hips: '99' }
+    const XL = { size: 'XL', bust: '102', waist: '84', hips: '110' }
+    const also = [{ slug: 'b', name: 'B', price: '$40', image: null }]
+    const extras = buildSheetExtras(product({ fit: 'Model wears M', fabric: 'Linen', care: 'Hand wash', sizeChart: null }), {
+      contacts,
+      reviews: null,
+      shop: null,
+      visit: null,
+      now,
+      defaultSizeChart: [S, M, XL],
+      buying: { holdHours: 24, paymentMethods: 'EcoCash · cash' },
+      asked: 6,
+      alsoLike: also,
+    })
+    assert.strictEqual(extras.fit, 'Model wears M')
+    assert.strictEqual(extras.fabric, 'Linen')
+    assert.strictEqual(extras.care, 'Hand wash')
+    assert.deepStrictEqual(extras.sizeChart, [S, M], 'the default chart, rows of S, M, L only')
+    assert.strictEqual(extras.asked, 6)
+    assert.deepStrictEqual(extras.buying, { holdHours: 24, paymentMethods: 'EcoCash · cash' })
+    assert.deepStrictEqual(extras.alsoLike, also)
+    const own = buildSheetExtras(product({ sizeChart: [XL] , sizes: 'XL' }), { contacts, reviews: null, shop: null, visit: null, now, defaultSizeChart: [S] })
+    assert.deepStrictEqual(own.sizeChart, [XL], "the piece's own chart wins")
+  })
+
+  test('review: the asked count below 3 never leaves the server (the DTO holds 0, never 1 or 2)', () => {
+    const asked = (n: number) => buildSheetExtras(product(), { contacts, reviews: null, shop: null, visit: null, now, asked: n }).asked
+    assert.strictEqual(asked(1), 0)
+    assert.strictEqual(asked(2), 0)
+    assert.strictEqual(asked(3), 3)
+    assert.strictEqual(asked(17), 17)
+    assert.strictEqual(asked(-1), 0)
   })
 
   test('ZP-512: every approved review (display order), without photos, formatted on the server', () => {
@@ -288,6 +332,13 @@ describe('sheetModel', () => {
     contacts,
     reviews: { summary: { average: 4.7, count: 3 }, list: [], shop: { average: 4.8, count: 36 } },
     visit: null,
+    fit: null,
+    fabric: null,
+    care: null,
+    sizeChart: null,
+    asked: 0,
+    buying: { holdHours: null, paymentMethods: null },
+    alsoLike: [],
     ...over,
   })
 

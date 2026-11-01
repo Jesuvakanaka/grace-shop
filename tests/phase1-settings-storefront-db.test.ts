@@ -57,7 +57,7 @@ describe('phase 1: settings pictures and threshold', () => {
   after(async () => {
     await cleanup()
     await prisma.siteSettings.deleteMany({})
-    if (saved) await prisma.siteSettings.create({ data: { ...saved, openingHours: saved.openingHours ?? undefined } })
+    if (saved) await prisma.siteSettings.create({ data: { ...saved, openingHours: saved.openingHours ?? undefined, defaultSizeChart: saved.defaultSizeChart ?? undefined } })
     await rm(tmp, { recursive: true, force: true })
     await prisma.$disconnect()
   })
@@ -123,7 +123,7 @@ describe('phase 1: settings pictures and threshold', () => {
       }
       assert.strictEqual(r.product.availability, 'FEW_LEFT')
     } finally {
-      await prisma.siteSettings.create({ data: { ...row, openingHours: row.openingHours ?? undefined } })
+      await prisma.siteSettings.create({ data: { ...row, openingHours: row.openingHours ?? undefined, defaultSizeChart: row.defaultSizeChart ?? undefined } })
     }
   })
 })

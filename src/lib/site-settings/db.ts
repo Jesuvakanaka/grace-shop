@@ -3,6 +3,7 @@ import { Prisma, type PrismaClient, type SiteSettings } from '@prisma/client'
 import { EDITABLE_FIELDS, SITE_SETTINGS_DEFAULTS, type SiteSettingsData } from './schema'
 import { validateOpeningHours } from './validate'
 import { settingsImageKeys } from './dto'
+import { readSizeChart } from '@/lib/storefront-model/size-chart'
 
 export const SITE_SETTINGS_ID = 1
 
@@ -15,6 +16,8 @@ export function rowToSiteSettings(row: SiteSettings | null): SiteSettingsData {
   for (const f of EDITABLE_FIELDS) out[f] = row[f]
   const hours = row.openingHours === null ? null : validateOpeningHours(row.openingHours)
   out.openingHours = hours && hours.ok ? hours.value : null
+  // ZP-513: a stored chart that no longer validates reads as "none".
+  out.defaultSizeChart = readSizeChart(row.defaultSizeChart)
   return out as SiteSettingsData
 }
 
@@ -35,12 +38,15 @@ export async function readFewLeftThreshold(db: Db): Promise<number> {
 }
 
 function toColumns(patch: Partial<SiteSettingsData>) {
-  const { openingHours, ...rest } = patch
+  const { openingHours, defaultSizeChart, ...rest } = patch
   return {
     ...rest,
     ...(openingHours === undefined
       ? {}
       : { openingHours: openingHours === null ? Prisma.DbNull : (openingHours as Prisma.InputJsonObject) }),
+    ...(defaultSizeChart === undefined
+      ? {}
+      : { defaultSizeChart: defaultSizeChart === null ? Prisma.DbNull : (defaultSizeChart as Prisma.InputJsonArray) }),
   }
 }
 

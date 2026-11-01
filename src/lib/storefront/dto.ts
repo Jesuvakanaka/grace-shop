@@ -9,6 +9,7 @@
 // See docs/storefront/public-data-layer.md.
 import { isValidImageKey } from '@/lib/storage/keys'
 import { publicProductRef } from './product-ref'
+import { readSizeChart, type SizeChartRow } from '@/lib/storefront-model/size-chart'
 import { isValidPosterKey, isValidVideoKey, publicVideoUrl } from '@/lib/storage/video-keys'
 import { publicImageSrc, publicImageSrcSet } from './image-sizes'
 import {
@@ -83,6 +84,16 @@ export type PublicProduct = {
    * the type so hand-written DTOs need not list it.
    */
   loves?: number
+  /**
+   * ZP-513: the details card's "size & fit" note, "fabric & care", and the
+   * piece's own size chart (validated rows, else null). Always set by
+   * toPublicProduct; optional so hand-written DTOs need not list them.
+   */
+  /** The fit note (Product.fitNote; the key avoids "note", the private notes column). */
+  fit?: string | null
+  fabric?: string | null
+  care?: string | null
+  sizeChart?: SizeChartRow[] | null
 }
 
 export type PublicCategory = {
@@ -115,6 +126,12 @@ export type PublicProductRow = {
   currentQuantity: number
   /** ZP-507: copied as `loves`. Optional so older fixtures need not list it. */
   loveCount?: number
+  /** ZP-513: details card fields (optional so older fixtures need not list them). */
+  fitNote?: string | null
+  fabric?: string | null
+  care?: string | null
+  /** JSON rows; read leniently (readSizeChart). */
+  sizeChart?: unknown
   category: { slug: string; name: string; published: boolean } | null
   images: { id: number; imageKey: string; alt: string | null; sortOrder: number; isPrimary: boolean }[]
   /** ZP-501: selected to build `video`; status and keys are never copied. */
@@ -181,6 +198,11 @@ export function toPublicProduct(row: PublicProductRow, options: ProductDtoOption
     priceUsd: publicPriceUsd(row),
     ref: publicProductRef(row.id),
     loves: Math.max(0, Math.floor(row.loveCount ?? 0)),
+    // ZP-513: details card "size & fit", "fabric & care" and the piece's own size chart.
+    fit: text(row.fitNote ?? null),
+    fabric: text(row.fabric ?? null),
+    care: text(row.care ?? null),
+    sizeChart: readSizeChart(row.sizeChart),
   }
   if (options.includeItemNumber) dto.itemNumber = row.itemNumber
   return dto

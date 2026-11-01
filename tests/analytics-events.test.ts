@@ -76,7 +76,7 @@ describe('event catalogue', () => {
       'feed_load_more', 'feed_end_reached', 'product_open', 'size_select', 'colour_select', 'whatsapp_enquire',
       'restock_request', 'call', 'share', 'directions', 'visit_us', 'gallery_zoom', 'guide_shown', 'guide_step',
       'guide_skipped', 'guide_completed', 'guide_replayed', 'love_on', 'love_off', 'load_error', 'slow_load',
-      'action_failed', 'details_sheet_open', 'details_sheet_close',
+      'action_failed', 'details_sheet_open', 'details_sheet_close', 'size_guide_open', 'also_like_open',
     ]
     assert.deepStrictEqual([...ANALYTICS_EVENT_TYPES].sort(), [...expected].sort())
     for (const t of expected) assert.ok(EVENT_SPECS[t as keyof typeof EVENT_SPECS], t)
@@ -170,6 +170,8 @@ describe('validateBatch: accepted', () => {
       love_off: [{}, { slug: 'a' }],
       details_sheet_open: [{}, { slug: 'a' }],
       details_sheet_close: [{ reason: 'swipe' }, { slug: 'a' }],
+      size_guide_open: [{}, { slug: 'a' }],
+      also_like_open: [{ to: 'b' }, { slug: 'a' }],
       load_error: [{ what: 'image' }],
       slow_load: [{ lcp: 5200 }],
       action_failed: [{ action: 'feed_load' }],
@@ -461,7 +463,7 @@ describe('details_sheet_open / details_sheet_close', () => {
   })
 
   test('close needs the slug and one of the five reasons', () => {
-    for (const reason of ['swipe', 'backdrop', 'button', 'back', 'escape']) {
+    for (const reason of ['swipe', 'backdrop', 'button', 'back', 'escape', 'also_like']) {
       const r = validateEvent(ev('details_sheet_close', { reason }, { slug: 'linen-dress' }), NOW)
       assert.notStrictEqual(typeof r, 'string', `${reason}: ${r}`)
     }
@@ -469,6 +471,20 @@ describe('details_sheet_open / details_sheet_close', () => {
     badEvent(ev('details_sheet_close', {}, { slug: 'a' }), /reason/)
     badEvent(ev('details_sheet_close', { reason: 'link' }, { slug: 'a' }), /reason/)
     badEvent(ev('details_sheet_close', { reason: 'swipe', seconds: 3 }, { slug: 'a' }), /seconds/)
+  })
+
+  // ZP-513: the size guide and the "You may also like" row of the card.
+  test('size_guide_open needs the slug, nothing else', () => {
+    assert.notStrictEqual(typeof validateEvent(ev('size_guide_open', {}, { slug: 'linen-dress' }), NOW), 'string')
+    badEvent(ev('size_guide_open', {}), /slug/)
+    badEvent(ev('size_guide_open', { size: 'M' }, { slug: 'a' }), /size/)
+  })
+  test('also_like_open: slug = the open piece, to = the piece tapped (a slug)', () => {
+    assert.notStrictEqual(typeof validateEvent(ev('also_like_open', { to: 'cream-wrap' }, { slug: 'linen-dress' }), NOW), 'string')
+    badEvent(ev('also_like_open', { to: 'cream-wrap' }), /slug/)
+    badEvent(ev('also_like_open', {}, { slug: 'a' }), /to/)
+    badEvent(ev('also_like_open', { to: 'Not A Slug' }, { slug: 'a' }), /to/)
+    badEvent(ev('also_like_open', { to: 'https://evil.example' }, { slug: 'a' }), /to/)
   })
 
   // ZP-512: a landing on /p/<slug> (a shared link) opens the sheet with from: 'shared'.

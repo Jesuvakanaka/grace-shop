@@ -19,6 +19,7 @@ import {
 } from '@/lib/reviews/aggregate'
 import type { WhatsAppContactSettings } from '@/lib/site-settings/whatsapp'
 import { isValidSlug } from '@/lib/storefront-model/slug'
+import { chartForSizes, type SizeChartRow } from '@/lib/storefront-model/size-chart'
 import type { Availability } from '@/lib/storefront-model/rules'
 import type { PublicProduct, PublicReview } from './dto'
 import type { FeedItem } from './feed'
@@ -207,6 +208,28 @@ export type SheetExtras = {
   reviews: { summary: RatingSummary | null; list: SheetReview[]; shop: RatingSummary | null }
   /** "Try it on in store"; null hides the row. */
   visit: StoreVisit | null
+  // ZP-513 details card.
+  /** "Model is 1.70 m, wearing M · fits true to size"; null hides it. */
+  fit: string | null
+  fabric: string | null
+  care: string | null
+  /** The size guide rows for this piece's sizes (its chart, else the default); null hides "Size guide". */
+  sizeChart: SizeChartRow[] | null
+  /** Distinct visits that asked about it on WhatsApp in the last 7 days (the social line shows it from 3). */
+  asked: number
+  /** "How to buy": hold hours (null hides it) and payment methods (null hides "Pay in store"). */
+  buying: { holdHours: number | null; paymentMethods: string | null }
+  /** Up to 4 available pieces ("You may also like" / "Available now"); a tap goes to that look in the feed. */
+  alsoLike: AlsoLikePiece[]
+}
+
+/** ZP-513: a "You may also like" piece (public fields only). */
+export type AlsoLikePiece = {
+  slug: string
+  name: string
+  /** "$65" or "Ask for price". */
+  price: string
+  image: { src: string; srcSet: string; alt: string } | null
 }
 
 export function toSheetReview(r: PublicReview, now: Date): SheetReview {
@@ -231,14 +254,20 @@ export function buildSheetExtras(
     shop: RatingSummary | null
     visit: StoreVisit | null
     now: Date
+    /** ZP-513 (all optional: an owner preview has none of them). */
+    defaultSizeChart?: SizeChartRow[] | null
+    buying?: { holdHours: number | null; paymentMethods: string | null }
+    asked?: number
+    alsoLike?: AlsoLikePiece[]
   },
 ): SheetExtras {
   const description = p.description?.trim() ? p.description : null
+  const sizes = splitOptions(p.sizes)
   return {
     slug: p.slug,
     description,
     colours: splitOptions(p.colours),
-    sizes: splitOptions(p.sizes),
+    sizes,
     ref: p.ref ?? null,
     availability: p.availability,
     // Copied field by field: the settings object also holds the phone number.
@@ -253,7 +282,126 @@ export function buildSheetExtras(
       shop: ctx.shop,
     },
     visit: ctx.visit,
+    fit: p.fit ?? null,
+    fabric: p.fabric ?? null,
+    care: p.care ?? null,
+    sizeChart: chartForSizes({ piece: p.sizeChart ?? null, fallback: ctx.defaultSizeChart ?? null, sizes }),
+    // Review: below SOCIAL_MIN the number never leaves the server (it is only shown from 3).
+    asked: publicAsked(ctx.asked ?? 0),
+    buying: ctx.buying ?? { holdHours: null, paymentMethods: null },
+    alsoLike: ctx.alsoLike ?? [],
   }
+}
+
+// ------------------------------------------------------- ZP-513 card model
+
+/** The social line's parts show from this number on (never "1 person asked"). */
+export const SOCIAL_MIN = 3
+
+/** The asked count as the public DTO carries it: 0 below SOCIAL_MIN (review). */
+function publicAsked(raw: number): number {
+  const n = Math.max(0, Math.floor(raw))
+  return n >= SOCIAL_MIN ? n : 0
+}
+
+/**
+ * The colour that goes into the WhatsApp message: the one picked, else a
+ * piece's only colour (no picker is shown for one colour, review), else none.
+ */
+export function chosenColour(input: { colours: readonly string[]; chosen: string | null }): string | null {
+  return input.chosen ?? (input.colours.length === 1 ? input.colours[0] : null)
+}
+
+/** "Loved by 24 · 6 people asked about it this week"; each part only from 3; null when neither. */
+export function socialLine(input: { loves: number; asked: number }): string | null {
+  const parts = [
+    input.loves >= SOCIAL_MIN ? `Loved by ${input.loves}` : null,
+    input.asked >= SOCIAL_MIN ? `${input.asked} people asked about it this week` : null,
+  ].filter(Boolean)
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
+export type HowToBuyCell = { kind: 'reserve' | 'pay' | 'collect'; title: string; text: string | null }
+
+/**
+ * The "How to buy" strip: Reserve on WhatsApp (with a WhatsApp number; "We
+ * hold it for {h} h" when hold hours are set; sold out: Ask about restock,
+ * "We message you when it's back"), Pay in store (payment methods), Collect
+ * in store (today's hours). Cells without data are left out; [] hides the strip.
+ */
+export function howToBuy(input: {
+  soldOut: boolean
+  hasWhatsApp: boolean
+  holdHours: number | null
+  paymentMethods: string | null
+  todayText: string | null
+}): HowToBuyCell[] {
+  const cells: HowToBuyCell[] = []
+  if (input.hasWhatsApp) {
+    cells.push(
+      input.soldOut
+        ? { kind: 'reserve', title: 'Ask about restock', text: 'We message you when it’s back' }
+        : { kind: 'reserve', title: 'Reserve on WhatsApp', text: input.holdHours ? `We hold it for ${input.holdHours} h` : null },
+    )
+  }
+  if (input.paymentMethods) cells.push({ kind: 'pay', title: 'Pay in store', text: input.paymentMethods })
+  if (input.todayText) cells.push({ kind: 'collect', title: 'Collect in store', text: input.todayText })
+  return cells
+}
+
+/**
+ * The colour / size heading: a colour picker only with more than one colour;
+ * one colour reads "Colour: Olive · Size". `label` is "Size" when there are
+ * sizes. Null when the piece has neither.
+ */
+export function colourSizeLabel(
+  colours: readonly string[],
+  sizes: readonly string[],
+): { picker: boolean; colour: string | null; label: string | null } | null {
+  if (colours.length === 0 && sizes.length === 0) return null
+  return {
+    picker: colours.length > 1,
+    colour: colours.length === 1 ? colours[0] : null,
+    label: sizes.length > 0 ? 'Size' : null,
+  }
+}
+
+/** A description longer than this (or over 2 lines) is clamped to 2 lines with "More". */
+export const DESCRIPTION_CLAMP_CHARS = 110
+
+/** The toggle under the 2-line description: "More · fabric & care", "More" (long text), or none. */
+export function descriptionToggle(input: { description: string | null; fabric: string | null; care: string | null }): string | null {
+  if (input.fabric || input.care) return 'More · fabric & care'
+  const d = input.description ?? ''
+  return d.length > DESCRIPTION_CLAMP_CHARS || d.split('\n').length > 2 ? 'More' : null
+}
+
+/** "Try it on: open today 09:00–17:30": today's line, lower-cased after the colon. */
+export function tryItOnText(todayText: string | null): string | null {
+  if (!todayText) return null
+  return todayText.charAt(0).toLowerCase() + todayText.slice(1)
+}
+
+/** The also-like row's title: "Available now" on a sold-out piece. */
+export function alsoLikeTitle(soldOut: boolean): string {
+  return soldOut ? 'Available now' : 'You may also like'
+}
+
+export const ALSO_LIKE_MAX = 4
+
+/**
+ * "You may also like": up to 4 available (not sold out) pieces, never the
+ * current one; same collection first, then the rest; feed (ranking) order
+ * inside each group. `ordered` is the feed's order.
+ */
+export function pickAlsoLike<T extends { slug: string; category: string; soldOut: boolean }>(
+  ordered: readonly T[],
+  current: { slug: string; category: string },
+): T[] {
+  const pool = ordered.filter((p) => p.slug !== current.slug && !p.soldOut)
+  const same = pool.filter((p) => p.category === current.category)
+  const other = pool.filter((p) => p.category !== current.category)
+  return [...same, ...other].slice(0, ALSO_LIKE_MAX)
 }
 
 // ----------------------------------------------------------------- model

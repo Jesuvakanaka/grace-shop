@@ -136,7 +136,15 @@ export default async function ProductPage(props: Props) {
       })();
   // The owner preview's sheet details come from here (the sheet's server action only knows published pieces).
   const previewExtras = preview
-    ? buildSheetExtras(product, { contacts: settings.contacts, reviews: null, shop: null, visit: buildStoreVisit(settings), now: new Date() })
+    ? buildSheetExtras(product, {
+        contacts: settings.contacts,
+        reviews: null,
+        shop: null,
+        visit: buildStoreVisit(settings),
+        now: new Date(),
+        defaultSizeChart: settings.buying.sizeChart,
+        buying: { holdHours: settings.buying.holdHours, paymentMethods: settings.buying.paymentMethods },
+      })
     : null;
 
   const pieceReviews = reviewsIndex?.products[product.slug] ?? null;

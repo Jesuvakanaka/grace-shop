@@ -12,6 +12,8 @@ import {
   DAY_LABELS,
   FEW_LEFT_MAX,
   FEW_LEFT_MIN,
+  HOLD_HOURS_MAX,
+  HOLD_HOURS_MIN,
   MAX_LENGTH,
   SITE_SETTINGS_DEFAULTS,
   type Day,
@@ -21,18 +23,22 @@ import {
 import { normalizeE164, validateSiteSettingsInput, type FieldErrors } from '@/lib/site-settings/validate';
 import { buildWhatsAppLink } from '@/lib/site-settings/whatsapp';
 import { changedSettings } from '@/lib/site-settings/diff';
+import { sizeChartFromText, sizeChartToText } from '@/lib/storefront-model/size-chart';
 import { imageUrlForKey, isValidImageKey, PRODUCT_IMAGE_PREFIX, IMAGE_URL_PREFIX } from '@/lib/storage/keys';
 
 type DayForm = { closed: boolean; open: string; close: string };
 type ImageField = 'aboutImageKey' | 'heroImageKeyDesktop' | 'heroImageKeyMobile' | 'seoShareImageKey';
 
 /** Form state: the settings with text inputs for numbers and an always-complete week. */
-type FormState = Omit<SiteSettingsData, 'openingHours' | 'latitude' | 'longitude' | 'fewLeftThreshold'> & {
+type FormState = Omit<SiteSettingsData, 'openingHours' | 'latitude' | 'longitude' | 'fewLeftThreshold' | 'holdHours' | 'defaultSizeChart'> & {
   hoursSet: boolean;
   hours: Record<Day, DayForm>;
   latitude: string;
   longitude: string;
   fewLeftThreshold: string;
+  /** ZP-513: hours as text (empty hides "We hold it for …"); the default size chart, one row per line. */
+  holdHours: string;
+  defaultSizeChart: string;
 };
 
 const DEFAULT_DAY: DayForm = { closed: false, open: '09:00', close: '17:00' };
@@ -43,7 +49,7 @@ function toForm(s: SiteSettingsData): FormState {
     const h = s.openingHours?.[d];
     hours[d] = !h ? { ...DEFAULT_DAY } : h.closed ? { ...DEFAULT_DAY, closed: true } : { closed: false, open: h.open, close: h.close };
   }
-  const { openingHours, latitude, longitude, fewLeftThreshold, ...rest } = s;
+  const { openingHours, latitude, longitude, fewLeftThreshold, holdHours, defaultSizeChart, ...rest } = s;
   return {
     ...rest,
     hoursSet: openingHours !== null,
@@ -51,11 +57,19 @@ function toForm(s: SiteSettingsData): FormState {
     latitude: latitude === null ? '' : String(latitude),
     longitude: longitude === null ? '' : String(longitude),
     fewLeftThreshold: String(fewLeftThreshold),
+    holdHours: holdHours === null ? '' : String(holdHours),
+    defaultSizeChart: sizeChartToText(defaultSizeChart),
   };
 }
 
+/** ZP-513: the chart rows, or the text itself when a line is wrong (validation reports it). */
+function chartOrText(text: string): unknown {
+  const r = sizeChartFromText(text);
+  return r.ok ? r.rows : text;
+}
+
 function toPayload(f: FormState): Record<string, unknown> {
-  const { hoursSet, hours, latitude, longitude, fewLeftThreshold, ...rest } = f;
+  const { hoursSet, hours, latitude, longitude, fewLeftThreshold, holdHours, defaultSizeChart, ...rest } = f;
   const openingHours: OpeningHours | null = hoursSet
     ? (Object.fromEntries(
         DAYS.map((d) => [d, hours[d].closed ? { closed: true } : { closed: false, open: hours[d].open, close: hours[d].close }]),
@@ -68,6 +82,9 @@ function toPayload(f: FormState): Record<string, unknown> {
     latitude: num(latitude),
     longitude: num(longitude),
     fewLeftThreshold: fewLeftThreshold.trim() === '' ? null : Number(fewLeftThreshold),
+    holdHours: num(holdHours),
+    // A text form that does not parse is sent as text: validation then names the problem (see save()).
+    defaultSizeChart: defaultSizeChart.trim() ? chartOrText(defaultSizeChart) : null,
   };
 }
 
@@ -171,6 +188,11 @@ export default function WebsiteSettingsPage() {
     if (!form) return;
     // Validate the whole form (so every problem shows), send only what changed.
     const full = toPayload(form);
+    const chart = form.defaultSizeChart.trim() ? sizeChartFromText(form.defaultSizeChart) : null;
+    if (chart && !chart.ok) {
+      setErrors({ defaultSizeChart: chart.error });
+      return;
+    }
     const check = validateSiteSettingsInput(full);
     if (!check.ok) {
       setErrors(check.errors);
@@ -499,6 +521,30 @@ export default function WebsiteSettingsPage() {
             </span>
           </label>
         </div>
+      </Section>
+
+      <Section id="buying" title="Details card: how to buy and size guide" hint="Shown on each piece's details card. Leave a field empty to hide its part.">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+          <Field
+            label="We hold a reserved piece for (hours)"
+            name="holdHours"
+            error={errors.holdHours}
+            hint={`“Reserve on WhatsApp – We hold it for 24 h”. ${HOLD_HOURS_MIN}–${HOLD_HOURS_MAX}; empty hides it.`}
+          >
+            {input('holdHours', { type: 'number', inputMode: 'numeric', min: HOLD_HOURS_MIN, max: HOLD_HOURS_MAX, step: 1 })}
+          </Field>
+          <Field label="Payment methods" name="paymentMethods" error={errors.paymentMethods} hint="“Pay in store – EcoCash · cash · card”. Empty hides it.">
+            {input('paymentMethods', { maxLength: MAX_LENGTH.paymentMethods, placeholder: 'EcoCash · cash · card' })}
+          </Field>
+        </div>
+        <Field
+          label="Default size chart"
+          name="defaultSizeChart"
+          error={errors.defaultSizeChart}
+          hint="Body measurements in cm, one size per line: size | bust | waist | hips. Used for pieces without their own chart; only the piece's sizes are shown. Empty hides “Size guide”."
+        >
+          {textarea('defaultSizeChart', 5)}
+        </Field>
       </Section>
 
       <Section

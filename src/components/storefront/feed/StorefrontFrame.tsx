@@ -3,7 +3,7 @@
 import { usePathname, useSelectedLayoutSegment } from "next/navigation";
 import { useEffect, useRef, type ReactNode } from "react";
 import { frameHeightFix } from "@/lib/storefront/feed";
-import { isFeedFrame } from "@/lib/storefront/product-landing";
+import { FEED_PAGE_ATTR, isFeedFrame } from "@/lib/storefront/product-landing";
 
 /**
  * Samsung Internet and some Android Chrome versions size 100dvh / 100svh /
@@ -14,11 +14,12 @@ import { isFeedFrame } from "@/lib/storefront/product-landing";
  * only when the frame is taller, pin it to that height (`data-vh` +
  * `--sf-visible-h`). No scroll listeners: resize events only.
  */
-function useVisibleViewportHeight(active: boolean) {
+function useVisibleViewportHeight(active: boolean, pathname: string) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
-    if (!active || !el) return;
+    // Review: the home frame, or a page frame whose main holds the feed (FEED_PAGE_ATTR).
+    if (!el || !(active || el.querySelector(`[${FEED_PAGE_ATTR}]`))) return;
     let frame = 0;
     const check = () => {
       cancelAnimationFrame(frame);
@@ -45,7 +46,7 @@ function useVisibleViewportHeight(active: boolean) {
       window.removeEventListener("resize", check);
       window.visualViewport?.removeEventListener("resize", check);
     };
-  }, [active]);
+  }, [active, pathname]);
   return ref;
 }
 
@@ -76,9 +77,8 @@ export function StorefrontFrame({
 }) {
   const segment = useSelectedLayoutSegment();
   const pathname = usePathname();
-  // ZP-512: /p/<slug> is the feed too (isFeedFrame); its 404 keeps the header.
   const home = isFeedFrame({ segment, pathname });
-  const frameRef = useVisibleViewportHeight(home);
+  const frameRef = useVisibleViewportHeight(home, pathname);
   if (home) {
     return (
       // The visible viewport: 100dvh, else 100svh, else 100vh (.sf-feed-frame in
@@ -93,13 +93,17 @@ export function StorefrontFrame({
     );
   }
   return (
-    <div className="flex min-h-screen flex-col bg-brand-cream text-brand-ink">
+    // ZP-512 review: a page that renders the feed (/p/<slug>) marks it with
+    // FEED_PAGE_ATTR; .sf-page:has([data-feed-page]) (globals.css) then makes this
+    // the full-screen feed frame and hides the header and footer, in the server
+    // HTML too. A /p/<unknown> 404 has no feed, so it keeps them.
+    <div ref={frameRef} className="sf-page flex min-h-screen flex-col bg-brand-cream text-brand-ink">
       {skipLink}
-      {header}
+      <div className="sf-page-chrome">{header}</div>
       <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
         {children}
       </main>
-      {footer}
+      <div className="sf-page-chrome">{footer}</div>
     </div>
   );
 }

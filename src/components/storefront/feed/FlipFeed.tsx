@@ -1,15 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { track } from "@/lib/analytics/client";
 import { loadFeedAction, type FeedActionResult } from "@/lib/storefront/feed-actions";
 import {
   detailsPreferenceValue,
   FEED_DETAILS_STORAGE_KEY,
+  FEED_NEW_TAB,
   FEED_TAB_PARAM,
   feedLocation,
+  lookAnchorId,
   parseDetailsPreference,
   parseLookHash,
   resolveFeedTab,
@@ -38,7 +40,7 @@ import {
   type SheetCloseReason,
 } from "@/lib/storefront/feed-sheet";
 import type { SheetExtras } from "@/lib/storefront/feed-sheet";
-import { productLandingHistory } from "@/lib/storefront/product-landing";
+import { FEED_DOCUMENT_TITLE, productLandingHistory } from "@/lib/storefront/product-landing";
 import { Wordmark } from "../Brand";
 import { cn } from "../cn";
 import { ShellMenuDialog } from "../ShellMenu";
@@ -168,6 +170,16 @@ export function FlipFeed({
   }
 
   const searchParams = useSearchParams();
+  const pathname = usePathname();
+  // Review: once a /p/<slug> landing's address has become the feed's, the tab
+  // title is the feed's too (after the router has applied the page metadata).
+  useEffect(() => {
+    if (landing?.mode !== "product" || pathname.includes("/p/")) return;
+    const timer = setTimeout(() => {
+      document.title = FEED_DOCUMENT_TITLE;
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [pathname, searchParams, landing?.mode]);
   const urlTab = resolveFeedTab(searchParams.get(FEED_TAB_PARAM), tabs);
   // ZP-510: the details sheet is open while the URL has ?d=<slug> of a loaded look.
   const urlSheetSlug = sheetSlugFromSearch(searchParams.toString());
@@ -193,6 +205,10 @@ export function FlipFeed({
   const entryBehind = useRef(false);
   /** The slug the sheet was last shown for (open / close events). */
   const shownSheet = useRef<string | null>(null);
+  /** ZP-513: a look the sheet was closed for ("You may also like"); shown once the sheet is closed. */
+  const pendingLook = useRef<string | null>(null);
+  /** ZP-513: the latest showLook (called from the close effect). */
+  const showLookRef = useRef<(slug: string) => void>(() => {});
   /** ZP-512: a /p/<slug> landing's look, until its sheet open is tracked (from: "shared"). */
   const sharedLanding = useRef(landing?.mode === "product" ? landing.slug : null);
   /** Read in timers (settleLanding), so always the latest render's params. */
@@ -700,10 +716,60 @@ export function FlipFeed({
       entryBehind.current = false;
       const opener = sheetOpener.current;
       sheetOpener.current = null;
-      if (opener?.isConnected) opener.focus({ preventScroll: true });
+      // ZP-513: closed for a "You may also like" piece: go to its look (after the URL lost d).
+      const look = pendingLook.current;
+      pendingLook.current = null;
+      if (look) showLookRef.current(look);
+      else if (opener?.isConnected) opener.focus({ preventScroll: true });
       else scroller.current?.focus({ preventScroll: true });
     }
   }, [sheetShownSlug]);
+
+  // ------------------------------------------- ZP-513: "You may also like"
+
+  /** Focus a slide (once it is the one on screen) without scrolling. */
+  const focusSlide = useCallback((slug: string) => {
+    const el = scroller.current?.querySelector<HTMLElement>(`#${CSS.escape(lookAnchorId(slug))}`);
+    el?.focus({ preventScroll: true });
+  }, []);
+
+  /**
+   * Take the shopper to a look, full screen on its first photo: a smooth
+   * scroll when it is loaded in this collection; else switch to New in (or
+   * load further in New in) through it, like the #look- restore. The URL
+   * then follows the slide (#look-<slug>, debounced), and focus moves to it.
+   */
+  const showLook = useCallback(
+    (slug: string) => {
+      const index = items.findIndex((p) => p.slug === slug);
+      if (index >= 0) {
+        scrollToIndex(index, true);
+        setTimeout(() => focusSlide(slug), reducedMotion() ? 0 : 450);
+        return;
+      }
+      // Review: New in loads on from where the feed stopped (nextOffset), not from the item count.
+      if (tabRef.current === FEED_NEW_TAB && nextOffset === null) return;
+      const loaded =
+        tabRef.current !== FEED_NEW_TAB
+          ? switchTab(FEED_NEW_TAB, slug)
+          : load({ tab: FEED_NEW_TAB, offset: nextOffset as number, through: slug }, "append", slug);
+      void loaded.then(() => setTimeout(() => focusSlide(slug), 50));
+    },
+    [items, nextOffset, scrollToIndex, focusSlide, switchTab, load],
+  );
+  useEffect(() => {
+    showLookRef.current = showLook;
+  }, [showLook]);
+
+  /** The sheet's "You may also like" tap: track it, close the sheet, then show that look. */
+  const goToLook = useCallback(
+    (from: string, to: string) => {
+      track("also_like_open", { slug: from, collection: tabRef.current, to });
+      pendingLook.current = to;
+      requestCloseDetails("also_like");
+    },
+    [requestCloseDetails],
+  );
 
   // ------------------------------------------------------------ render
 
@@ -711,7 +777,8 @@ export function FlipFeed({
     "sf-focus flex h-12 w-12 items-center justify-center rounded-full border border-brand-ink/20! bg-brand-cream-50 text-brand-ink transition-colors hover:border-brand-ink! disabled:opacity-40 disabled:hover:border-brand-ink/20!";
 
   return (
-    <div className="flex h-full w-full items-center justify-center gap-6 bg-brand-cream">
+    // FEED_PAGE_ATTR: the storefront frame becomes the full-screen feed frame for any page that renders this.
+    <div data-feed-page="" className="flex h-full w-full items-center justify-center gap-6 bg-brand-cream">
       {/* Keeps the column centred against the step buttons on computers. */}
       <span aria-hidden="true" className="hidden w-12 md:block" />
 
@@ -860,6 +927,7 @@ export function FlipFeed({
         onRequestClose={requestCloseDetails}
         seedExtras={landing?.mode === "preview" ? (landing.extras ?? null) : null}
         preview={landing?.mode === "preview"}
+        onGoToLook={goToLook}
       />
 
       <ShellMenuDialog

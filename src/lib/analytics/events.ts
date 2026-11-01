@@ -32,8 +32,8 @@ export const PRODUCT_OPEN_SOURCES = ['feed', 'collection', 'shop', 'new', 'relat
 export const SHARE_METHODS = ['native', 'copy', 'whatsapp', 'facebook', 'other'] as const
 export const LOAD_ERROR_KINDS = ['image', 'video', 'feed', 'page', 'other'] as const
 export const VIDEO_PROGRESS_STEPS = [25, 50, 75, 100] as const
-/** ZP-510: how the feed's details sheet was closed (drag down, backdrop tap, ✕, browser / Android back, Escape). */
-export const SHEET_CLOSE_REASONS = ['swipe', 'backdrop', 'button', 'back', 'escape'] as const
+/** ZP-510: how the feed's details sheet was closed (drag down, backdrop tap, ✕, browser / Android back, Escape; ZP-513: also_like = a "You may also like" piece tapped). */
+export const SHEET_CLOSE_REASONS = ['swipe', 'backdrop', 'button', 'back', 'escape', 'also_like'] as const
 
 export const ANALYTICS_EVENT_TYPES = [
   // Visit
@@ -76,6 +76,9 @@ export const ANALYTICS_EVENT_TYPES = [
   // Details sheet (ZP-510)
   'details_sheet_open',
   'details_sheet_close',
+  // Details card (ZP-513)
+  'size_guide_open',
+  'also_like_open',
   // Health
   'load_error',
   'slow_load',
@@ -103,6 +106,7 @@ type Field =
   | { kind: 'image' }
   | { kind: 'collection' }
   | { kind: 'eventType' }
+  | { kind: 'slug' }
 type PropSpec = Field & { optional?: boolean }
 export type EventSpec = {
   /** Whether the event names a piece (envelope `slug`). Required slugs must be published pieces. */
@@ -122,6 +126,8 @@ const lang: Field = { kind: 'lang' }
 const image: Field = { kind: 'image' }
 const collection: Field = { kind: 'collection' }
 const eventType: Field = { kind: 'eventType' }
+/** ZP-513: another piece's slug as a prop (also_like_open `to`). */
+const slugProp: Field = { kind: 'slug' }
 const opt = (f: Field): PropSpec => ({ ...f, optional: true })
 
 const PHOTO = { index: int(1, 50), of: int(1, 50), image: opt(image) }
@@ -184,6 +190,9 @@ export const EVENT_SPECS: Readonly<Record<AnalyticsEventType, EventSpec>> = {
   // ZP-512: from 'shared' = the landing of a /p/<slug> link (the old product page URL).
   details_sheet_open: { slug: 'required', props: { from: opt(oneOf(['shared'])) } },
   details_sheet_close: { slug: 'required', props: { reason: oneOf(SHEET_CLOSE_REASONS) } },
+  // ZP-513: the card's size guide opened; a 'You may also like' piece tapped (slug = the open piece, to = the tapped one).
+  size_guide_open: { slug: 'required', props: {} },
+  also_like_open: { slug: 'required', props: { to: slugProp } },
 
   load_error: { slug: 'optional', props: { what: oneOf(LOAD_ERROR_KINDS) } },
   slow_load: { slug: 'none', props: { lcp: int(0, 600_000) } }, // milliseconds
@@ -309,6 +318,8 @@ function checkField(field: Field, value: unknown): PropValue | undefined {
       return isCollectionKey(value) ? value : undefined
     case 'eventType':
       return isAnalyticsEventType(value) ? value : undefined
+    case 'slug':
+      return typeof value === 'string' && isValidSlug(value) ? value : undefined
   }
 }
 

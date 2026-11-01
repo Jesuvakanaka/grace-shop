@@ -78,6 +78,12 @@ model Product {
   sortOrder         Int          @default(0)
   colours           String? // free text until real variants exist
   sizes             String? // free text until real variants exist
+  // ZP-513 details card: size & fit, fabric & care (public), and an optional
+  // size chart: JSON rows { size, bust, waist, hips } (validated on save).
+  fitNote           String?
+  fabric            String?
+  care              String?
+  sizeChart         Json?
   // ZP-507 "Love it" hearts: one per device and piece (ProductLove), never
   // below 0 (CHECK constraint in the migration). Public as `loves`.
   loveCount         Int          @default(0)
@@ -525,6 +531,13 @@ model SiteSettings {
 
   // ZP-506: feed order. AUTO = by popularity (also sets Featured); NEWEST = newest first.
   feedRanking FeedRanking @default(AUTO)
+
+  // ZP-513 details card "How to buy" and "Size guide": hours a reserved piece
+  // is held (null hides it), payment methods ("EcoCash · cash · card"), and
+  // the default size chart (JSON rows { size, bust, waist, hips }).
+  holdHours        Int?
+  paymentMethods   String?
+  defaultSizeChart Json?
 
   updatedBy String?
   createdAt DateTime @default(now())

@@ -391,6 +391,69 @@ stays at least 4.5:1 on light photos.
   (a plain tap opens the details sheet instead).
 - The page stays `noindex` and takes its title from the layout template.
 
+## Details card content (ZP-513)
+
+The sheet's body, top to bottom (the owner-approved prototype); every part
+with no data is left out with no gap:
+
+- **Price row**: price or "Ask for price", tag, and the heart pill on the
+  right. Under it the rating ("★★★★☆ 4.7 · 3 reviews", a button that scrolls
+  to the reviews) and the **social line** (`socialLine`): "Loved by N · X
+  people asked about it this week", real numbers only, each part from 3.
+  *Asked* = distinct visits with `whatsapp_enquire` or `restock_request` for
+  the piece in the last 7 analytics days (today + 6, Harare) that were also
+  shown the piece in the window (a `look_view` or `details_sheet_open` for
+  it; once per visit), one grouped query over the raw events on the
+  `(day, type)` index (`src/lib/storefront/asked-query.ts`), cached 5 minutes
+  for everyone (`asked.ts`). The DTO only gets the number, and only from 3
+  (below that it is 0 on the server). Residual risk: a script can still send
+  a view and then an enquiry from many visits (the event endpoint is
+  anonymous and rate-limited, not authenticated); it is a nicety, never money.
+- **Colour · Size** (`colourSizeLabel`): a colour picker only with more than
+  one colour, else "Colour: Olive · Size"; the size chips (the chosen size and
+  colour go into the WhatsApp message; a piece's only colour goes in too,
+  without a picker, `chosenColour`); "Size guide" opens an inline table
+  ("Body measurements in cm") of the piece's sizes from its own chart, else
+  the default chart (`chartForSizes`); hidden without a chart. The fit note
+  under the chips. `size_guide_open` is tracked when it opens.
+- **How to buy** (`howToBuy`, a `<ul aria-label="How to buy">`): Reserve on
+  WhatsApp – "We hold it for {holdHours} h" (no sub-line until the owner sets
+  the hours; default none) (sold out: Ask about restock –
+  "We message you when it's back"; only with a WhatsApp number); Pay in store
+  – payment methods; Collect in store – today's hours. Cells without data are
+  hidden; the strip hides when all are empty.
+- **Description** on 2 lines with "More · fabric & care" (or "More" for a long
+  text, `descriptionToggle`); open shows the full text and Fabric / Care.
+- **Try it on** in one line: "Try it on: open today 09:00–17:30" and
+  **Directions** (Google Maps; `directions` tracked).
+- **You may also like** ("Available now" on a sold-out piece): up to 4
+  published, in-stock pieces with a photo, never the current one; same
+  collection first, then the rest; the feed's ranking order inside each group
+  (`pickAlsoLike` over the feed order). Small photo (104×132, object-position
+  50% 20%), name, price. A tap **closes the sheet** (close reason
+  `also_like`) and takes the shopper to that piece's look in the feed, full
+  screen on its first photo: a smooth scroll when it is loaded in the current
+  collection, else New in (switch, or load through it, like the `#look-`
+  restore). The URL becomes `#look-<slug>` (no `?d=`), focus moves to that
+  slide, and `also_like_open { slug, to }` is tracked. The feed continues
+  normally from there.
+- **Reviews**: two, then "See all N reviews" / "Show more reviews" (5 at a
+  time) in place.
+- The 62% height, the "More" pill (its words name the sections present:
+  store = How to buy / Try it on, reviews) and the footer (WhatsApp, Call,
+  Share) are unchanged.
+
+Data: product fields `fitNote` (≤ 160), `fabric` (≤ 80), `care` (≤ 80),
+`sizeChart` (JSON rows `{ size, bust, waist, hips }`, ≤ 12 rows, validated by
+`parseSizeChart`) in the product's Website panel (the chart as one row per
+line: `S | 86–90 | 68–72 | 94–98`; a line with more than 4 parts or no
+measurement at all is refused, naming the line); site settings `holdHours` (default none,
+1–168, empty hides), `paymentMethods` (≤ 80), `defaultSizeChart` in Website
+settings ("Details card: how to buy and size guide"). Migration
+`20261109090000_details_card`. The public product DTO adds `fit`, `fabric`,
+`care`, `sizeChart` (the key is `fit`, not `fitNote`: nothing public may look
+like the private `notes`); public settings add `buying`.
+
 ## /p/<slug>: the feed on that look (ZP-512)
 
 The separate product page is gone (owner: "it is redundant"). `/p/<slug>`
@@ -413,9 +476,14 @@ exactly like `/?d=<slug>`:
   once more leaves as from any page. The first open sends
   `details_sheet_open` with `from: "shared"`. The tab title stays the
   piece's until the next navigation.
-- The full-screen frame (no header / footer) is decided by `isFeedFrame`:
-  home, or the `p` segment (also after the address became the home path); a
-  404 under /p (segment null) keeps the header.
+- The full-screen frame (no header / footer): the home page from the first
+  render (`isFeedFrame`), and any other page because it renders the feed: the
+  feed's root carries `data-feed-page` (`FEED_PAGE_ATTR`) and
+  `.sf-page:has([data-feed-page])` (globals.css) turns the page frame into the
+  feed frame and hides the header and footer, in the server HTML too. A
+  /p/<unknown> 404 has no feed, so it keeps them (review: the route segment
+  alone never decides it). When the address becomes the feed URL, the tab
+  title becomes the feed's (`FEED_DOCUMENT_TITLE`).
 - **Per-piece server render** (`generateMetadata`): title, description,
   canonical `/p/<slug>`, Open Graph and Twitter title / description / image
   (the primary photo, absolute URL: WhatsApp / Instagram previews), and
