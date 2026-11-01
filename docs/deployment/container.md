@@ -15,6 +15,7 @@ Migrations are never applied when the web service starts.
 
 - `DATABASE_URL` and `DIRECT_URL` are both required, because `schema.prisma` uses `directUrl`.
 - `JWT_SECRET` is required in production.
+- `LOVES_HASH_SECRET` (at least 32 characters) is required in production for "Love it" hearts (ZP-507); without it `POST /api/public/loves` answers 503. UAT: Secret Manager `grace-shop-uat-loves-hash-secret`, web service only. Placeholders in `.env.example`.
 - `NODE_ENV=production`, `PORT=8080` and `HOSTNAME=0.0.0.0` are already set in the image.
 
 `next build` needs no database and no secrets, so none are passed at build time.
@@ -50,7 +51,7 @@ docker build -t grace-shop:local .
 docker run --rm -p 3463:8080 \
   -e DATABASE_URL=postgresql://grace:grace_local_dev@host.docker.internal:5433/<db> \
   -e DIRECT_URL=postgresql://grace:grace_local_dev@host.docker.internal:5433/<db> \
-  -e JWT_SECRET=<random> grace-shop:local
+  -e JWT_SECRET=<random> -e LOVES_HASH_SECRET=<random> grace-shop:local
 ```
 
 Run the job commands from the same image against the same database, for example `docker run --rm -e DATABASE_URL=... -e DIRECT_URL=... grace-shop:local npm run migrate`. `npm run init` works the same way.

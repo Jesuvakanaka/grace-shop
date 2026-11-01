@@ -120,6 +120,14 @@ export function flushAnalytics(): void {
   initAnalytics().flush()
 }
 
+/**
+ * The current pathname, for track({ page }) from trackers that report later
+ * (dwell, video): capture it when they start. "/" outside a browser.
+ */
+export function currentPathname(): string {
+  return typeof window === 'undefined' ? '/' : window.location.pathname
+}
+
 function useLatest<T>(value: T) {
   const ref = useRef(value)
   useEffect(() => {
@@ -137,7 +145,7 @@ function useLatest<T>(value: T) {
  */
 export function useDwell(
   ref: RefObject<Element | null>,
-  onDwell: (seconds: number) => void,
+  onDwell: (seconds: number, page: string) => void,
   options: { enabled?: boolean; threshold?: number; root?: RefObject<Element | null>; key?: unknown } = {},
 ): void {
   const latest = useLatest(onDwell)
@@ -145,8 +153,11 @@ export function useDwell(
   useEffect(() => {
     const el = ref.current
     if (!enabled || !el || !initAnalytics().enabled) return
+    // The page the tracker started on: pass it to track({ page }) so a dwell
+    // emitted after a navigation (unmount) keeps the page it was spent on.
+    const startedOn = currentPathname()
     const tracker = createDwellTracker(el, {
-      onDwell: (s) => latest.current(s),
+      onDwell: (s) => latest.current(s, startedOn),
       threshold,
       root: root?.current ?? null,
     })
@@ -159,12 +170,13 @@ export function useDwell(
  * active photo of a carousel: `useActiveDwell(isActive, (s) => track(...))`.
  * Counts while `active` is true and the page is visible; same rules.
  */
-export function useActiveDwell(active: boolean, onDwell: (seconds: number) => void, key?: unknown): void {
+export function useActiveDwell(active: boolean, onDwell: (seconds: number, page: string) => void, key?: unknown): void {
   const latest = useLatest(onDwell)
   const timerRef = useRef<ReturnType<typeof createDwellTimer> | null>(null)
   useEffect(() => {
     if (!initAnalytics().enabled) return
-    const timer = createDwellTimer({ onDwell: (s) => latest.current(s) })
+    const startedOn = currentPathname() // see useDwell
+    const timer = createDwellTimer({ onDwell: (s) => latest.current(s, startedOn) })
     timerRef.current = timer
     return () => {
       timer.dispose()

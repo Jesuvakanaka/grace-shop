@@ -47,6 +47,8 @@ interface WebsiteProduct {
   readiness: { ready: boolean; missing: PublishMissing[] };
   status: WebsiteStatus;
   newUntil: string | null;
+  /** ZP-507: "Love it" hearts from website visitors. */
+  loveCount: number;
 }
 
 interface CategoryOption {
@@ -261,6 +263,17 @@ export function WebsiteSection({
     window.open(r.data.url, '_blank', 'noopener');
   };
 
+  // ZP-507: the owner resets a piece's hearts (e.g. after abuse).
+  const resetLoves = async () => {
+    if (!window.confirm('Reset the hearts of this piece to 0? Phones that loved it can love it again.')) return;
+    setError(null);
+    const r = await send(`/api/website/products/${productId}/loves`, 'DELETE');
+    if (!r.ok) return setError({ error: r.data.error || 'Could not reset the hearts' });
+    setProduct((p) => (p ? { ...p, loveCount: 0 } : p));
+    onStatusChange();
+    toast.success('Hearts reset to 0');
+  };
+
   const showPriceWarning = fields.priceDisplay === 'SHOW_PRICE' && !(retailPriceUsd > 0);
 
   return (
@@ -297,6 +310,17 @@ export function WebsiteSection({
         <p className="text-xs text-slate-500 mt-1" data-testid="website-enquiry-ref">
           Enquiry reference: <span className="font-mono text-slate-700">{publicProductRef(productId)}</span>
           {' '}(shown at the end of WhatsApp enquiries)
+        </p>
+        {/* ZP-507: "Love it" hearts (one per phone; the site shows a number from 3). */}
+        <p className="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-2" data-testid="website-loves">
+          <span>
+            Hearts: <span className="font-medium text-slate-700">{product.loveCount}</span>
+          </span>
+          {product.loveCount > 0 && (
+            <button type="button" className="underline text-slate-600 hover:text-slate-900" onClick={resetLoves} data-testid="website-loves-reset">
+              Reset
+            </button>
+          )}
         </p>
       </div>
 

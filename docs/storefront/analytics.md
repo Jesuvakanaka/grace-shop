@@ -277,6 +277,48 @@ track('collection_switch', { from, to })
   (`DEVICE_STORAGE_KEY` in `client-core.ts`). It is absent when the visitor
   opted out (GPC / DNT) or storage is blocked.
 
+## Where each event is sent (wave 2, ZP-507 branch)
+
+Prop builders are pure and tested in `tests/storefront-tracking.test.ts`
+(`src/lib/storefront/tracking.ts`: `imageFileName`, `photoProps`,
+`productOpenSource`, `createVideoWatch`). Nothing runs in a scroll handler.
+
+| event | where | notes |
+|---|---|---|
+| `look_view` | `FeedSlide`, when the slide becomes the current one | `slug`, `collection` (tab), `position` (index in the feed) |
+| `look_dwell` | `FeedSlide`, `useDwell` on the slide `<article>` | |
+| `photo_view` / `photo_dwell` | `FeedSlide` (the strip's photo on the current slide) and `Gallery` (product page, while the gallery is ≥ 60% visible) | `index` / `of` among the photos (a video first is not counted), `image` file name; `useActiveDwell` keyed per photo |
+| `video_start`, `video_progress`, `video_replay`, `video_seconds` | `FeedVideo`, `GalleryVideo` via `useVideoTracking` | a viewing ends when the video leaves the view (the playback hook's 60% observer) or unmounts; a page hide sends the seconds so far; every loop is a replay; 100% on the first loop or `ended` |
+| `details_show` / `details_hide` | `FlipFeed` eye | the current look's slug |
+| `collection_switch` | `FlipFeed`, a collection picked in the sheet, once its looks arrived | `from`, `to` |
+| `feed_load_more` | `FlipFeed`, a next page arrived | `loaded` = looks loaded so far |
+| `feed_end_reached` | `FlipFeed`, the end slide reached | once per collection per page load, `looks` |
+| `whatsapp_enquire` / `restock_request` | feed rail Enquire / Restock (`screen: feed`); product page enquiry buttons (`screen: product`, with the chosen size / colour) | sold-out pieces send `restock_request` only |
+| `share` | feed rail, product top bar and Share button | only when the share sheet completed (`native`) or the link was copied (`copy`) |
+| `visit_us` | feed rail (no WhatsApp number) and end slide; product page Visit us | |
+| `call`, `directions` | product page (Call buttons, "Get directions") | |
+| `product_open` | `ProductTracking`, once per piece shown | `from`: in-app previous path (NavMemory) else same-origin referrer: `/` feed, `/collections…` collection, `/shop`, `/new`, `/p/…` related; no / foreign referrer shared; else other. Covers taps on collection / shop cards without touching them |
+| `size_select`, `colour_select` | product page chips (picked, not cleared) | exactly the chip text |
+| `gallery_zoom` | `Gallery` full screen | `index` of the photo |
+| `guide_shown` / `guide_replayed` | `FlipFeed` (first visit / `?guide=1`; one or the other) | |
+| `guide_step`, `guide_completed`, `guide_skipped` | `FeedGuide` | step 1-based; skipped = Skip or Escape, with the step |
+| `love_on` / `love_off` | `src/lib/loves/client.ts` (hearts, ZP-507) | |
+| `action_failed` | `FlipFeed` | `feed_load` (load more failed), `collection_switch` (fell back to a full load) |
+
+`useDwell` / `useActiveDwell` call `onDwell(seconds, page)` with the page the
+tracker started on, and `useVideoTracking` captures it too; they pass it as
+`track(type, { ..., page })` (`page` is lifted onto the event like `slug`), so
+a dwell that ends after a navigation (the feed slide unmounting when a
+product opens) keeps the feed's page. A size / colour longer than the
+allow-list takes (24 / 32) is left out of `whatsapp_enquire` /
+`restock_request` (the event is kept) and `size_select` / `colour_select`
+are skipped for it (`allowedOption`, `enquiryEvent`).
+
+The product page's server-rendered links are tracked by one delegated click
+listener in `ProductTracking` (capture phase) through `data-track="enquire" |
+"call" | "directions" | "visit_us"` attributes. Preview pages send nothing
+(the tracker is disabled there).
+
 ## Tables
 
 Migration `20261103090000_analytics_events`. No foreign keys (deleting a

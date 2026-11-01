@@ -6,6 +6,7 @@ import { videoLabel, videoPreload, videoSourceAttached, type MediaVideo } from "
 import { cn } from "../cn";
 import { ImageFallback, StorefrontImg } from "../StorefrontImage";
 import { useAutoplayAllowed, useMounted, useVideoPlayback } from "./useVideoPlayback";
+import { useVideoTracking } from "./useVideoTracking";
 import { PauseIcon, PlayIcon } from "./video-icons";
 
 type FeedVideoProps = {
@@ -25,6 +26,9 @@ type FeedVideoProps = {
    */
   slideOffset: number | null;
   sizes: string;
+  /** ZP-493: the piece and feed tab for the video analytics events. */
+  slug?: string;
+  collection?: string;
 };
 
 /**
@@ -39,10 +43,23 @@ type FeedVideoProps = {
  * button plays / pauses (with reduced motion or Save-Data: a large play
  * button on the poster, nothing starts on its own).
  */
-export function FeedVideo({ video, name, href, onLeave, linkTabIndex, linkLabel, priority, slideOffset, sizes }: FeedVideoProps) {
+export function FeedVideo({
+  video,
+  name,
+  href,
+  onLeave,
+  linkTabIndex,
+  linkLabel,
+  priority,
+  slideOffset,
+  sizes,
+  slug,
+  collection,
+}: FeedVideoProps) {
   const autoplay = useAutoplayAllowed();
   const mounted = useMounted();
-  const { ref, playing, requested, failed, intent, toggle, events } = useVideoPlayback(autoplay, { nativeControls: false });
+  const { ref, visible, playing, requested, failed, intent, toggle, events } = useVideoPlayback(autoplay, { nativeControls: false });
+  const tracking = useVideoTracking(slug, visible, collection);
   // Only near the current slide does the element hold a source (frees decoders far away).
   const attached = videoSourceAttached(slideOffset);
   const preload = !attached ? "none" : intent === "play" ? "auto" : videoPreload({ slideOffset, autoplay });
@@ -81,6 +98,12 @@ export function FeedVideo({ video, name, href, onLeave, linkTabIndex, linkLabel,
         preload={preload}
         aria-label={videoLabel(name)}
         {...events}
+        onPlaying={() => {
+          events.onPlaying();
+          tracking.onPlaying();
+        }}
+        onTimeUpdate={tracking.onTimeUpdate}
+        onEnded={tracking.onEnded}
         className={cn(
           "pointer-events-none absolute inset-0 h-full w-full object-cover object-[50%_20%] transition-opacity duration-200 motion-reduce:transition-none",
           playing && !failed ? "opacity-100" : "opacity-0",

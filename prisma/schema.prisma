@@ -78,6 +78,9 @@ model Product {
   sortOrder         Int          @default(0)
   colours           String? // free text until real variants exist
   sizes             String? // free text until real variants exist
+  // ZP-507 "Love it" hearts: one per device and piece (ProductLove), never
+  // below 0 (CHECK constraint in the migration). Public as `loves`.
+  loveCount         Int          @default(0)
 
   stockMovements StockMovement[]
   saleItems      SaleItem[]
@@ -88,6 +91,7 @@ model Product {
   // ZP-508: verified customer reviews (owner-moderated) and their one-time links.
   reviews        Review[]
   reviewInvites  ReviewInvite[]
+  loves          ProductLove[]
 
   @@index([categoryId])
 }
@@ -133,6 +137,22 @@ model ProductVideo {
 
   @@index([videoKey])
   @@index([posterKey])
+}
+
+// ZP-507: one "Love it" heart per device and piece. Anonymous: only a keyed
+// hash (HMAC-SHA256 with a server secret) of the browser's random device id
+// and the product id is kept, never the device id, IP or user agent. See
+// docs/storefront/hearts.md.
+model ProductLove {
+  id        Int      @id @default(autoincrement())
+  productId Int
+  /// HMAC-SHA256(key, deviceId + ":" + productId), lowercase hex (64 chars).
+  hash      String   @unique @db.Char(64)
+  createdAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
 }
 
 // How the public site shows the price. The public price is sellingPriceUsd.

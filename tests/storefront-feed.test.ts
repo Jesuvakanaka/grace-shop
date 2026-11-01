@@ -8,6 +8,9 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import {
+  frameHeightFix,
+  photoNav,
+  railItems,
   FEED_DETAILS_STORAGE_KEY,
   FEED_MAX_PAGE_SIZE,
   FEED_MAX_THROUGH,
@@ -256,6 +259,7 @@ describe('toFeedItem', () => {
       'enquireHref',
       'href',
       'images',
+      'loves', // ZP-507
       'name',
       'price',
       'shareUrl',
@@ -333,5 +337,45 @@ describe('feed URL state (tab in ?c=, slide in the hash)', () => {
     assert.strictEqual(feedLocation('/site', '', 'dresses', null), '/site?c=dresses');
     assert.strictEqual(feedLocation('/site', '?c=sets', FEED_NEW_TAB, 'x'), '/site#look-x');
     assert.strictEqual(feedLocation('/', '?utm=a&c=sets', 'dresses', 'lime'), '/?utm=a&c=dresses#look-lime');
+  });
+});
+
+// Samsung feedback (ZP-507 branch): the rail, the photo arrows and the frame height.
+describe('rail (clean view and with details)', () => {
+  test('clean view: WhatsApp (or Visit us), heart, eye; never Share or Details', () => {
+    assert.deepStrictEqual(railItems({ details: false, enquire: true, share: true }), ['enquire', 'love', 'eye']);
+    assert.deepStrictEqual(railItems({ details: false, enquire: false, share: true }), ['visit', 'love', 'eye']);
+  });
+  test('with details: Share and Details on top, then WhatsApp / Visit us, heart, eye (the eye always last, at the bottom)', () => {
+    assert.deepStrictEqual(railItems({ details: true, enquire: true, share: true }), ['share', 'details', 'enquire', 'love', 'eye']);
+    assert.deepStrictEqual(railItems({ details: true, enquire: false, share: false }), ['details', 'visit', 'love', 'eye']);
+  });
+});
+
+describe('photo arrows', () => {
+  test('previous only after the first item, next only before the last; none for a single item', () => {
+    assert.deepStrictEqual(photoNav(0, 3), { prev: false, next: true });
+    assert.deepStrictEqual(photoNav(1, 3), { prev: true, next: true });
+    assert.deepStrictEqual(photoNav(2, 3), { prev: true, next: false });
+    assert.deepStrictEqual(photoNav(0, 1), { prev: false, next: false });
+    assert.deepStrictEqual(photoNav(0, 0), { prev: false, next: false });
+  });
+});
+
+describe('frame height fix (bottom toolbars)', () => {
+  test('no fix when the frame fits what is visible', () => {
+    assert.strictEqual(frameHeightFix({ frameHeight: 740, innerHeight: 740, visualHeight: 740, visualScale: 1 }), null);
+    assert.strictEqual(frameHeightFix({ frameHeight: 700, innerHeight: 740, visualHeight: 740, visualScale: 1 }), null);
+  });
+  test('the frame is taller than the visible area (100vh under a bottom toolbar): pinned to the visible height', () => {
+    assert.strictEqual(frameHeightFix({ frameHeight: 812, innerHeight: 740, visualHeight: 739.6, visualScale: 1 }), 740);
+    assert.strictEqual(frameHeightFix({ frameHeight: 812, innerHeight: 740, visualHeight: null, visualScale: 1 }), 740);
+  });
+  test('pinch-zoomed: the layout viewport (innerHeight), not the zoomed visual one', () => {
+    assert.strictEqual(frameHeightFix({ frameHeight: 812, innerHeight: 740, visualHeight: 370, visualScale: 2 }), 740);
+  });
+  test('nonsense measurements: no fix', () => {
+    assert.strictEqual(frameHeightFix({ frameHeight: 0, innerHeight: 740, visualHeight: 740, visualScale: 1 }), null);
+    assert.strictEqual(frameHeightFix({ frameHeight: 812, innerHeight: 0, visualHeight: null, visualScale: 1 }), null);
   });
 });

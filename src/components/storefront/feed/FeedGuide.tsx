@@ -11,6 +11,7 @@ import {
   type GuideMotion,
   type GuideRing,
 } from "@/lib/storefront/feed-guide";
+import { track } from "@/lib/analytics/client";
 import { cn } from "../cn";
 import { ChevronIcon } from "./feed-icons";
 
@@ -138,10 +139,20 @@ export function FeedGuide({ frameRef, findEye, onDone, fallbackFocus }: FeedGuid
     return () => window.removeEventListener("resize", measure);
   }, [measure, step]);
 
+  // ZP-493: guide_step for every step shown (1-based), then guide_completed
+  // (Got it on the last step) or guide_skipped (Skip, Escape) with the step.
+  const completed = useRef(false);
+  const stepRef = useRef(step);
+  useEffect(() => {
+    stepRef.current = step;
+    track("guide_step", { step: step + 1 });
+  }, [step]);
+
   const finish = () => dialog.current?.close();
   const next = () => {
     const to = advanceGuide(step, steps.length);
     if (to === null) {
+      completed.current = true;
       finish();
       return;
     }
@@ -154,6 +165,8 @@ export function FeedGuide({ frameRef, findEye, onDone, fallbackFocus }: FeedGuid
     // A close queued by an effect cleanup (dev Strict Mode re-runs the mount
     // effect) arrives after it reopened: not the visitor closing it.
     if (dialog.current?.open) return;
+    if (completed.current) track("guide_completed");
+    else track("guide_skipped", { step: stepRef.current + 1 });
     const back = returnTo.current;
     if (back instanceof HTMLElement && back.isConnected && back !== document.body) back.focus({ preventScroll: true });
     else fallbackFocus();

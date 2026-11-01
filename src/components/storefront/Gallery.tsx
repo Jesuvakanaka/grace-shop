@@ -1,14 +1,30 @@
 "use client";
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { DWELL_VISIBLE_RATIO, track as trackEvent, useActiveDwell } from "@/lib/analytics/client";
 import type { PublicVideo } from "@/lib/storefront/dto";
 import { mediaItems } from "@/lib/storefront/feed-media";
+import { photoProps } from "@/lib/storefront/tracking";
 import { cn } from "./cn";
 import { ChevronLeftIcon, ChevronRightIcon, CloseIcon, ExpandIcon } from "./icons";
 import { ImageFallback, ImageFrame, StorefrontImg } from "./StorefrontImage";
 import type { StorefrontImageData } from "./types";
 import { GalleryVideo } from "./video/GalleryVideo";
 import { PlayIcon } from "./video/video-icons";
+
+/**
+ * Where a cover crop keeps the picture (as the feed does): the top, so heads
+ * stay in view. GalleryVideo uses the same position for the video and its poster.
+ */
+const GALLERY_OBJECT_POSITION = "object-[50%_20%]";
+/**
+ * The main photo / video box. Phones: 2:3, the shape of the photos, so
+ * nothing is cropped, capped at 75% of the small viewport height on short
+ * phones (then the top-weighted crop above applies). lg: 4:5 beside the
+ * details column, as before.
+ */
+const galleryFrame =
+  "relative aspect-[2/3] max-h-[75vh] w-full overflow-hidden bg-brand-cream-100 supports-[height:100svh]:max-h-[75svh] lg:aspect-[4/5] lg:max-h-none lg:supports-[height:100svh]:max-h-none";
 
 type GalleryProps = {
   images: StorefrontImageData[];
@@ -27,6 +43,12 @@ type GalleryProps = {
    */
   counter?: boolean;
   className?: string;
+  /**
+   * ZP-493: the piece, for analytics (photo_view / photo_dwell of the photo
+   * on screen while the gallery is at least 60% visible, gallery_zoom, the
+   * video events). Without it nothing is tracked.
+   */
+  slug?: string;
 };
 
 /**
@@ -39,7 +61,7 @@ type GalleryProps = {
  * native controls; GalleryVideo), then the photos; dots and thumbnails count
  * it. The full-screen view shows the photos only.
  */
-export function Gallery({ images, video, label, eager = true, counter = false, className }: GalleryProps) {
+export function Gallery({ images, video, label, eager = true, counter = false, className, slug }: GalleryProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef<HTMLDialogElement>(null);
   const zoomButtonRef = useRef<HTMLButtonElement>(null);
@@ -69,6 +91,38 @@ export function Gallery({ images, video, label, eager = true, counter = false, c
     return () => io.disconnect();
   }, [count]);
 
+  // ZP-493: the gallery itself on screen (>= 60%; an observer, no scroll
+  // handler), and the photo it shows: photo_view once per photo shown,
+  // photo_dwell while it stays (useActiveDwell: page visible, 0.5 s floor, 60 s cap).
+  const [inView, setInView] = useState(false);
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!slug || !el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[entries.length - 1];
+        if (entry) setInView(entry.isIntersecting && entry.intersectionRatio >= DWELL_VISIBLE_RATIO - 0.001);
+      },
+      { threshold: [0, DWELL_VISIBLE_RATIO, 1] },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [slug, count]);
+  const shownPhoto = slug && inView && items[active]?.kind === "image" ? photoProps(images, active - offset) : null;
+  const shownKey = shownPhoto ? `${slug}-${shownPhoto.index}` : null;
+  useEffect(() => {
+    if (slug && shownPhoto) trackEvent("photo_view", { slug, ...shownPhoto });
+    // Once per photo shown (shownKey), not per render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownKey]);
+  useActiveDwell(
+    shownPhoto !== null,
+    (seconds, page) => {
+      if (slug && shownPhoto) trackEvent("photo_dwell", { slug, ...shownPhoto, seconds, page });
+    },
+    shownKey,
+  );
+
   const goTo = (index: number) => {
     const track = trackRef.current;
     if (!track) return;
@@ -81,8 +135,10 @@ export function Gallery({ images, video, label, eager = true, counter = false, c
   /** Full screen: photos only (from the video, the first photo). */
   const openZoom = () => {
     if (photoCount === 0) return;
-    setZoomed(Math.max(0, active - offset));
+    const photo = Math.max(0, active - offset);
+    setZoomed(photo);
     zoomRef.current?.showModal();
+    if (slug) trackEvent("gallery_zoom", { slug, ...(photo < 50 ? { index: photo + 1 } : {}) });
   };
   const closeZoom = () => zoomRef.current?.close();
   const zoomStep = (dir: 1 | -1) => {
@@ -156,9 +212,9 @@ export function Gallery({ images, video, label, eager = true, counter = false, c
                 aria-roledescription="slide"
                 aria-label={`${i + 1} of ${count}, video`}
               >
-                <ImageFrame ratio="4 / 5">
-                  <GalleryVideo video={item.video} name={label} eager={eager} />
-                </ImageFrame>
+                <div className={galleryFrame}>
+                  <GalleryVideo video={item.video} name={label} eager={eager} slug={slug} />
+                </div>
               </div>
             ) : (
               <div
@@ -171,9 +227,14 @@ export function Gallery({ images, video, label, eager = true, counter = false, c
                 aria-roledescription="slide"
                 aria-label={`${i + 1} of ${count}`}
               >
-                <ImageFrame ratio="4 / 5">
-                  <StorefrontImg image={item.image} eager={eager && i === 0} sizes="(min-width: 1024px) 560px, 100vw" />
-                </ImageFrame>
+                <div className={galleryFrame}>
+                  <StorefrontImg
+                    image={item.image}
+                    eager={eager && i === 0}
+                    sizes="(min-width: 1024px) 560px, 100vw"
+                    className={GALLERY_OBJECT_POSITION}
+                  />
+                </div>
               </div>
             ),
           )}

@@ -3,6 +3,7 @@
 import { videoLabel, type MediaVideo } from "@/lib/storefront/feed-media";
 import { StorefrontImg } from "../StorefrontImage";
 import { useAutoplayAllowed, useVideoPlayback } from "./useVideoPlayback";
+import { useVideoTracking } from "./useVideoTracking";
 
 type GalleryVideoProps = {
   video: MediaVideo;
@@ -10,6 +11,8 @@ type GalleryVideoProps = {
   name: string;
   /** First item above the fold on the product page: poster eager. */
   eager: boolean;
+  /** ZP-493: the piece, for the video analytics events. */
+  slug?: string;
 };
 
 /**
@@ -19,13 +22,21 @@ type GalleryVideoProps = {
  * least 60% on screen, and never with reduced motion or Save-Data. The
  * poster is a real <img> underneath, so a failed video still shows a picture.
  */
-export function GalleryVideo({ video, name, eager }: GalleryVideoProps) {
+export function GalleryVideo({ video, name, eager, slug }: GalleryVideoProps) {
   const autoplay = useAutoplayAllowed();
-  const { ref, failed, intent, events } = useVideoPlayback(autoplay, { nativeControls: true });
+  const { ref, visible, failed, intent, events } = useVideoPlayback(autoplay, { nativeControls: true });
+  const tracking = useVideoTracking(slug, visible);
 
   return (
     <>
-      <StorefrontImg image={{ src: video.poster, alt: "" }} decorative eager={eager} sizes="(min-width: 1024px) 560px, 100vw" />
+      {/* object-[50%_20%]: a crop keeps the top (heads) in view, like the gallery photos. */}
+      <StorefrontImg
+        image={{ src: video.poster, alt: "" }}
+        decorative
+        eager={eager}
+        sizes="(min-width: 1024px) 560px, 100vw"
+        className="object-[50%_20%]"
+      />
       {!failed ? (
         <video
           ref={ref}
@@ -42,7 +53,13 @@ export function GalleryVideo({ video, name, eager }: GalleryVideoProps) {
           preload={autoplay || intent === "play" ? "metadata" : "none"}
           aria-label={videoLabel(name)}
           {...events}
-          className="sf-focus absolute inset-0 h-full w-full bg-transparent object-cover"
+          onPlaying={() => {
+            events.onPlaying();
+            tracking.onPlaying();
+          }}
+          onTimeUpdate={tracking.onTimeUpdate}
+          onEnded={tracking.onEnded}
+          className="sf-focus absolute inset-0 h-full w-full bg-transparent object-cover object-[50%_20%]"
         />
       ) : null}
     </>
