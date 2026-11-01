@@ -63,7 +63,7 @@ export function ProductView({
         <div className="bg-brand-ink text-brand-cream">
           <Container className="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="sf-label">Preview, not public</p>
-            <p className="text-sm text-brand-cream/80">Only you can see this page. The link expires 30 minutes after it was made.</p>
+            <p className="text-sm text-brand-cream/80">Anyone with this link can see this page until it expires, 30 minutes after it was made. Enquiry links only work once the piece is published.</p>
           </Container>
         </div>
       ) : null}
@@ -142,7 +142,7 @@ export function ProductView({
                         Call us
                       </a>
                     ) : null}
-                    {productUrl ? (
+                    {productUrl && !preview ? (
                       <ShareButton url={productUrl} title={`${product.name} – VYRA`} className={tel ? undefined : "col-span-2"} />
                     ) : null}
                   </div>

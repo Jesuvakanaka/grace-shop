@@ -24,7 +24,7 @@ export function proxy(request: NextRequest) {
     case 'redirect': {
       const url = request.nextUrl.clone();
       url.pathname = decision.pathname;
-      return NextResponse.redirect(url, 308);
+      return withPreviewHeaders(request, NextResponse.redirect(url, 308));
     }
     case 'not-found':
       return new NextResponse('Not Found', {
