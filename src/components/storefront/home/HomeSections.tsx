@@ -95,7 +95,7 @@ export function Collections({ tiles }: { tiles: NonNullable<HomeModel["collectio
                 </div>
                 <div
                   aria-hidden="true"
-                  className="absolute inset-x-0 bottom-0 h-3/5 bg-[linear-gradient(to_top,rgba(30,30,30,0.82)_0%,rgba(30,30,30,0.7)_35%,rgba(30,30,30,0)_100%)]"
+                  className="absolute inset-x-0 bottom-0 h-3/4 bg-[linear-gradient(to_top,rgba(30,30,30,0.82)_0%,rgba(30,30,30,0.72)_65%,rgba(30,30,30,0)_100%)]"
                 />
                 <div className="absolute inset-x-0 bottom-0 flex flex-col gap-2 p-4 text-white sm:gap-3 sm:p-6">
                   <span className="font-serif text-2xl font-medium leading-[1.05] text-balance sm:text-3xl lg:text-[2.125rem]">
@@ -216,14 +216,14 @@ export function VisitTeaser({ visit, visitHref }: { visit: NonNullable<HomeModel
                     <dd className="flex flex-col gap-1 text-brand-ink">
                       <span>
                         <span className="sf-label text-brand-ink-soft">Today, {today.dayLabel}</span>
-                        <span className="block text-lg">{today.open ? `Open ${today.text}` : "Closed today"}</span>
+                        <span className="block text-lg">{today.open ? `Today ${today.text}` : "Closed today"}</span>
                       </span>
                     </dd>
                   </div>
                 ) : null}
               </dl>
             ) : null}
-            {holidayNote && (address.length > 0 || today) ? (
+            {holidayNote ? (
               <p className="-mt-2 text-sm text-brand-ink-soft">{holidayNote}</p>
             ) : null}
             {mapHref || whatsappHref ? (

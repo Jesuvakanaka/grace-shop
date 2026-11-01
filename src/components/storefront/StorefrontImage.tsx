@@ -96,7 +96,7 @@ export function StorefrontImg({
   return (
     <picture>
       {sources.map((s) => (
-        <source key={s.media} media={s.media} srcSet={s.image.src} width={s.image.width} height={s.image.height} />
+        <source key={s.media} media={s.media} srcSet={s.image.srcSet ?? s.image.src} sizes={sizes} width={s.image.width} height={s.image.height} />
       ))}
       {img}
     </picture>
