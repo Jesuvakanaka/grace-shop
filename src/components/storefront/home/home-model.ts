@@ -4,20 +4,25 @@
 // missing, so the page never renders an empty section.
 import { buildWhatsAppLink } from "@/lib/site-settings/whatsapp";
 import type { PublicSiteSettings } from "@/lib/site-settings/dto";
-import { DAYS, DAY_LABELS, type Day, type OpeningHours } from "@/lib/site-settings/schema";
-import { SRCSET_WIDTHS } from "@/lib/storefront/image-sizes";
+import { DAY_LABELS, type Day, type OpeningHours } from "@/lib/site-settings/schema";
 import { SITE_ROUTES, sitePath, type SiteBase } from "@/lib/storefront/paths";
-import { splitAddress, VYRA_TAGLINE } from "@/lib/storefront/shell-model";
+import { VYRA_TAGLINE } from "@/lib/storefront/shell-model";
+import {
+  addressLines,
+  dayInTimeZone,
+  mapLink,
+  meaningfulText,
+  settingsImageData,
+  SHOP_TIME_ZONE,
+} from "@/lib/storefront/visit-model";
 import type { PublicCategory, PublicImage, PublicProduct } from "@/lib/storefront/dto";
 import { lookbookImage, type LookbookStem } from "../lookbook";
 import { toImageData } from "../product";
 import type { StorefrontImageData } from "../types";
 
-/**
- * The shop's time zone for "today's hours". Site settings have no time zone
- * field; the shop is in Zimbabwe (CAT, UTC+2, no daylight saving).
- */
-export const SHOP_TIME_ZONE = "Africa/Harare";
+// Shared with the shell footer and Visit us (ZP-491): time zone, settings
+// pictures, map link, placeholder handling.
+export { dayInTimeZone, mapLink, settingsImageData, SHOP_TIME_ZONE } from "@/lib/storefront/visit-model";
 
 export const DEFAULT_HERO_HEADLINE = "Style Your Way";
 export const DEFAULT_HERO_SUBLINE = "Premium fashion. Modern you.";
@@ -62,14 +67,6 @@ export function splitHeadline(text: string): Headline {
 
 // ------------------------------------------------------------------ images
 
-const PUBLIC_PICTURE_URL = /^\/api\/images\/public\/[0-9a-f]{32}\.webp$/;
-
-/** A settings picture URL (/api/images/public/<hex>.webp) as img data with a srcset; null otherwise. */
-export function settingsImageData(url: string | null | undefined, alt: string): StorefrontImageData | null {
-  if (!url || !PUBLIC_PICTURE_URL.test(url)) return null;
-  return { src: url, srcSet: SRCSET_WIDTHS.map((w) => `${url}?w=${w} ${w}w`).join(", "), alt };
-}
-
 export type HeroImages = {
   /** The base image (phones, and desktop when `desktop` is null). */
   image: StorefrontImageData;
@@ -90,31 +87,6 @@ export function heroImages(urls: { desktop: string | null; mobile: string | null
 
 // ----------------------------------------------------------- today's hours
 
-function validTimeZone(timeZone: string): string {
-  try {
-    new Intl.DateTimeFormat("en-GB", { timeZone });
-    return timeZone;
-  } catch {
-    return SHOP_TIME_ZONE;
-  }
-}
-
-const WEEKDAY_TO_DAY: Record<string, Day> = {
-  Mon: "mon",
-  Tue: "tue",
-  Wed: "wed",
-  Thu: "thu",
-  Fri: "fri",
-  Sat: "sat",
-  Sun: "sun",
-};
-
-/** The weekday of `now` in `timeZone` (an invalid zone falls back to the shop's). */
-export function dayInTimeZone(now: Date, timeZone: string = SHOP_TIME_ZONE): Day {
-  const weekday = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: validTimeZone(timeZone) }).format(now);
-  return WEEKDAY_TO_DAY[weekday] ?? DAYS[0];
-}
-
 export type TodaysHours = { day: Day; dayLabel: string; open: boolean; text: string };
 
 /** Today's opening hours in the shop's time zone; null when no hours are set. */
@@ -126,29 +98,6 @@ export function todaysHours(hours: OpeningHours | null, now: Date, timeZone: str
   return h.closed
     ? { day, dayLabel: DAY_LABELS[day], open: false, text: "Closed" }
     : { day, dayLabel: DAY_LABELS[day], open: true, text: `${h.open}–${h.close}` };
-}
-
-// --------------------------------------------------------------------- map
-
-const MAPS_SEARCH = "https://www.google.com/maps/search/?api=1&query=";
-
-/**
- * Directions link: the owner's map URL if set, else a Google Maps search for
- * the address, else for the coordinates; null when none is set.
- */
-export function mapLink(visit: {
-  address: string | null;
-  mapUrl: string | null;
-  latitude: number | null;
-  longitude: number | null;
-}): string | null {
-  if (visit.mapUrl) return visit.mapUrl;
-  const lines = splitAddress(visit.address);
-  if (lines.length > 0) return MAPS_SEARCH + encodeURIComponent(lines.join(", "));
-  if (visit.latitude !== null && visit.longitude !== null) {
-    return MAPS_SEARCH + encodeURIComponent(`${visit.latitude},${visit.longitude}`);
-  }
-  return null;
 }
 
 // ------------------------------------------------------------ collections
@@ -240,7 +189,7 @@ export function buildHomeModel(input: {
     href: to(SITE_ROUTES.collection(t.slug)),
   }));
 
-  const address = splitAddress(settings.visit.address);
+  const address = addressLines(settings.visit.address);
   const today = todaysHours(settings.visit.hours, now, input.timeZone ?? SHOP_TIME_ZONE);
   const whatsappHref = buildWhatsAppLink(settings);
   const hasVisit = address.length > 0 || today !== null || whatsappHref !== null;
@@ -261,7 +210,7 @@ export function buildHomeModel(input: {
       ? {
           address,
           today,
-          holidayNote: settings.visit.holidayNote,
+          holidayNote: meaningfulText(settings.visit.holidayNote),
           mapHref: mapLink(settings.visit),
           whatsappHref,
         }

@@ -7,6 +7,7 @@ import type { PublicSiteSettings } from '@/lib/site-settings/dto'
 import { DAYS, type Day, type OpeningHours } from '@/lib/site-settings/schema'
 import type { PublicCategory } from './dto'
 import { SITE_ROUTES, sitePath, type SiteBase } from './paths'
+import { addressLines, meaningfulText } from './visit-model'
 
 /** The one VYRA tagline (docs/storefront/brand-refinements.md, rule 1). */
 export const VYRA_TAGLINE = 'WEAR DIFFERENT.'
@@ -60,14 +61,8 @@ export function formatOpeningHours(hours: OpeningHours | null): string[] {
   return lines
 }
 
-/** The multi-line address as trimmed lines, blanks dropped. [] when not set. */
-export function splitAddress(address: string | null): string[] {
-  if (!address) return []
-  return address
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-}
+// The multi-line address as trimmed lines (moved to ./visit-model, ZP-491).
+export { splitAddress } from './visit-model'
 
 export function buildShellModel(input: {
   settings: PublicSiteSettings
@@ -104,9 +99,10 @@ export function buildShellModel(input: {
     nav,
     whatsappHref: buildWhatsAppLink(settings),
     social,
-    address: splitAddress(settings.visit.address),
+    // Placeholders ("TBC") count as not set (shared with the home page and Visit us).
+    address: addressLines(settings.visit.address),
     hours: formatOpeningHours(settings.visit.hours),
-    holidayNote: settings.visit.holidayNote,
+    holidayNote: meaningfulText(settings.visit.holidayNote),
     phone: settings.contacts.phone,
     email: settings.contacts.email,
     footerColumns: [
