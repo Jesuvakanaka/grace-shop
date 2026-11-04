@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { GUIDE_TITLE, guideTips, type GuideIcon, type GuideLayout } from "@/lib/storefront/feed-guide";
 import { track } from "@/lib/analytics/client";
 import { WhatsAppLogoIcon } from "../icons";
+import { InstallAppRow } from "../InstallAppRow";
 import { ChevronIcon, EyeIcon, MenuLinesIcon } from "./feed-icons";
 
 type FeedGuideProps = {
@@ -52,7 +53,8 @@ const icons: Record<GuideIcon, ReactNode> = {
 /**
  * ZP-518: the navigation pop-up. A native modal <dialog> (showModal: focus
  * moves in and stays in, the feed behind is inert) listing how to get around
- * the site. Got it closes it for now; "Don't show this again" keeps it away.
+ * the site, and Install the app where the browser allows it (InstallAppRow).
+ * Got it closes it for now; "Don't show this again" keeps it away.
  * Escape closes it for now, like Got it. Tapping outside does nothing, so it
  * is not closed by accident. Focus returns to where it was. See docs/storefront/feed.md.
  */
@@ -134,6 +136,9 @@ export function FeedGuide({ onDone, fallbackFocus }: FeedGuideProps) {
       >
         Got it
       </button>
+      <div className="mt-2">
+        <InstallAppRow className="sf-focus flex min-h-12 w-full items-center justify-center gap-2 rounded-[2px] border border-brand-olive-700 px-6 text-[13px] font-medium uppercase tracking-[0.14em] text-brand-olive-700 transition-colors duration-200 hover:bg-brand-cream-200" />
+      </div>
       <button
         type="button"
         onClick={() => closeWith("hide")}

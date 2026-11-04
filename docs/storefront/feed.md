@@ -131,6 +131,9 @@ the site. It replaced ZP-509's three-step finger animation (owner, 2026-11-04).
 Six rows (`guideTips`), with touch and computer wording: next look, more
 photos, the photo (details sheet), the eye, WhatsApp or Call, the menu.
 
+- **Install the app** (`InstallAppRow`, also in the menu): the browser's prompt
+  on Chrome and Android, the steps on iPhone and iPad; absent when already
+  installed or the browser offers no way.
 - **Got it** closes it for now. **Don't show this again** keeps it away.
   Escape counts as Got it. Tapping outside does nothing.
 - **When**: on every landing (page load), only on the landing feed
