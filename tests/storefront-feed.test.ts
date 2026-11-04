@@ -11,7 +11,6 @@ import {
   frameHeightFix,
   photoNav,
   railItems,
-  railWhatsAppLabel,
   FEED_DETAILS_STORAGE_KEY,
   FEED_MAX_PAGE_SIZE,
   FEED_MAX_THROUGH,
@@ -356,10 +355,6 @@ describe('rail (clean view and with details)', () => {
     assert.deepStrictEqual(railItems({ details: true, enquire: true, share: true, call: true }), ['share', 'details', 'enquire', 'call', 'love', 'eye']);
     assert.deepStrictEqual(railItems({ details: false, enquire: false, share: true, call: true }), ['visit', 'call', 'love', 'eye']);
     assert.deepStrictEqual(railItems({ details: true, enquire: true, share: true, call: false }), ['share', 'details', 'enquire', 'love', 'eye']);
-  });
-  test('ZP-510: the WhatsApp button reads "WhatsApp", "Restock" when sold out', () => {
-    assert.strictEqual(railWhatsAppLabel(false), 'WhatsApp');
-    assert.strictEqual(railWhatsAppLabel(true), 'Restock');
   });
 });
 

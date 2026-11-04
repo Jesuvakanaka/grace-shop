@@ -187,8 +187,8 @@ removed, then trimmed; 1..max characters; no control characters.
 | `share` | opt | `method` native/copy/whatsapp/facebook/other; `screen`? |
 | `directions`, `visit_us` | – | `screen`? |
 | `gallery_zoom` | req | `index`? 1..50 |
-| `guide_shown`, `guide_completed`, `guide_replayed` | – | – |
-| `guide_step` | – | `step` 1..20 |
+| `guide_shown`, `guide_completed`, `guide_hidden`, `guide_replayed` | – | – |
+| `guide_step` | – | `step` 1..20 (no longer sent since ZP-518) |
 | `guide_skipped` | – | `step`? 1..20 |
 | `love_on`, `love_off` | req | – |
 | `details_sheet_open` | req | `from`? `shared` (ZP-512: the landing of a /p/<slug> link). ZP-510: the rollup counts it as an open (`OPEN_TYPES`) |
@@ -305,8 +305,8 @@ Prop builders are pure and tested in `tests/storefront-tracking.test.ts`
 | `product_open` | not sent since ZP-512 (the product page and its `ProductTracking` / `NavMemory` are gone); a /p/<slug> landing sends `details_sheet_open` with `from: shared` | |
 | `size_select`, `colour_select` | details sheet chips (picked, not cleared) | exactly the chip text |
 | `gallery_zoom` | not sent since ZP-514 (the Gallery went with /site/preview); kept for past data | `index` of the photo |
-| `guide_shown` / `guide_replayed` | `FlipFeed` (first visit / `?guide=1`; one or the other) | |
-| `guide_step`, `guide_completed`, `guide_skipped` | `FeedGuide` | step 1-based; skipped = Skip or Escape, with the step |
+| `guide_shown` / `guide_replayed` | `FlipFeed` (a landing / `?guide=1`; one or the other) | |
+| `guide_completed`, `guide_hidden`, `guide_skipped` | `FeedGuide` | Got it; Don't show this again; Escape |
 | `love_on` / `love_off` | `src/lib/loves/client.ts` (hearts, ZP-507) | |
 | `action_failed` | `FlipFeed` | `feed_load` (load more failed), `collection_switch` (fell back to a full load) |
 

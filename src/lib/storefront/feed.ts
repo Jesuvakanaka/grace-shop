@@ -32,7 +32,7 @@ export const FEED_NEW_TAB_LABEL = 'New in'
 export const FEED_TAB_PARAM = 'c'
 
 /**
- * The WhatsApp message for a sold-out piece ("Restock" on the rail). Filled in
+ * The WhatsApp message for a sold-out piece. Filled in
  * by buildWhatsAppLink like the owner's enquiry template ({product}, {url};
  * the "({url})" part is dropped when the URL is unknown).
  */
@@ -251,7 +251,7 @@ function withRating(summary: RatingSummary | null): Pick<FeedItem, 'rating'> {
 export type RailItem = 'share' | 'details' | 'enquire' | 'visit' | 'call' | 'love' | 'eye'
 
 /**
- * The rail, top to bottom. The WhatsApp button (WhatsApp / Restock, or Visit
+ * The rail, top to bottom. The WhatsApp button (or Visit
  * us without a WhatsApp number), Call (ZP-510, when a phone number is set),
  * the heart and the eye always show, clean view too; "Show details" adds
  * Share (when there is a share URL) and Details on top. The eye is always
@@ -266,11 +266,6 @@ export function railItems(input: { details: boolean; enquire: boolean; share: bo
     'love',
     'eye',
   ]
-}
-
-/** ZP-510: the label under the rail's WhatsApp button. */
-export function railWhatsAppLabel(soldOut: boolean): 'WhatsApp' | 'Restock' {
-  return soldOut ? 'Restock' : 'WhatsApp'
 }
 
 /** The previous / next photo arrows of a slide's strip: not before the first item, not after the last. */

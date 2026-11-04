@@ -23,12 +23,12 @@ import {
   FEED_GUIDE_PARAM,
   TOUR_START_DELAY_MS,
   isGuideReplay,
-  readGuideSeen,
+  readGuideHidden,
   readTourSeen,
   shouldOpenGuide,
   shouldRunTour,
   withoutGuideParam,
-  writeGuideSeen,
+  writeGuideHidden,
   writeTourSeen,
 } from "@/lib/storefront/feed-guide";
 import {
@@ -112,6 +112,9 @@ function isStaleDeployment(error: unknown): boolean {
   return error instanceof Error && /server action/i.test(error.message);
 }
 
+/** ZP-518: once per page load, so a soft navigation (a collection from the menu) does not bring the pop-up back. */
+let guideShownThisLoad = false;
+
 /** localStorage, or null where reading it throws (blocked storage, some private modes). */
 function localStore(): Storage | null {
   try {
@@ -169,8 +172,8 @@ export function FlipFeed({
   /** Caption and rail shown. Clean view (photos only) by default; the choice is kept for the session. */
   const [details, setDetails] = useState(false);
   /**
-   * ZP-509 first-visit guide: "pending" until the browser has been asked
-   * (server render and hydration: no guide), then "open" or "done".
+   * ZP-518 navigation pop-up: "pending" until the browser has been asked
+   * (server render and hydration: no pop-up), then "open" or "done".
    */
   const [guide, setGuide] = useState<"pending" | "open" | "done">("pending");
   /** ZP-516 first-visit photo tour: decided once the guide is done, then running on the look on screen. */
@@ -296,8 +299,6 @@ export function FlipFeed({
   }, []);
 
   const scroller = useRef<HTMLDivElement>(null);
-  /** The feed column (the guide covers it). */
-  const frame = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   const sheetRef = useRef<HTMLDialogElement>(null);
@@ -452,14 +453,18 @@ export function FlipFeed({
     }
     const detailsTimer = storedDetails ? setTimeout(() => setDetails(true)) : undefined;
 
-    // ZP-509: the first-visit guide, over the first look ("seen" in
-    // localStorage; never on a #look- hash, never over the details sheet). A replay (?guide=1) is the effect below.
+    // ZP-518: the navigation pop-up, on every landing until "Don't show this again"
+    // (never on a #look- hash, never over the details sheet). A replay (?guide=1) is the effect below.
     const decideGuide = () => {
       const open =
+        !guideShownThisLoad &&
         initialItems.length > 0 &&
-        shouldOpenGuide({ seen: readGuideSeen(localStore()), hash: window.location.hash, replay: false });
+        shouldOpenGuide({ hidden: readGuideHidden(localStore()), hash: window.location.hash, replay: false });
       setGuide(open ? "open" : "done");
-      if (open) track("guide_shown");
+      if (open) {
+        guideShownThisLoad = true;
+        track("guide_shown");
+      }
     };
 
     // ZP-510: opened with ?d=<slug> (a shared link, a reload, back from the
@@ -554,7 +559,7 @@ export function FlipFeed({
   const guideParam = searchParams.get(FEED_GUIDE_PARAM);
   useEffect(() => {
     if (guideParam !== "1") return;
-    const open = items.length > 0 && shouldOpenGuide({ seen: true, hash: window.location.hash, replay: true });
+    const open = items.length > 0 && shouldOpenGuide({ hidden: true, hash: window.location.hash, replay: true });
     if (open) scrollToIndex(0, false);
     const timer = setTimeout(() => {
       if (open) {
@@ -577,8 +582,8 @@ export function FlipFeed({
     return () => clearTimeout(timer);
   }, [guideParam, items.length, scrollToIndex, syncActive]);
 
-  const onGuideDone = useCallback(() => {
-    writeGuideSeen(localStore());
+  const onGuideDone = useCallback((hide: boolean) => {
+    if (hide) writeGuideHidden(localStore());
     setGuide("done");
   }, []);
 
@@ -604,14 +609,6 @@ export function FlipFeed({
   const onTourEnd = useCallback(() => {
     writeTourSeen(localStore());
     setTour("done");
-  }, []);
-
-  /** The eye button of the look on screen (the guide's third step rings it). */
-  const findEye = useCallback(() => {
-    const el = scroller.current;
-    if (!el) return null;
-    const index = slideIndexAt(el.scrollTop, el.clientHeight, el.childElementCount);
-    return el.querySelector(`[data-feed-slide="${index}"] [data-feed-eye]`);
   }, []);
 
   const focusFeed = useCallback(() => scroller.current?.focus({ preventScroll: true }), []);
@@ -994,7 +991,7 @@ export function FlipFeed({
       {/* Keeps the column centred against the step buttons on computers. */}
       <span aria-hidden="true" className="hidden w-12 md:block" />
 
-      <div ref={frame} className="relative h-full w-full overflow-hidden bg-brand-ink text-brand-cream-50 md:h-[calc(100%-32px)] md:w-auto md:aspect-[9/16] md:max-w-[calc(100vw-160px)] md:rounded-[4px] md:shadow-[0_18px_50px_rgba(30,30,30,0.22)]">
+      <div className="relative h-full w-full overflow-hidden bg-brand-ink text-brand-cream-50 md:h-[calc(100%-32px)] md:w-auto md:aspect-[9/16] md:max-w-[calc(100vw-160px)] md:rounded-[4px] md:shadow-[0_18px_50px_rgba(30,30,30,0.22)]">
         {/* Slim top bar, first in reading and tab order, drawn on top: menu, wordmark, collection pill. Ink over the cream end slide. */}
         <div
           className={cn(
@@ -1121,7 +1118,7 @@ export function FlipFeed({
       </div>
 
       {guide === "open" ? (
-        <FeedGuide frameRef={frame} findEye={findEye} onDone={onGuideDone} fallbackFocus={focusFeed} />
+        <FeedGuide onDone={onGuideDone} fallbackFocus={focusFeed} />
       ) : null}
 
       <CollectionSheet

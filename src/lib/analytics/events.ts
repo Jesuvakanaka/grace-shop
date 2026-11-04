@@ -69,6 +69,7 @@ export const ANALYTICS_EVENT_TYPES = [
   'guide_step',
   'guide_skipped',
   'guide_completed',
+  'guide_hidden',
   'guide_replayed',
   // Hearts (ZP-507)
   'love_on',
@@ -181,6 +182,7 @@ export const EVENT_SPECS: Readonly<Record<AnalyticsEventType, EventSpec>> = {
   guide_step: { slug: 'none', props: { step: int(1, 20) } },
   guide_skipped: { slug: 'none', props: { step: opt(int(1, 20)) } },
   guide_completed: { slug: 'none', props: {} },
+  guide_hidden: { slug: 'none', props: {} },
   guide_replayed: { slug: 'none', props: {} },
 
   love_on: { slug: 'required', props: {} },

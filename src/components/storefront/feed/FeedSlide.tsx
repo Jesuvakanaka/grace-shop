@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { track, useActiveDwell, useDwell } from "@/lib/analytics/client";
-import { lookAnchorId, photoLinkLabel, photoNav, railItems, railWhatsAppLabel, type FeedBadge, type FeedItem } from "@/lib/storefront/feed";
+import { lookAnchorId, photoLinkLabel, photoNav, railItems, type FeedBadge, type FeedItem } from "@/lib/storefront/feed";
 import { TOUR_SETTLE_MS, tourPhotoMs } from "@/lib/storefront/feed-guide";
 import { isPlainClick } from "@/lib/storefront/feed-sheet";
 import { mediaItems } from "@/lib/storefront/feed-media";
@@ -96,8 +96,8 @@ type FeedSlideProps = {
  * One look: its photos side by side (swipe sideways, thin progress bars just
  * under the top bar; ZP-502: the video, if any, first, see FeedVideo) and, at the bottom right, the "Show details" eye.
  *
- * Clean view (the default): the clothes, the WhatsApp button (Enquire /
- * Restock, or Visit us), the heart and the eye. With details: a light bottom
+ * Clean view (the default): the clothes, the WhatsApp button (or Visit us),
+ * the heart and the eye. With details: a light bottom
  * scrim, a slim caption (one-line serif name, price, rating, tag, "Tap for
  * details"; the caption links to the product page) and Share and Details on
  * top of the rail (railItems). "Swipe up for the next look" and the photo
@@ -427,7 +427,7 @@ export function FeedSlide({
       ) : null}
 
       {/* The rail, top to bottom (railItems): [Share, Details: with details only], WhatsApp
-          (Enquire / Restock, or Visit us), the heart, the eye. The WhatsApp button, the heart and
+          (or Visit us), the heart, the eye. The WhatsApp button, the heart and
           the eye float in clean view too; the eye stays at the bottom and never moves. */}
       <div className={cn("absolute right-3 flex flex-col items-center gap-3.5 [@media(max-height:700px)]:gap-2", railBottom)}>
         {rail.map((kind) => {
@@ -476,7 +476,7 @@ export function FeedSlide({
                   <span className={cn(railRing, "bg-[#25D366] text-white shadow-[0_2px_8px_rgba(0,0,0,0.25)]")}>
                     <WhatsAppLogoIcon className="h-7 w-7" />
                   </span>
-                  <span className={railLabel}>{railWhatsAppLabel(item.soldOut)}</span>
+                  <span className={railLabel}>WhatsApp</span>
                 </a>
               );
             case "call":
@@ -525,8 +525,7 @@ export function FeedSlide({
                   aria-label="Show details"
                   className={railItem}
                 >
-                  {/* data-feed-eye: the first-visit guide rings this button (FeedGuide). */}
-                  <span data-feed-eye="" className={cn(railSmall, railQuiet)}>
+                  <span className={cn(railSmall, railQuiet)}>
                     <EyeIcon className="h-5 w-5" />
                   </span>
                   <span className={cn(railLabel, railLabelOptional)}>{details ? "Hide" : "Show details"}</span>
