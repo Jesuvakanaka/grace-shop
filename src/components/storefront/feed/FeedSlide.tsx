@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { track, useActiveDwell, useDwell } from "@/lib/analytics/client";
 import { lookAnchorId, photoLinkLabel, photoNav, railItems, railWhatsAppLabel, type FeedBadge, type FeedItem } from "@/lib/storefront/feed";
+import { tourPhotoMs } from "@/lib/storefront/feed-guide";
 import { isPlainClick } from "@/lib/storefront/feed-sheet";
 import { mediaItems } from "@/lib/storefront/feed-media";
 import { enquiryEvent, photoProps } from "@/lib/storefront/tracking";
@@ -85,6 +86,10 @@ type FeedSlideProps = {
   sheetOpen: boolean;
   /** ZP-512: owner preview of an unpublished piece (no heart: the piece is not public yet). */
   preview?: boolean;
+  /** ZP-516: run the first-visit photo tour on this look (a look with one photo waits for the next). */
+  tour?: boolean;
+  /** ZP-516: the tour finished or the visitor stopped it. */
+  onTourEnd?: () => void;
 };
 
 /**
@@ -116,6 +121,8 @@ export function FeedSlide({
   onOpenDetails,
   sheetOpen,
   preview = false,
+  tour = false,
+  onTourEnd,
 }: FeedSlideProps) {
   const strip = useRef<HTMLDivElement>(null);
   const [photo, setPhoto] = useState(0);
@@ -125,6 +132,35 @@ export function FeedSlide({
   const count = media.length;
 
   const article = useRef<HTMLElement>(null);
+  const touring = tour && count > 1;
+
+  // ZP-516: the first-visit tour. Slides through every photo, then back to the
+  // first. Any touch, click, scroll or key stops it where it is (ending the
+  // tour turns `touring` off, which clears the timer and the listeners).
+  useEffect(() => {
+    const el = strip.current;
+    if (!touring || !el) return;
+    const end = () => onTourEnd?.();
+    const dwell = tourPhotoMs(count);
+    let next = 1;
+    let timer: ReturnType<typeof setTimeout>;
+    const step = () => {
+      el.scrollTo({ left: next * el.clientWidth, behavior: "smooth" });
+      if (next === 0) {
+        timer = setTimeout(end, dwell);
+      } else {
+        next = next + 1 < count ? next + 1 : 0;
+        timer = setTimeout(step, dwell);
+      }
+    };
+    timer = setTimeout(step, dwell);
+    const inputs = ["pointerdown", "touchstart", "wheel", "keydown"] as const;
+    inputs.forEach((type) => window.addEventListener(type, end, { capture: true, passive: true }));
+    return () => {
+      clearTimeout(timer);
+      inputs.forEach((type) => window.removeEventListener(type, end, true));
+    };
+  }, [touring, count, onTourEnd]);
 
   // Once the look is fully off screen (not at the halfway point of a swipe,
   // and never for a swipe that snaps back), it goes back to its first photo,
@@ -193,10 +229,11 @@ export function FeedSlide({
     if (isCurrent) track("look_view", { slug, collection, position: index });
   }, [isCurrent, slug, collection, index]);
   // `page`: where the dwell started (it may end after a navigation to the product page).
-  useDwell(article, (seconds, page) => track("look_dwell", { slug, collection, seconds, page }), { key: slug });
+  // ZP-516: the tour is not the visitor's own attention or swiping, so it is not counted (the ranking reads both).
+  useDwell(article, (seconds, page) => track("look_dwell", { slug, collection, seconds, page }), { key: slug, enabled: !touring });
   // The photo on screen (null while the video item shows): 1-based among the photos.
   const current = media[photo];
-  const shownPhoto = isCurrent && current?.kind === "image" ? photoProps(item.images, current.imageIndex) : null;
+  const shownPhoto = isCurrent && !touring && current?.kind === "image" ? photoProps(item.images, current.imageIndex) : null;
   const shownKey = shownPhoto ? `${slug}-${shownPhoto.index}` : null;
   useEffect(() => {
     if (shownPhoto) track("photo_view", { slug, collection, ...shownPhoto });

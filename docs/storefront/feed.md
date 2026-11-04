@@ -166,6 +166,24 @@ once with a React `<style href precedence>`):
   guide even if seen, then removes `guide` from the URL with the safe
   `replaceState` wrapper (other parameters and the hash kept).
 
+### First-visit photo tour (ZP-516)
+
+After the guide closes, the look on screen slides sideways through all its
+photos once, then back to the first, so visitors learn the strip swipes
+(`FeedSlide`; decided in `FlipFeed`; pure parts in `feed-guide.ts`).
+
+- About 10 s in all, 0.9 to 1.5 s a photo (`tourPhotoMs`).
+- Once per browser (`localStorage` `vyra:feed:tour` = `seen`, written when it
+  ends or is stopped). "How to use VYRA" runs it again after the guide.
+- Any touch, click, scroll or key stops it where it is.
+- Not with reduced motion, in owner preview, over the details sheet, or
+  under the menu or the collections sheet. A look with one photo waits for
+  the next look.
+- **Not counted in analytics**: while it runs, `photo_view`, `photo_dwell`
+  and `look_dwell` are off. `photo_view` index 2 and up is the ranking's
+  "swiped to a 2nd photo" signal, so counting the tour would boost whichever
+  look comes first (docs/storefront/ranking.md).
+
 ### Clean view and "Show details"
 
 - The feed opens on the clothes: no caption, no bottom scrim, and a short

@@ -21,11 +21,15 @@ import {
 } from "@/lib/storefront/feed";
 import {
   FEED_GUIDE_PARAM,
+  TOUR_START_DELAY_MS,
   isGuideReplay,
   readGuideSeen,
+  readTourSeen,
   shouldOpenGuide,
+  shouldRunTour,
   withoutGuideParam,
   writeGuideSeen,
+  writeTourSeen,
 } from "@/lib/storefront/feed-guide";
 import {
   customHistoryState,
@@ -169,6 +173,10 @@ export function FlipFeed({
    * (server render and hydration: no guide), then "open" or "done".
    */
   const [guide, setGuide] = useState<"pending" | "open" | "done">("pending");
+  /** ZP-516 first-visit photo tour: decided once the guide is done, then running on the look on screen. */
+  const [tour, setTour] = useState<"pending" | "run" | "done">("pending");
+  /** "How to use VYRA" was chosen: the tour runs again after the guide. */
+  const tourReplay = useRef(false);
   /**
    * The current slide has been read from the scroll position at least once.
    * Until then videos load nothing (on a #look- reload the start is not slide 0).
@@ -554,6 +562,8 @@ export function FlipFeed({
         dialogRef.current?.close();
         sheetRef.current?.close();
         syncActive();
+        tourReplay.current = true;
+        setTour("pending");
         setGuide("open");
         track("guide_replayed");
       } else {
@@ -570,6 +580,30 @@ export function FlipFeed({
   const onGuideDone = useCallback(() => {
     writeGuideSeen(localStore());
     setGuide("done");
+  }, []);
+
+  // ZP-516: decided after the guide. Held back (until the next visit) under the menu or the collections sheet.
+  useEffect(() => {
+    if (guide !== "done" || tour !== "pending" || !synced) return;
+    const timer = setTimeout(() => {
+      const replay = tourReplay.current;
+      tourReplay.current = false;
+      const covered = dialogRef.current?.open || sheetRef.current?.open;
+      const run =
+        !covered &&
+        shouldRunTour({
+          seen: readTourSeen(localStore()),
+          replay,
+          reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+        });
+      setTour(run ? "run" : "done");
+    }, TOUR_START_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [guide, tour, synced]);
+
+  const onTourEnd = useCallback(() => {
+    writeTourSeen(localStore());
+    setTour("done");
   }, []);
 
   /** The eye button of the look on screen (the guide's third step rings it). */
@@ -1029,6 +1063,8 @@ export function FlipFeed({
               onOpenDetails={openDetails}
               sheetOpen={sheetItem?.slug === item.slug}
               preview={landing?.mode === "preview"}
+              tour={tour === "run" && guide === "done" && i === active && !sheetItem && landing?.mode !== "preview"}
+              onTourEnd={onTourEnd}
             />
           ))}
           {nextOffset === null ? (
