@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
+import { STOREFRONT_PREFIX } from '@/lib/host-routing';
+import { SITE_ROUTES, sitePath } from '@/lib/storefront/paths';
 
 interface QuickLoginUser {
   role: 'OWNER' | 'STAFF';
@@ -221,6 +223,17 @@ export function LoginPage() {
             </div>
           )}
         </div>
+
+        {/* The admin host serves the storefront under /site. */}
+        <p className="mt-6 text-center">
+          <a
+            href={sitePath(STOREFRONT_PREFIX, SITE_ROUTES.home)}
+            className="text-sm font-medium text-slate-600 underline underline-offset-4 hover:text-brand-olive-700 transition-colors"
+            data-testid="login-site-link"
+          >
+            Visit the VYRA website →
+          </a>
+        </p>
       </div>
     </div>
   );
