@@ -10,7 +10,8 @@ import { enquiryEvent, photoProps } from "@/lib/storefront/tracking";
 import { cn } from "../cn";
 import { LoveButton } from "../loves/LoveButton";
 import { useShare } from "../product/useShare";
-import { ImageFallback, StorefrontImg } from "../StorefrontImage";
+import { ImageFallback } from "../StorefrontImage";
+import { FeedPhoto } from "./FeedPhoto";
 import { FeedVideo } from "../video/FeedVideo";
 import { PhoneIcon, WhatsAppLogoIcon } from "../icons";
 import { ChevronIcon, DetailsIcon, EyeIcon, PinIcon, ShareIcon } from "./feed-icons";
@@ -277,13 +278,12 @@ export function FeedSlide({
               className="sf-focus relative block h-full w-full flex-none snap-start focus-visible:outline-offset-[-4px]"
             >
               <ImageFallback />
-              <StorefrontImg
+              <FeedPhoto
                 image={{ src: image.src, srcSet: image.srcSet || undefined, alt: image.alt }}
                 // The first item of the strip only (with a video first, its poster is the eager one).
                 eager={priority !== "lazy" && i === 0}
                 highPriority={priority === "high"}
                 sizes={SLIDE_SIZES}
-                className="object-[50%_20%]"
               />
             </Link>
           );
