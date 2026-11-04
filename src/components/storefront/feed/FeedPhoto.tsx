@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { photoFit, type PhotoFit } from "@/lib/storefront/photo-fit";
 import { StorefrontImg } from "../StorefrontImage";
 import type { StorefrontImageData } from "../types";
@@ -14,13 +14,15 @@ type FeedPhotoProps = {
 
 // ZP-515: a feed photo fills the frame (cover) unless that would cut too
 // much of it (src/lib/storefront/photo-fit.ts); then it is shown whole
-// (contain) over a blurred copy of itself. Cover until the photo has loaded
+// (contain) over a blurred copy of itself (clipped to the frame, so it never
+// adds scroll to the strip). Cover until the photo has loaded
 // and its size is known; re-checked when the frame resizes.
 export function FeedPhoto({ image, eager, highPriority, sizes }: FeedPhotoProps) {
   const frame = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState<PhotoFit>("cover");
 
-  useEffect(() => {
+  // Layout effect: a photo that loaded before hydration gets its fit in the same frame as hydration.
+  useLayoutEffect(() => {
     const box = frame.current;
     const img = box?.querySelector<HTMLImageElement>("img.sf-img");
     if (!box || !img) return;
@@ -42,7 +44,7 @@ export function FeedPhoto({ image, eager, highPriority, sizes }: FeedPhotoProps)
   }, [image.src]);
 
   return (
-    <div ref={frame} className="absolute inset-0">
+    <div ref={frame} className="absolute inset-0 overflow-hidden">
       {fit === "contain" ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -51,7 +53,6 @@ export function FeedPhoto({ image, eager, highPriority, sizes }: FeedPhotoProps)
           sizes={sizes}
           alt=""
           aria-hidden="true"
-          decoding="async"
           className="absolute inset-0 h-full w-full scale-110 object-cover blur-2xl brightness-75"
         />
       ) : null}
