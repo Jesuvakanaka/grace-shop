@@ -55,7 +55,7 @@ async function showPrompt() {
   await event.prompt();
 }
 
-/** The menu's "Install the app" row: the browser's prompt, or the steps on iPhone and iPad. Hidden when installed. */
+/** "Install the app" (the menu's row, the pop-up's button): the browser's prompt, or the steps on iPhone and iPad. Hidden when installed. */
 export function InstallAppRow({ className }: { className: string }) {
   const mode = useSyncExternalStore(subscribe, currentMode, () => null);
   const [stepsOpen, setStepsOpen] = useState(false);
