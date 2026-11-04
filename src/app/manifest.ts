@@ -1,12 +1,16 @@
 import type { MetadataRoute } from 'next';
 
-// Home-screen install details for the owner's phone (VYRA brand: olive theme, cream background).
+// Installing the site as an app (VYRA brand: olive theme, cream background): it opens the
+// storefront (/site, redirected to / on a storefront host). The scope is the whole origin so
+// staff sign-in from the menu stays in the app; the id keeps earlier installs (start_url /) the same app.
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'VYRA',
     short_name: 'VYRA',
-    description: 'VYRA stock, cash and credit.',
-    start_url: '/',
+    description: 'VYRA – Wear Different.',
+    id: '/',
+    start_url: '/site',
+    scope: '/',
     display: 'standalone',
     background_color: '#EDE6D3',
     theme_color: '#5F7A1F',

@@ -7,6 +7,7 @@
 // feedTabs), so the menu and the feed's collections sheet always agree.
 import 'server-only'
 import { cache } from 'react'
+import { hostRoutingConfigFromEnv } from '@/lib/host-routing'
 import { feedProducts, feedTabs } from './feed'
 import { getReviewsIndex, listPublishedProducts, type PublicProduct } from './index'
 import { MAX_PAGE_SIZE } from './listing'
@@ -26,5 +27,6 @@ export const getMenuData = cache(async (): Promise<MenuModel> => {
   const [shell, products, reviews] = await Promise.all([getShellData(), allPublished(), getReviewsIndex()])
   const tabs = feedTabs(shell.categories, feedProducts(products))
   // ZP-508: the shop rating box (cached reviews entry).
-  return buildMenuModel({ settings: shell.settings, tabs, base: shell.base, shopRating: reviews.shop })
+  const adminHost = hostRoutingConfigFromEnv().adminHosts[0] ?? null
+  return buildMenuModel({ settings: shell.settings, tabs, base: shell.base, shopRating: reviews.shop, adminHost })
 })
