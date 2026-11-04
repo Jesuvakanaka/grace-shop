@@ -112,10 +112,10 @@ function isStaleDeployment(error: unknown): boolean {
   return error instanceof Error && /server action/i.test(error.message);
 }
 
-/** localStorage, or null where reading it throws (blocked storage, some private modes). */
 /** ZP-518: once per page load, so a soft navigation (a collection from the menu) does not bring the pop-up back. */
 let guideShownThisLoad = false;
 
+/** localStorage, or null where reading it throws (blocked storage, some private modes). */
 function localStore(): Storage | null {
   try {
     return window.localStorage;

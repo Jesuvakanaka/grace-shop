@@ -53,14 +53,15 @@ const icons: Record<GuideIcon, ReactNode> = {
  * ZP-518: the navigation pop-up. A native modal <dialog> (showModal: focus
  * moves in and stays in, the feed behind is inert) listing how to get around
  * the site. Got it closes it for now; "Don't show this again" keeps it away.
- * Escape counts as Got it. Tapping outside does nothing, so it is not closed
- * by accident. Focus returns to where it was. See docs/storefront/feed.md.
+ * Escape closes it for now, like Got it. Tapping outside does nothing, so it
+ * is not closed by accident. Focus returns to where it was. See docs/storefront/feed.md.
  */
 export function FeedGuide({ onDone, fallbackFocus }: FeedGuideProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const gotIt = useRef<HTMLButtonElement>(null);
   const returnTo = useRef<Element | null>(null);
   const choice = useRef<"got-it" | "hide" | null>(null);
+  const mounted = useRef(false);
   const [layout, setLayout] = useState<GuideLayout>("touch");
   const titleId = useId();
 
@@ -68,12 +69,14 @@ export function FeedGuide({ onDone, fallbackFocus }: FeedGuideProps) {
   useEffect(() => {
     const d = dialog.current;
     if (!d) return;
+    mounted.current = true;
     returnTo.current = document.activeElement;
     const desktop = window.matchMedia("(min-width: 768px) and (pointer: fine)").matches;
     const timer = setTimeout(() => setLayout(desktop ? "desktop" : "touch"));
     if (!d.open) d.showModal();
     gotIt.current?.focus();
     return () => {
+      mounted.current = false;
       clearTimeout(timer);
       if (d.open) d.close();
     };
@@ -85,9 +88,9 @@ export function FeedGuide({ onDone, fallbackFocus }: FeedGuideProps) {
   };
 
   const onClose = () => {
-    // A close queued by an effect cleanup (dev Strict Mode re-runs the mount
-    // effect) arrives after it reopened: not the visitor closing it.
-    if (dialog.current?.open) return;
+    // A close from an effect cleanup is not the visitor closing it: the page is
+    // leaving, or (dev Strict Mode re-runs the mount effect) it has reopened.
+    if (!mounted.current || dialog.current?.open) return;
     if (choice.current === "hide") track("guide_hidden");
     else if (choice.current === "got-it") track("guide_completed");
     else track("guide_skipped", {});
