@@ -126,3 +126,53 @@ export function guideRing(eye: Rect | null | undefined, frame: { left: number; t
   const centerY = eye.top + eye.height / 2 - frame.top
   return { left: centerX - size / 2, top: centerY - size / 2, size, centerX, centerY }
 }
+
+// ------------------------------------------------------------------- tour
+
+// The first-visit photo tour: after the guide, the look on screen slides
+// sideways through all its photos once, then back to the first, so visitors
+// learn the strip swipes. Any touch, click, scroll or key stops it. Its photo
+// views are not tracked (photo_view index >= 2 is the ranking's "swiped"
+// signal). The timers are in FeedSlide, the decision in FlipFeed.
+
+/** localStorage key: the tour ran, or was stopped, in this browser. */
+export const FEED_TOUR_STORAGE_KEY = 'vyra:feed:tour'
+/** After the guide closes (or the page settles) before the tour starts. */
+export const TOUR_START_DELAY_MS = 800
+/** After the tour ends, scrolling this soon is still its own smooth scroll settling, not the visitor. */
+export const TOUR_SETTLE_MS = 600
+const TOUR_TOTAL_MS = 10_000
+const TOUR_MIN_PHOTO_MS = 900
+const TOUR_MAX_PHOTO_MS = 1500
+
+/** Never throws: storage missing or blocked reads as "not seen". */
+export function readTourSeen(storage: ReadableStorage | null | undefined): boolean {
+  try {
+    return parseGuideSeen(storage?.getItem(FEED_TOUR_STORAGE_KEY))
+  } catch {
+    return false
+  }
+}
+
+/** Never throws; false when the value could not be stored. */
+export function writeTourSeen(storage: WritableStorage | null | undefined): boolean {
+  if (!storage) return false
+  try {
+    storage.setItem(FEED_TOUR_STORAGE_KEY, FEED_GUIDE_SEEN_VALUE)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Never with reduced motion; otherwise on a replay ("How to use VYRA") or when not seen. */
+export function shouldRunTour(input: { seen: boolean; replay: boolean; reducedMotion: boolean }): boolean {
+  if (input.reducedMotion) return false
+  return input.replay || !input.seen
+}
+
+/** How long each photo stays: about 10 s for the whole look, kept readable when it has many photos. */
+export function tourPhotoMs(count: number): number {
+  if (!(count > 0)) return TOUR_MAX_PHOTO_MS
+  return Math.min(TOUR_MAX_PHOTO_MS, Math.max(TOUR_MIN_PHOTO_MS, Math.round(TOUR_TOTAL_MS / count)))
+}

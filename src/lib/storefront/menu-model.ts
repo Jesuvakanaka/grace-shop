@@ -91,6 +91,8 @@ export type MenuModel = {
   mapHref: string | null
   /** The landing page with ?guide=1. */
   guideHref: string
+  /** The staff sign-in page; null hides the link. */
+  loginHref: string | null
   /** General-enquiry wa.me link; null hides the button. */
   whatsappHref: string | null
   social: SocialLink[]
@@ -107,6 +109,15 @@ export function menuShopRating(summary: RatingSummary | null | undefined): MenuS
   return summary && line ? { average: formatAverage(summary.average), stars: starsText(summary.average), line } : null
 }
 
+/**
+ * Sign-in lives on the admin host. Its "/" on the admin host itself; from a
+ * storefront host, that host's admin host, hidden when none is configured.
+ */
+export function menuLoginHref(base: SiteBase, adminHost: string | null | undefined): string | null {
+  if (base !== '') return '/'
+  return adminHost ? `https://${adminHost}/` : null
+}
+
 function menuAbout(settings: PublicSiteSettings): MenuAbout | null {
   const paragraphs = aboutParagraphs(settings.about.story)
   if (paragraphs.length === 0) return null
@@ -120,6 +131,8 @@ export function buildMenuModel(input: {
   base: SiteBase
   /** ZP-508: the shop's approved-review summary; null/absent hides the rating box. */
   shopRating?: RatingSummary | null
+  /** The admin host, for the staff sign-in link on a storefront host. */
+  adminHost?: string | null
 }): MenuModel {
   const { settings, tabs, base } = input
   const to = (path: string) => sitePath(base, path)
@@ -136,6 +149,7 @@ export function buildMenuModel(input: {
     visit: buildStoreVisit(settings),
     mapHref: meaningfulText(settings.visit.mapUrl),
     guideHref: to(`/?${GUIDE_PARAM}=1`),
+    loginHref: menuLoginHref(base, input.adminHost),
     whatsappHref: buildWhatsAppLink(settings),
     // Same social list (labels, order) as the header and footer.
     social: buildShellModel({ settings, categories: [], base }).social,

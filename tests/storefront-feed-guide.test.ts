@@ -14,6 +14,7 @@ import {
   FEED_GUIDE_PARAM,
   FEED_GUIDE_SEEN_VALUE,
   FEED_GUIDE_STORAGE_KEY,
+  FEED_TOUR_STORAGE_KEY,
   advanceGuide,
   guideNextLabel,
   guideProgressLabel,
@@ -22,9 +23,13 @@ import {
   isGuideReplay,
   parseGuideSeen,
   readGuideSeen,
+  readTourSeen,
   shouldOpenGuide,
+  shouldRunTour,
+  tourPhotoMs,
   withoutGuideParam,
   writeGuideSeen,
+  writeTourSeen,
 } from '../src/lib/storefront/feed-guide';
 
 function memoryStorage(initial: Record<string, string> = {}) {
@@ -162,5 +167,42 @@ describe('ring around the eye button', () => {
   test('no eye on screen (rect missing or empty): no ring', () => {
     assert.strictEqual(guideRing(null, { left: 0, top: 0 }, 60), null);
     assert.strictEqual(guideRing({ left: 0, top: 0, width: 0, height: 0 }, { left: 0, top: 0 }, 60), null);
+  });
+});
+
+describe('first-visit photo tour', () => {
+  test('runs once: seen is stored under its own key', () => {
+    const storage = memoryStorage();
+    assert.strictEqual(readTourSeen(storage), false);
+    assert.strictEqual(writeTourSeen(storage), true);
+    assert.strictEqual(readTourSeen(storage), true);
+    assert.strictEqual(storage.getItem(FEED_TOUR_STORAGE_KEY), FEED_GUIDE_SEEN_VALUE);
+    assert.strictEqual(readGuideSeen(storage), false);
+  });
+  test('blocked storage reads as not seen and never throws', () => {
+    const blocked = {
+      getItem(): string | null {
+        throw new Error('blocked');
+      },
+      setItem(): void {
+        throw new Error('blocked');
+      },
+    };
+    assert.strictEqual(readTourSeen(blocked), false);
+    assert.strictEqual(writeTourSeen(blocked), false);
+    assert.strictEqual(readTourSeen(null), false);
+    assert.strictEqual(writeTourSeen(null), false);
+  });
+  test('when it runs: not seen or a replay, never with reduced motion', () => {
+    assert.strictEqual(shouldRunTour({ seen: false, replay: false, reducedMotion: false }), true);
+    assert.strictEqual(shouldRunTour({ seen: true, replay: false, reducedMotion: false }), false);
+    assert.strictEqual(shouldRunTour({ seen: true, replay: true, reducedMotion: false }), true);
+    assert.strictEqual(shouldRunTour({ seen: false, replay: true, reducedMotion: true }), false);
+  });
+  test('each photo stays long enough to see, and a big look stays short', () => {
+    assert.strictEqual(tourPhotoMs(3), 1500);
+    assert.strictEqual(tourPhotoMs(8), 1250);
+    assert.strictEqual(tourPhotoMs(16), 900);
+    assert.strictEqual(tourPhotoMs(0), 1500);
   });
 });

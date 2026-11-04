@@ -5,6 +5,7 @@ import { createContext, useContext, useId, useState, type ReactNode, type RefObj
 import type { MenuModel } from "@/lib/storefront/menu-model";
 import { Wordmark } from "./Brand";
 import { cn } from "./cn";
+import { InstallAppRow } from "./InstallAppRow";
 import { ChevronDownIcon, CloseIcon, WhatsAppIcon, WhatsAppLogoIcon } from "./icons";
 import { SocialIcons } from "./SocialIcons";
 import type { NavItem, SocialLink } from "./types";
@@ -59,8 +60,8 @@ type ShellMenuDialogProps = {
  * returns focus to its button in onClose. Content: close + wordmark,
  * "Collections" (New in and each category with its number of looks, all
  * opening the landing feed at that collection), About VYRA and Visit us
- * (expanding rows), How to use VYRA (replays the guide), Chat on WhatsApp,
- * WEAR DIFFERENT. and the social icons.
+ * (expanding rows), How to use VYRA (replays the guide), Install the app,
+ * Chat on WhatsApp, WEAR DIFFERENT., the social icons and a quiet Staff sign in.
  */
 export function ShellMenuDialog({
   dialogRef,
@@ -185,6 +186,8 @@ function MenuContent({ menu, onNavigate, section }: { menu: MenuModel; onNavigat
           <HandIcon />
         </Link>
 
+        <InstallAppRow className={rowClass} />
+
         {menu.whatsappHref ? (
           <a
             href={menu.whatsappHref}
@@ -214,6 +217,15 @@ function MenuContent({ menu, onNavigate, section }: { menu: MenuModel; onNavigat
       <div className="mt-auto flex flex-col items-center gap-3 px-6 pb-7 pt-8">
         <p className="text-xs font-medium uppercase tracking-[0.26em]">{menu.tagline}</p>
         {menu.social.length > 0 ? <SocialIcons social={menu.social} tone="light" className="justify-center" /> : null}
+        {menu.loginHref ? (
+          // A plain link: the back office is a separate app, not a storefront page.
+          <a
+            href={menu.loginHref}
+            className="sf-focus inline-flex min-h-11 items-center rounded-[2px] text-xs text-brand-ink-soft underline decoration-brand-ink/25 underline-offset-4 hover:text-brand-ink"
+          >
+            Staff sign in
+          </a>
+        ) : null}
       </div>
     </>
   );
