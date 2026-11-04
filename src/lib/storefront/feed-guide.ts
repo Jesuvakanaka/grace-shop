@@ -139,6 +139,8 @@ export function guideRing(eye: Rect | null | undefined, frame: { left: number; t
 export const FEED_TOUR_STORAGE_KEY = 'vyra:feed:tour'
 /** After the guide closes (or the page settles) before the tour starts. */
 export const TOUR_START_DELAY_MS = 800
+/** After the tour ends, scrolling this soon is still its own smooth scroll settling, not the visitor. */
+export const TOUR_SETTLE_MS = 600
 const TOUR_TOTAL_MS = 10_000
 const TOUR_MIN_PHOTO_MS = 900
 const TOUR_MAX_PHOTO_MS = 1500

@@ -180,7 +180,8 @@ photos once, then back to the first, so visitors learn the strip swipes
   under the menu or the collections sheet. A look with one photo waits for
   the next look.
 - **Not counted in analytics**: while it runs, `photo_view`, `photo_dwell`
-  and `look_dwell` are off. `photo_view` index 2 and up is the ranking's
+  and `look_dwell` are off; the photo ones stay off afterwards until the
+  visitor scrolls the strip or leaves the look. `photo_view` index 2 and up is the ranking's
   "swiped to a 2nd photo" signal, so counting the tour would boost whichever
   look comes first (docs/storefront/ranking.md).
 
