@@ -75,7 +75,7 @@ describe('event catalogue', () => {
       'video_progress', 'video_replay', 'video_seconds', 'details_show', 'details_hide', 'collection_switch',
       'feed_load_more', 'feed_end_reached', 'product_open', 'size_select', 'colour_select', 'whatsapp_enquire',
       'restock_request', 'call', 'share', 'directions', 'visit_us', 'gallery_zoom', 'guide_shown', 'guide_step',
-      'guide_skipped', 'guide_completed', 'guide_replayed', 'love_on', 'love_off', 'load_error', 'slow_load',
+      'guide_skipped', 'guide_completed', 'guide_hidden', 'guide_replayed', 'love_on', 'love_off', 'load_error', 'slow_load',
       'action_failed', 'details_sheet_open', 'details_sheet_close', 'size_guide_open', 'also_like_open',
     ]
     assert.deepStrictEqual([...ANALYTICS_EVENT_TYPES].sort(), [...expected].sort())
@@ -165,6 +165,7 @@ describe('validateBatch: accepted', () => {
       guide_step: [{ step: 2 }],
       guide_skipped: [{}],
       guide_completed: [{}],
+      guide_hidden: [{}],
       guide_replayed: [{}],
       love_on: [{}, { slug: 'a' }],
       love_off: [{}, { slug: 'a' }],

@@ -22,8 +22,8 @@ pure model and tests stay).
 | `src/lib/storefront/feed-sheet-data.ts`, `feed-sheet-actions.ts` | Server (ZP-510): the sheet's extras for one piece, and the server action that returns them. |
 | `src/components/storefront/feed/DetailsSheet.tsx` | Client (ZP-510): the details bottom sheet. |
 | `src/components/storefront/feed/StorefrontFrame.tsx` | Layout flag: no header/footer on the landing page. |
-| `src/lib/storefront/feed-guide.ts` | Pure (ZP-509): guide "seen" storage, when it opens, `?guide=1`, steps and copy, ring position. Tested in `tests/storefront-feed-guide.test.ts`. |
-| `src/components/storefront/feed/FeedGuide.tsx` | Client (ZP-509): the first-visit guide dialog. |
+| `src/lib/storefront/feed-guide.ts` | Pure (ZP-518): the pop-up's "hidden" storage, when it opens, `?guide=1`, the tips; the photo tour. Tested in `tests/storefront-feed-guide.test.ts`. |
+| `src/components/storefront/feed/FeedGuide.tsx` | Client (ZP-518): the navigation pop-up. |
 | `src/lib/storefront/feed-media.ts` | Pure (ZP-502): strip / gallery item list with the video first, autoplay and preload rules. Tested in `tests/storefront-feed-media.test.ts`. |
 | `src/components/storefront/video/*` | Client (ZP-502): `FeedVideo` (strip item), `useVideoPlayback` (`GalleryVideo` was removed in ZP-514). See `docs/storefront/videos.md`. |
 | `src/components/storefront/ShellMenu.tsx` | The storefront menu dialog, moved out of `Header` so the feed opens the same menu (ZP-503 redesigns it). |
@@ -123,58 +123,42 @@ Before ZP-506 (still `orderFeed`, used without a ranking):
   the visible slide's visible strip item plays. Details (preload, poster as
   LCP, reduced motion / Save-Data, fallbacks) in `docs/storefront/videos.md`.
 
-## First-visit guide (ZP-509)
+## Navigation pop-up (ZP-518)
 
-On the first visit, over the first look, a native modal `<dialog>`
-(`FeedGuide`, `showModal`) with a see-through dark layer (70% ink backdrop)
-and an animated finger (SVG, the design's `vy-anim-*` keyframes, hoisted
-once with a React `<style href precedence>`):
+A native modal `<dialog>` (`FeedGuide`, `showModal`) listing how to get around
+the site. It replaced ZP-509's three-step finger animation (owner, 2026-11-04).
 
-| Step | Phones | Computers (md and up, fine pointer) | Finger |
-| --- | --- | --- | --- |
-| 1 | **Swipe up** – "Flick up for the next look, down to go back." | **Next look** – "Scroll or press ↓ for the next look" | moves up |
-| 2 | **Swipe sideways** – "Swipe left and right for more photos of the same piece." | **More photos** – "Click the arrows or swipe for more photos" | moves sideways |
-| 3 | **Tap for details** – "Tap the eye for the price and buttons. Tap the photo to open the piece." | **Click for details** – "Click the eye for the price and buttons. Click the photo to open the piece." | taps the eye |
+Six rows (`guideTips`), with touch and computer wording: next look, more
+photos, the photo (details sheet), the eye, WhatsApp or Call, the menu.
 
-- Step 3: the fingertip and a pulsing ring are placed on the **real** eye
-  button of the look on screen (its `[data-feed-eye]` rect, measured, again
-  on resize; `guideRing`), not hard-coded.
-- Controls: "1 of 3" (lime-200), dots, **Skip**, **Next** / **Got it**
-  (olive). Tapping the layer advances; doing the step's gesture on it (a
-  swipe up on step 1, sideways on step 2, the mouse wheel down on step 1)
-  completes that step (the click that ends a recognised mouse drag is
-  ignored, so a drag advances one step; the dialog has `touch-action: none`
-  and `overscroll-behavior: contain`). A `close` event that arrives while the
-  dialog is open again (dev Strict Mode re-running the mount effect) is ignored.
-- Dialog semantics: labelled by the step title, described by "n of 3" and
-  the body (an `aria-live` region, so step changes are announced); focus
-  moves to Next and stays in the dialog; the feed behind is inert;
-  **Escape skips**; focus returns where it was (else to the feed).
-- `prefers-reduced-motion`: no animation; a still finger with arrows
-  (up / left-right), the ring stays still.
-- Contrast: cream text and the lime-200 step label stay above 4.5:1 even
-  over a white photo (70% ink layer plus a text shadow); Next is cream on olive.
-- **When**: only on the landing feed (`FlipFeed`), decided after hydration
-  (nothing in the server HTML). "Seen" is
-  `localStorage` `vyra:feed:guide` = `seen`, written when the guide is
-  finished, skipped or closed (read and written in try/catch: storage
-  unavailable means it shows again next time). Never when the page opens on
-  a `#look-<slug>` hash (shared look, back from a product page) and never
-  when there are no looks.
-- **Replay** (contract with the menu, ZP-503): `/?guide=1` (also a soft
-  navigation while on the page) scrolls to the first look and opens the
-  guide even if seen, then removes `guide` from the URL with the safe
-  `replaceState` wrapper (other parameters and the hash kept).
+- **Got it** closes it for now. **Don't show this again** keeps it away.
+  Escape counts as Got it. Tapping outside does nothing.
+- **When**: on every landing (page load), only on the landing feed
+  (`FlipFeed`), decided after hydration (nothing in the server HTML). Once per
+  page load, so a soft navigation does not bring it back. Never on a
+  `#look-<slug>` hash, over the details sheet or an overlay, or with no looks.
+- **Hidden**: `localStorage` `vyra:feed:help` = `hidden`, written only by
+  "Don't show this again" (try/catch: storage unavailable means it shows
+  again). A new key, so ZP-509's `vyra:feed:guide` does not hide it.
+- **From the menu**: `/?guide=1` ("How to use VYRA"; also a soft navigation)
+  scrolls to the first look and opens it even if hidden, then removes `guide`
+  from the URL with the safe `replaceState` wrapper (other parameters and the
+  hash kept).
+- Focus moves to Got it and stays in the dialog; the feed behind is inert;
+  focus returns where it was (else to the feed). It scrolls inside itself on
+  short screens.
+- Analytics: `guide_shown`, `guide_replayed`, `guide_completed` (Got it),
+  `guide_hidden` (Don't show this again), `guide_skipped` (Escape).
 
 ### First-visit photo tour (ZP-516)
 
-After the guide closes, the look on screen slides sideways through all its
+After the pop-up closes, the look on screen slides sideways through all its
 photos once, then back to the first, so visitors learn the strip swipes
 (`FeedSlide`; decided in `FlipFeed`; pure parts in `feed-guide.ts`).
 
 - About 10 s in all, 0.9 to 1.5 s a photo (`tourPhotoMs`).
 - Once per browser (`localStorage` `vyra:feed:tour` = `seen`, written when it
-  ends or is stopped). "How to use VYRA" runs it again after the guide.
+  ends or is stopped). "How to use VYRA" runs it again after the pop-up.
 - Any touch, click, scroll or key stops it where it is.
 - Not with reduced motion, in owner preview, over the details sheet, or
   under the menu or the collections sheet. A look with one photo waits for
@@ -188,8 +172,7 @@ photos once, then back to the first, so visitors learn the strip swipes
 ### Clean view and "Show details"
 
 - The feed opens on the clothes: no caption, no bottom scrim, and a short
-  rail (owner, after the Samsung test): the WhatsApp button (WhatsApp / Restock,
-  or Visit us), Call (ZP-510, when a phone is set), the heart and the eye. The eye at the bottom right reads
+  rail (owner, after the Samsung test): the WhatsApp button (or Visit us), Call (ZP-510, when a phone is set), the heart and the eye. The eye at the bottom right reads
   **Show details**. Its accessible
   name is always "Show details" and `aria-pressed` gives the state.
   Tapping it shows the caption, Share and Details on every slide; the visible text
@@ -219,11 +202,10 @@ photos once, then back to the first, so visitors learn the strip swipes
 - The rail, top to bottom (`railItems`): **Share**, **Details** (with details
   only), the WhatsApp button, the **heart** (ZP-507: "Love", or the number from
   3 loves; see `docs/storefront/hearts.md`), the **eye**. The WhatsApp button,
-  heart and eye always show; the eye stays at the bottom, so it never moves
-  (the guide's step 3 ring measures the real eye, so it follows).
-- The WhatsApp button: **Enquire** (wa.me link from `buildWhatsAppLink` with the owner's
-  enquiry template, via `productEnquiryHref`), or **Restock** for sold-out
-  pieces (`RESTOCK_TEMPLATE`: "Hi VYRA, please let me know when the
+  heart and eye always show; the eye stays at the bottom, so it never moves.
+- The WhatsApp button, labelled **WhatsApp** on every look: an enquiry (wa.me link from `buildWhatsAppLink` with the owner's
+  enquiry template, via `productEnquiryHref`), or for sold-out
+  pieces a restock message (`RESTOCK_TEMPLATE`: "Hi VYRA, please let me know when the
   {product} is back in stock. ({url})", also through `buildWhatsAppLink`).
   No WhatsApp number set: **Visit us** (link to `/visit`) instead. **Share**
   (Web Share API, else copy link; hidden when there is no absolute URL).
@@ -239,8 +221,8 @@ photos once, then back to the first, so visitors learn the strip swipes
   [Share, Details: with details only], **WhatsApp**, **Call**, the heart, the eye.
 - WhatsApp: the official WhatsApp logo (`WhatsAppLogoIcon`, Simple Icons
   "whatsapp" path, CC0) in white on a 50px #25D366 circle with a subtle
-  shadow, labelled **WhatsApp** (**Restock** for sold-out pieces,
-  `railWhatsAppLabel`). No WhatsApp number set: **Visit us** as before.
+  shadow, labelled **WhatsApp** on every look (owner: "Restock" confused people; the
+  sold-out message still asks about a restock). No WhatsApp number set: **Visit us** as before.
 - Call: a round phone button labelled **Call** (accessible name "Call VYRA"),
   a real `<a href="tel:+…">` from the site settings phone (`telHref`:
   formatting stripped; a leading `+` or the international `00` gives
@@ -306,7 +288,7 @@ sheet over the current look instead of navigating; the feed does not move.
   feed's), so the entries carry Next's state and forward / back never
   reload. A `d` for a piece that is not in the feed (unknown, unpublished,
   beyond the load) is removed in place and nothing is pushed; the
-  first-visit guide is held back only while the sheet opens or may open.
+  navigation pop-up is held back only while the sheet opens or may open.
   If the push fails, closing replaces the URL (never `history.back()`).
   `replaceState` calls pass only our part of the entry state
   (`customHistoryState`): a state carrying Next's `__NA` makes Next skip its
