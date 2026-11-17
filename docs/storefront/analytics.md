@@ -221,6 +221,18 @@ latest `visit_end`.
   characters removed, lowercased, anything else than `[a-z0-9_-]` becomes
   `-`, at most 40 characters.
 - `device`: from the user agent (iPadOS via touch points).
+- `view` (ZP-544, optional): `clean` | `info`, the feed view of an **A/B
+  test visit** (ZP-543, `docs/storefront/feed.md`). The tracker reads it
+  when the visit starts with `testFeedView(document.documentElement.dataset)`
+  (`src/lib/analytics/context.ts`, pure): the view on `data-feed-view`, sent
+  only when `data-feed-view-test="1"`, which the inline script sets before
+  first paint only when the view came from the random 50/50 assignment
+  (setting "A/B test", no `?view=` preview, storage working). A fixed setting
+  (Clean / Info), a `?view=` preview or blocked storage sends no `view`, so
+  those visits are never in the comparison. Older clients without it stay
+  valid; any other value is invalid (the event is dropped). Since a visit
+  continues across reloads in the same tab and the assignment is kept per
+  browser, a visit keeps one view.
 
 `visit_end` is sent **every time the page hides** (app switch, lock, tab
 close) with the cumulative visible duration; a visit can therefore have
@@ -380,6 +392,19 @@ both index scans.
   rows are by the day the visit started; health and option rows by the day
   of the event.
 
+- **ZP-544 (feed-view A/B test)**, migration `20261117100000_feed_view_rollup`:
+  **`AnalyticsDailyFeedView`** (`day, view` PK; `view` = `clean` | `info`):
+  test visits only (their `visit_start` carries `view`), by the day the visit
+  started: `visits`, `devices` (distinct device ids that day; null ids not
+  counted), `openVisits` (any `OPEN_TYPES`: details sheet or product page),
+  `enquiringVisits` (≥ 1 `whatsapp_enquire`), `restockVisits` (≥ 1
+  `restock_request`); the actions count that day or the next, like
+  `AnalyticsDailyVisits`. One grouped pass over the visit's two days, no
+  joins. No rows for a day without test visits. Same job, idempotent
+  replace, 25-month retention (`ROLLUP_TABLES`) and live read for today as
+  every other rollup. Insights "Clean vs Info view" (ZP-546) reads it, see
+  below.
+
 Visit and source rows are by the day the visit **started** (a `visit_end`
 or enquiry after midnight still counts for it); piece, photo and video rows
 by the day of the event.
@@ -388,6 +413,43 @@ Hints for ZP-506 ranking: sum a window (e.g. 14 days) per `productId` of
 `AnalyticsDailyPiece` (views, viewers, dwellSeconds/dwellCount, enquiries,
 loveOn − loveOff, shares, exits) and of `AnalyticsDailyPhoto` (cover photo =
 highest dwell per view). All in one indexed range scan.
+
+### Insights: Clean vs Info view (ZP-546)
+
+A section of the Insights page (`src/components/insights/feed-view.tsx`,
+data from `compareFeedViews` in `src/lib/insights/feed-view.ts`, CSV
+`feedviews`), **shown only when the selected range has test visits**. One
+column per view: visitors (test visits), opened a piece (count and % of
+visits), **tapped WhatsApp** (count and %: the main measure), restock
+requests (visits that asked). "Devices" in the CSV are distinct devices per
+day summed over the range (a browser that comes back on two days counts
+twice).
+
+**The honest rule.** The section says **"Not enough visitors yet to call a
+winner"** unless *both* views have at least **200 visits**
+(`FEED_VIEW_MIN_VISITS`) *and* a two-proportion z-test on the WhatsApp-tap
+rate gives **|z| ≥ 1.96** (`FEED_VIEW_Z`, about 95% confidence, two-sided).
+Only then does it say "Info view is ahead" or "Clean view is ahead", with the
+two rates. `twoProportionZ(x1, n1, x2, n2)` uses the pooled standard error,
+`z = (p1 − p2) / √(p(1 − p)(1/n1 + 1/n2))`; it is undefined (no winner) when
+a view has no visits or nobody / everybody tapped. Caveats for whoever reads
+it: checking the page every day and stopping the test the first day it shows
+a winner raises the chance of a false winner above 5%; decide the test length
+(e.g. until both views have 200+ visits and at least two full weeks) before
+looking. The Info view has no "Show details" eye, so the funnel's "Show
+details" step is lower for its visits by design; compare "Opened a piece"
+instead.
+
+Staff never count: the endpoint already drops every batch sent with a valid
+back-office `auth-token` cookie (see "Staff are not visitors" above;
+`tests/analytics-endpoint-db.test.ts`), so the owner checking both views
+while signed in adds nothing. `?view=` previews are not test visits either.
+
+Privacy notice: the `view` prop is one more anonymous fact about the visit
+(which of two page layouts it saw). The A/B assignment itself
+(`vyra:feed:view-ab`) is a display choice kept in **local** storage, while the
+notice mentions display choices only in session storage; its wording is
+owner-approved and was not changed in ZP-544 (flagged to the owner instead).
 
 ## Rollup job
 
@@ -470,4 +532,6 @@ serves traffic, as usual.
 | `tests/analytics-client.test.ts` | validation before queueing, event ids, batching, hidden-page coalescing, transport fallback, visit/device ids, idle, opt-out, storage failures, no-op on the server |
 | `tests/analytics-endpoint-db.test.ts` | the endpoint end to end against the DB (accept, per-event drop, option check, dedupe, staff, 400/403/413/415/429) |
 | `tests/analytics-rollup-db.test.ts` | rollups, idempotency, backfill, two-day default, never rebuilding pruned / empty days, retention, job arguments |
+| `tests/feed-view-analytics.test.ts` | ZP-544 / ZP-546 (pure): `visit_start` `view` in the catalogue (accepted, rejected, optional), `testFeedView`, the tracker sending it, `twoProportionZ`, the 200-visit / 1.96 rule, `compareFeedViews`, the `feedviews` CSV |
+| `tests/analytics-feed-view-rollup-db.test.ts` | ZP-544 / ZP-546: `AnalyticsDailyFeedView` vs SQL on raw events (test visits only, by start day, next-day taps, null devices, idempotent), the Insights comparison from rollups and live (read-only), hidden without test visits |
 | `tests/analytics-rollup-volume-db.test.ts` | a busy day rolls up within the transaction limits (20,000 events; `ANALYTICS_VOLUME_EVENTS=500000` for the full run) |

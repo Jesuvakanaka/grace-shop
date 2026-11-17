@@ -68,6 +68,8 @@ export type DepthSums = { looks: number; visits: number }
 export type HourSums = { hour: number; visits: number; enquiringVisits: number; whatsappTaps: number }
 export type HealthSums = { kind: string; detail: string; events: number; visits: number }
 export type OptionSums = { productId: number; kind: string; value: string; selects: number; enquiries: number; restockRequests: number }
+/** ZP-544: test visits of the feed-view A/B test, per view. */
+export type FeedViewSums = { view: string; visits: number; devices: number; openVisits: number; enquiringVisits: number; restockVisits: number }
 
 export type LiveDay = {
   day: string
@@ -80,6 +82,8 @@ export type LiveDay = {
   video: VideoSums[]
   health: HealthSums[]
   option: OptionSums[]
+  /** ZP-544 (optional: test doubles of the live query may leave it out). */
+  feedView?: FeedViewSums[]
 }
 
 const rows = (select: string) => `(SELECT COALESCE(json_agg(s), '[]'::json) FROM (${select}) AS s)`
@@ -96,7 +100,8 @@ SELECT json_build_object(
   'photo', ${rows(S.photo.select)},
   'video', ${rows(S.video.select)},
   'health', ${rows(S.health.select)},
-  'option', ${rows(S.option.select)}
+  'option', ${rows(S.option.select)},
+  'feedView', ${rows(S.feedView.select)}
 ) AS data`
 
 /** Short: a live day is one or two days of raw events, a few seconds at 500k events/day. */

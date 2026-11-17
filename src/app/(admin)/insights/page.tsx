@@ -20,6 +20,7 @@ import {
   SourcesReport,
   VideosReport,
 } from '@/components/insights/reports';
+import { FeedViewReport } from '@/components/insights/feed-view';
 
 type Preset = 'today' | '7d' | '30d' | 'custom';
 const PRESETS: { key: Preset; label: string }[] = [
@@ -156,7 +157,12 @@ export default function InsightsPage() {
       </div>
 
       <nav aria-label="Reports" className="flex gap-2 overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 pb-1 no-print">
-        {SECTIONS.map(([id, label]) => (
+        {[
+          ...SECTIONS.slice(0, 1),
+          // ZP-546: only while the range has A/B test visits (the section is hidden otherwise).
+          ...(r?.feedViews ? ([['feedviews', 'Clean vs Info']] as const) : []),
+          ...SECTIONS.slice(1),
+        ].map(([id, label]) => (
           <a key={id} href={`#${id}`} className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">
             {label}
           </a>
@@ -177,6 +183,7 @@ export default function InsightsPage() {
             />
           )}
           <OverviewReport r={r} csv={csv} />
+          <FeedViewReport data={r.feedViews} csv={csv('feedviews')} />
           <LooksReport r={r} csv={csv} />
           <PhotosReport r={r} csv={csv} />
           <VideosReport r={r} csv={csv} />

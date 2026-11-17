@@ -318,6 +318,35 @@ export const ROLLUP_SELECTS = {
         AND e."productId" IS NOT NULL AND o.value IS NOT NULL
       GROUP BY e."productId", o.kind, o.value`,
   },
+  // ── ZP-544: the feed-view A/B test (ZP-543). Only TEST visits: their
+  // visit_start carries `view` (clean | info). By the day the visit started,
+  // with its open / WhatsApp / restock that day or the next (like visits).
+  // One grouped pass, no joins (same shape as VISITS_CTE).
+  feedView: {
+    table: 'AnalyticsDailyFeedView',
+    columns: cols('view, visits, devices, "openVisits", "enquiringVisits", "restockVisits"'),
+    select: `WITH fv AS (
+        SELECT "visitId",
+               (ARRAY_AGG("deviceId" ORDER BY "occurredAt") FILTER (WHERE type = 'visit_start' AND day = $1::date))[1] AS device_id,
+               (ARRAY_AGG(props->>'view' ORDER BY "occurredAt") FILTER (WHERE type = 'visit_start' AND day = $1::date))[1] AS view,
+               BOOL_OR(type IN (${OPEN_TYPES.map((t) => `'${t}'`).join(', ')})) AS opened,
+               BOOL_OR(type = 'whatsapp_enquire') AS enquired,
+               BOOL_OR(type = 'restock_request') AS restocked
+        FROM "AnalyticsEvent"
+        WHERE day BETWEEN $1::date AND $1::date + 1
+          AND type IN ('visit_start', ${OPEN_TYPES.map((t) => `'${t}'`).join(', ')}, 'whatsapp_enquire', 'restock_request')
+        GROUP BY "visitId"
+      )
+      SELECT view,
+             COUNT(*)::int AS visits,
+             COUNT(DISTINCT device_id)::int AS devices,
+             COUNT(*) FILTER (WHERE opened)::int AS "openVisits",
+             COUNT(*) FILTER (WHERE enquired)::int AS "enquiringVisits",
+             COUNT(*) FILTER (WHERE restocked)::int AS "restockVisits"
+      FROM fv
+      WHERE view IN ('clean', 'info')
+      GROUP BY view`,
+  },
 } satisfies Record<string, RollupSelect>
 
 const insert = ({ table, columns, select }: RollupSelect, extra: { column: string; value: string } | null = null) => {
@@ -349,6 +378,7 @@ const STATEMENTS: string[] = [
   insert(S.hour),
   insert(S.health),
   insert(S.option),
+  insert(S.feedView),
 ]
 
 /**
@@ -422,6 +452,8 @@ export const ROLLUP_TABLES = [
   'AnalyticsDailyHour',
   'AnalyticsDailyHealth',
   'AnalyticsDailyOption',
+  // ZP-544
+  'AnalyticsDailyFeedView',
 ]
 
 /** Subtract whole months from "YYYY-MM-DD" (clamped to the month's last day). */

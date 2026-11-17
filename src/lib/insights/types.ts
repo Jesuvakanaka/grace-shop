@@ -205,6 +205,36 @@ export type ReviewsSummary = {
   perWeek: { week: string; received: number; approved: number }[]
 }
 
+/** ZP-546: one view of the feed-view A/B test (test visits only). Rates are of visits. */
+export type FeedViewColumn = {
+  view: 'clean' | 'info'
+  visits: number
+  /** Distinct devices per day, summed over the days of the range (a browser that comes back on two days counts twice). */
+  devices: number
+  /** Visits that opened a piece (details sheet or product page). */
+  openVisits: number
+  openRate: number | null
+  /** Visits that tapped WhatsApp (the main measure). */
+  whatsappVisits: number
+  whatsappRate: number | null
+  /** Visits with a restock request. */
+  restockVisits: number
+}
+
+export type FeedViewVerdict =
+  | { kind: 'not-enough' }
+  | { kind: 'ahead'; winner: 'clean' | 'info'; infoRate: number; cleanRate: number }
+
+export type FeedViewComparison = {
+  /** [clean, info] */
+  columns: [FeedViewColumn, FeedViewColumn]
+  /** Two-proportion z of the WhatsApp rate, info minus clean; null when undefined. */
+  z: number | null
+  verdict: FeedViewVerdict
+  /** Visits each view needs before a winner can be named. */
+  minVisits: number
+}
+
 export type InsightsReport = {
   range: InsightsRange & {
     /** Days computed from raw events for this answer (today; yesterday before the nightly rollup ran). Read-only. */
@@ -227,6 +257,8 @@ export type InsightsReport = {
   sources: Sources
   health: Health
   reviews: ReviewsSummary
+  /** ZP-546: Clean vs Info view; null when the range has no A/B test visits (section hidden). Optional for older fixtures. */
+  feedViews?: FeedViewComparison | null
 }
 
 function emptySegment(key: string): FunnelSegment {
@@ -260,5 +292,6 @@ export function emptyInsights(range: InsightsRange): InsightsReport {
     sources: { bySource: [], byCampaign: [], heatmap: [] },
     health: { days: [], byDetail: [] },
     reviews: { received: 0, approved: 0, averageStars: null, pendingNow: 0, perWeek: [] },
+    feedViews: null,
   }
 }
