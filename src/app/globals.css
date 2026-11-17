@@ -639,3 +639,15 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/*
+ * ZP-543: feed views (src/lib/storefront/feed-view.ts). The inline script in
+ * the storefront layout sets <html data-feed-view="clean|info"> before first
+ * paint. Only an A/B render carries both views (.sf-view-clean / .sf-view-info);
+ * this shows the one in effect, and clean when the script did not run (no
+ * JavaScript). Unlayered and !important, so no utility can show both.
+ */
+:root:not([data-feed-view="info"]) .sf-view-info,
+:root[data-feed-view="info"] .sf-view-clean {
+  display: none !important;
+}
