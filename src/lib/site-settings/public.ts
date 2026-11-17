@@ -7,7 +7,8 @@
 import { unstable_cache } from 'next/cache'
 import type { PrismaClient } from '@prisma/client'
 import prisma from '@/lib/db'
-import { readSiteSettings } from './db'
+import { readFeedViewMode, readSiteSettings } from './db'
+import type { FeedViewMode } from '@/lib/storefront/feed-view'
 import { toPublicSiteSettings, type PublicSiteSettings } from './dto'
 import { STOREFRONT_TAGS } from '@/lib/storefront/cache-tags'
 import { SITE_SETTINGS_TAG } from './revalidate'
@@ -42,5 +43,18 @@ export const PUBLIC_SETTINGS_CACHE_OPTIONS = Object.freeze({
 export const getPublicSiteSettings: () => Promise<PublicSiteSettings> = unstable_cache(
   () => loadPublicSiteSettings(),
   ['site-settings:public:v1'],
+  { tags: [...PUBLIC_SETTINGS_CACHE_OPTIONS.tags], revalidate: PUBLIC_SETTINGS_CACHE_OPTIONS.revalidate },
+)
+
+/**
+ * ZP-543: the feed view setting (CLEAN / INFO / AB) for the storefront
+ * layout's inline script. Its own argument-free entry with the same tags and
+ * 60 s backstop as the public settings, so a save takes effect on the next
+ * page load (at once on the instance that handled it, within a minute on the
+ * other). Kept out of PublicSiteSettings so that DTO's shape is unchanged.
+ */
+export const getFeedViewMode: () => Promise<FeedViewMode> = unstable_cache(
+  () => readFeedViewMode(prisma),
+  ['site-settings:feed-view:v1'],
   { tags: [...PUBLIC_SETTINGS_CACHE_OPTIONS.tags], revalidate: PUBLIC_SETTINGS_CACHE_OPTIONS.revalidate },
 )

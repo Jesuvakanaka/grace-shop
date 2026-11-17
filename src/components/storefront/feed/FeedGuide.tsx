@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { GUIDE_TITLE, guideTips, type GuideIcon, type GuideLayout } from "@/lib/storefront/feed-guide";
+import type { FeedView } from "@/lib/storefront/feed-view";
 import { track } from "@/lib/analytics/client";
 import { WhatsAppLogoIcon } from "../icons";
 import { InstallAppRow } from "../InstallAppRow";
@@ -12,7 +13,32 @@ type FeedGuideProps = {
   onDone: (hide: boolean) => void;
   /** Focus goes here afterwards when the element focused before is gone. */
   fallbackFocus: () => void;
+  /** ZP-543: the feed view in effect (info view: a tip about the panel's buttons instead of the eye). */
+  view?: FeedView;
 };
+
+/** ZP-543: the info view's panel: a photo frame with two buttons at the bottom. */
+function PanelIcon() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect x="4" y="2.5" width="16" height="19" rx="1.5" />
+      <path d="M7 14.5h10" />
+      <rect x="7" y="17" width="4.5" height="2" rx="0.5" />
+      <rect x="12.5" y="17" width="4.5" height="2" rx="0.5" />
+    </svg>
+  );
+}
 
 function FingerIcon() {
   return (
@@ -46,6 +72,7 @@ const icons: Record<GuideIcon, ReactNode> = {
   ),
   tap: <FingerIcon />,
   eye: <EyeIcon className="h-5 w-5" />,
+  panel: <PanelIcon />,
   contact: <WhatsAppLogoIcon className="h-5 w-5" />,
   menu: <MenuLinesIcon className="h-5 w-5" />,
 };
@@ -58,7 +85,7 @@ const icons: Record<GuideIcon, ReactNode> = {
  * Escape closes it for now, like Got it. Tapping outside does nothing, so it
  * is not closed by accident. Focus returns to where it was. See docs/storefront/feed.md.
  */
-export function FeedGuide({ onDone, fallbackFocus }: FeedGuideProps) {
+export function FeedGuide({ onDone, fallbackFocus, view = "clean" }: FeedGuideProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const gotIt = useRef<HTMLButtonElement>(null);
   const returnTo = useRef<Element | null>(null);
@@ -113,7 +140,7 @@ export function FeedGuide({ onDone, fallbackFocus }: FeedGuideProps) {
         {GUIDE_TITLE}
       </h2>
       <ul className="m-0 mt-4 flex list-none flex-col gap-3 p-0">
-        {guideTips(layout).map((tip) => (
+        {guideTips(layout, view).map((tip) => (
           <li key={tip.title} className="flex items-center gap-3">
             <span
               aria-hidden="true"

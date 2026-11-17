@@ -39,7 +39,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${jost.variable} ${cormorant.variable}`}>
+    // ZP-543: suppressHydrationWarning (this element's own attributes only): on
+    // storefront pages an inline script sets data-feed-view(-test) on <html>
+    // before hydration (src/components/storefront/feed/FeedView.tsx).
+    <html lang="en" className={`${jost.variable} ${cormorant.variable}`} suppressHydrationWarning>
       <body className="font-sans antialiased min-h-screen">{children}</body>
     </html>
   );

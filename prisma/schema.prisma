@@ -195,6 +195,15 @@ enum FeedRanking {
   NEWEST
 }
 
+// ZP-543: the landing feed's view. CLEAN = photos only (details behind the
+// eye); INFO = an always-visible info panel; AB = each browser gets one of the
+// two at random (50/50, kept in localStorage). See src/lib/storefront/feed-view.ts.
+enum FeedView {
+  CLEAN
+  INFO
+  AB
+}
+
 // How the public site shows the price. The public price is sellingPriceUsd.
 enum PriceDisplay {
   SHOW_PRICE
@@ -531,6 +540,9 @@ model SiteSettings {
 
   // ZP-506: feed order. AUTO = by popularity (also sets Featured); NEWEST = newest first.
   feedRanking FeedRanking @default(AUTO)
+
+  // ZP-543: the feed's view. CLEAN = today's feed; INFO = the info panel; AB = 50/50 test (ZP-544).
+  feedView FeedView @default(CLEAN)
 
   // ZP-513 details card "How to buy" and "Size guide": hours a reserved piece
   // is held (null hides it), payment methods ("EcoCash · cash · card"), and

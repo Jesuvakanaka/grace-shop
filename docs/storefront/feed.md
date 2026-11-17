@@ -130,6 +130,9 @@ the site. It replaced ZP-509's three-step finger animation (owner, 2026-11-04).
 
 Six rows (`guideTips`), with touch and computer wording: next look, more
 photos, the photo (details sheet), the eye, WhatsApp or Call, the menu.
+ZP-543: in the info view (below) the eye row becomes "Tap / Click the buttons
+at the bottom: Reserve on WhatsApp, or view sizes and details"
+(`guideTips(layout, 'info')`).
 
 - **Install the app** (`InstallAppRow`, also in the menu): the browser's prompt
   on Chrome and Android, the steps on iPhone and iPad; absent when already
@@ -239,6 +242,62 @@ photos once, then back to the first, so visitors learn the strip swipes
   hand them to the installed app; without it, WhatsApp's web / install page).
   They are plain anchors: no `target="_blank"` (on some Android browsers it
   forces the in-browser page instead of the app) and no `window.open`.
+
+## Feed views: Clean, Info, A/B test (ZP-543, ZP-544)
+
+Website settings → **Feed view** (owner only; `SiteSettings.feedView`, enum
+`FeedView`, migration `20261117090000_feed_view_setting`):
+
+- **Clean view** (`CLEAN`, the default): the feed as above, unchanged.
+- **Info view** (`INFO`): every look shows an always-visible panel over the
+  bottom of the photo instead of the caption, the rail and the eye:
+  availability tag (**In stock** / **Few left** / **Sold out**, from the
+  slide's badge, `infoAvailability`), the name (serif 25px, two lines at most;
+  one line at 22px on short screens), the price (`US$65`, or "Ask for price",
+  `infoPrice`) with the rating, then **Reserve on WhatsApp** (the same
+  enquiry link and `enquire` event as the rail; sold out: **Ask about
+  restock** with the restock message; no WhatsApp number: **Visit us**,
+  `infoPrimary`) and **View sizes & details** (a link to `/p/<slug>`, so a
+  plain tap opens the details sheet like the photo). The buttons are side by
+  side from 400px wide, stacked below; 48px tall (44px on short screens),
+  olive with the white WhatsApp logo like every WhatsApp text button.
+  Above the panel at the right: the heart, **Share** (with a share URL) and
+  **Call** (with a phone), 44px round buttons (`infoActions`); no eye.
+  The panel sits on a dark gradient (at least 86% ink behind its text) down
+  to the bottom edge; the swipe hint stays on top of it. The photo strip,
+  progress bars, photo arrows, top bar, collection pill, photo fit (ZP-515),
+  tour (ZP-516) and pop-up (ZP-518) are unchanged. The photo link leaves the
+  tab order (the panel is the way in) and the panel's name is the look's `<h2>`.
+  Measured locally (fixture looks): the panel's text starts about 64% down at
+  360×640, 73% at 375×812, 80% at 412×915 and about 70% in the computer column;
+  photos keep `object-position: 50% 20%`, so faces stay clear.
+- **A/B test** (`AB`): each browser gets one of the two at random, 50/50,
+  kept in `localStorage` `vyra:feed:view-ab` (`clean` | `info`) so it keeps
+  its view. Storage blocked or not writable: a random view per page load and
+  not a test visit. Insights compares the two (ZP-544/546).
+
+**How the view is chosen, with no flash** (`src/lib/storefront/feed-view.ts`,
+`src/components/storefront/feed/FeedView.tsx`):
+
+- The storefront layout reads the setting (`getFeedViewMode`, its own cached
+  entry with the settings tags and the 60 s backstop: a save shows on the next
+  page load, at once on the instance that handled it, within a minute on the
+  other) and renders `FeedViewProvider` first. Its inline script (Next.js
+  guide "Preventing flash before hydration"; no CSP in `src/proxy.ts` or
+  `next.config.ts`) runs while the HTML is parsed and sets
+  `<html data-feed-view="clean|info">` before anything is painted, plus
+  `data-feed-view-test="1"` only when the view came from the A/B assignment.
+  The root `<html>` has `suppressHydrationWarning` for these attributes.
+- `?view=clean` or `?view=info` on any storefront URL forces that view for that
+  page load (preview): never a test visit, never stored.
+- The server renders only the view it knows (a fixed mode or a preview), so
+  CLEAN is exactly today's HTML. For A/B it renders both, marked
+  `.sf-view-clean` / `.sf-view-info`; `globals.css` shows the one on `<html>`,
+  and clean when the script did not run. After hydration the slides keep
+  only the view in effect (`useFeedView`).
+- Without JavaScript: Clean and Info show their view; A/B shows clean.
+- The analytics read `document.documentElement.dataset.feedView` /
+  `.feedViewTest` (ZP-544, `docs/storefront/analytics.md`).
 
 ## Details sheet (ZP-510)
 
