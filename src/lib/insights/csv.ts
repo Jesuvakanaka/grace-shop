@@ -2,6 +2,7 @@
 // UTF-8 with a BOM (Excel opens it right), CRLF line ends, RFC 4180 quoting.
 // Text cells that a spreadsheet would run as a formula (= + - @ tab CR) get a
 // leading apostrophe. Rates are exported as fractions (0..1), seconds as means.
+import { verdictText } from './feed-view'
 import type { InsightsReport } from './types'
 
 export const INSIGHTS_REPORTS = [
@@ -16,6 +17,7 @@ export const INSIGHTS_REPORTS = [
   'heatmap',
   'health',
   'reviews',
+  'feedviews',
 ] as const
 export type InsightsReportName = (typeof INSIGHTS_REPORTS)[number]
 
@@ -154,5 +156,14 @@ export function reportCsv(report: InsightsReport, name: InsightsReportName): str
           ['pending now', report.reviews.pendingNow, ''],
         ],
       )
+    case 'feedviews': {
+      // ZP-546: one row per view of the A/B test; header only when the range has no test visits.
+      const c = report.feedViews
+      const verdict = c ? verdictText(c.verdict) : ''
+      return toCsv(
+        ['view', 'visits', 'devices (per day, summed)', 'opened a piece', 'opened rate', 'tapped WhatsApp', 'WhatsApp rate', 'restock requests', 'z (WhatsApp rate, info - clean)', 'verdict'],
+        (c?.columns ?? []).map((x): Cell[] => [x.view, x.visits, x.devices, x.openVisits, x.openRate, x.whatsappVisits, x.whatsappRate, x.restockVisits, c?.z, verdict]),
+      )
+    }
   }
 }

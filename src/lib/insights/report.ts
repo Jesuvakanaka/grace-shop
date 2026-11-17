@@ -18,6 +18,7 @@ import { loadPopularity, loadRankingStatus } from '@/lib/ranking/read'
 import {
   liveDay,
   type DepthSums,
+  type FeedViewSums,
   type HealthSums,
   type JourneySums,
   type LiveDay,
@@ -27,6 +28,7 @@ import {
   type VideoSums,
   type VisitsSums,
 } from './live'
+import { compareFeedViews } from './feed-view'
 import { rangeDays, type InsightsRange } from './range'
 import {
   FUNNEL_STEPS,
@@ -149,6 +151,8 @@ type Data = {
   heat: HeatCell[]
   health: HealthDay[]
   option: OptionSums[]
+  /** ZP-546: A/B test visits per view. */
+  feedView: FeedViewSums[]
 }
 
 const n = (v: number | null | undefined) => v ?? 0
@@ -185,6 +189,7 @@ const PIECE_FIELDS = ['views', 'viewers', 'dwellSeconds', 'dwellCount', 'details
 const PHOTO_FIELDS = ['views', 'viewers', 'dwellSeconds', 'dwellCount'] as const
 const VIDEO_FIELDS = ['starts', 'viewers', 'replays', 'reached25', 'reached50', 'reached75', 'reached100', 'watchSeconds'] as const
 const OPTION_FIELDS = ['selects', 'enquiries', 'restockRequests'] as const
+const FEED_VIEW_FIELDS = ['visits', 'devices', 'openVisits', 'enquiringVisits', 'restockVisits'] as const
 
 type Rolled = Data & { notRecalculated: string[] }
 
@@ -210,6 +215,7 @@ async function readRollups(db: Db, range: InsightsRange, liveDays: string[]): Pr
     GROUP BY 1, 2`) as HeatCell[]
   const health = await db.analyticsDailyHealth.groupBy({ by: ['day', 'kind', 'detail'], where, _sum: { events: true, visits: true } })
   const option = await db.analyticsDailyOption.groupBy({ by: ['productId', 'kind', 'value'], where, _sum: sum(OPTION_FIELDS) })
+  const feedView = await db.analyticsDailyFeedView.groupBy({ by: ['view'], where, _sum: sum(FEED_VIEW_FIELDS) })
 
   // Review F1: days rolled up before the ZP-505 rollups existed have visits but no journey rows.
   const withVisits = await db.analyticsDailyVisits.findMany({ where: { ...where, visits: { gt: 0 } }, select: { day: true } })
@@ -229,6 +235,7 @@ async function readRollups(db: Db, range: InsightsRange, liveDays: string[]): Pr
       return { ...row, day: dayKey(row.day) }
     }),
     option: option.map((r) => flat<OptionSums>(r)),
+    feedView: feedView.map((r) => flat<FeedViewSums>(r)),
     notRecalculated,
   }
 }
@@ -251,6 +258,7 @@ function mergeLive(rolled: Rolled, live: LiveDay[]): Data {
     ),
     health: mergeBy([...rolled.health, ...live.flatMap((l) => l.health.map((h) => ({ ...h, day: l.day })))], (r) => `${r.day}\u0000${r.kind}\u0000${r.detail}`, ['events', 'visits']),
     option: mergeBy([...rolled.option, ...all((l) => l.option)], (r) => `${r.productId}\u0000${r.kind}\u0000${r.value}`, OPTION_FIELDS),
+    feedView: mergeBy([...rolled.feedView, ...all((l) => l.feedView ?? [])], (r) => r.view, FEED_VIEW_FIELDS),
   }
 }
 
@@ -324,7 +332,7 @@ async function buildReport(
   meta: { liveDays: string[]; unavailable: string[]; notRecalculated: string[] },
   now: Date,
 ): Promise<Omit<InsightsReport, 'reviews'>> {
-  const { visits, journey, piece: pieces, photo: photos, video: videos, depth, heat, health, option: options } = data
+  const { visits, journey, piece: pieces, photo: photos, video: videos, depth, heat, health, option: options, feedView } = data
 
   const ids = new Set<number>()
   for (const r of pieces) ids.add(r.productId)
@@ -648,5 +656,7 @@ async function buildReport(
     demand,
     sources,
     health: healthReport,
+    // ZP-546: null (section hidden) when the range has no A/B test visits.
+    feedViews: compareFeedViews(feedView),
   }
 }
