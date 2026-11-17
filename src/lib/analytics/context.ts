@@ -3,7 +3,7 @@
 // Only coarse values leave the browser: a referrer bucket and the referring
 // domain (never the full referrer URL), a campaign tag, the device class,
 // the viewport size, the language and the landing path (no query string).
-import { isPrivatePagePath, type DeviceClass, type ReferrerBucket } from './events'
+import { FEED_VIEWS, isPrivatePagePath, type DeviceClass, type FeedView, type ReferrerBucket } from './events'
 
 type KnownBucket = Exclude<ReferrerBucket, 'direct' | 'other'>
 
@@ -125,4 +125,19 @@ export function normalizePage(pathname: string): string {
   if (p.length > 1) p = p.replace(/\/+$/, '') || '/'
   p = p.replace(/[^A-Za-z0-9\-._~%!$&'()*+,;=:@/]/g, (c) => encodeURIComponent(c))
   return p.slice(0, 200)
+}
+
+/**
+ * ZP-544: the feed view to record on visit_start, read from the page's
+ * <html> dataset (set before first paint by the ZP-543 inline script):
+ * `data-feed-view` = "clean" | "info", and `data-feed-view-test` = "1" only
+ * when the view came from the A/B assignment. Returns the view only for such
+ * test visits; a fixed setting, a ?view= preview or blocked storage (no test
+ * flag) gives undefined, so nothing is sent. Pure: pass
+ * document.documentElement.dataset.
+ */
+export function testFeedView(dataset: { feedView?: string; feedViewTest?: string } | null | undefined): FeedView | undefined {
+  if (!dataset || dataset.feedViewTest !== '1') return undefined
+  const view = dataset.feedView
+  return (FEED_VIEWS as readonly string[]).includes(view ?? '') ? (view as FeedView) : undefined
 }

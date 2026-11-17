@@ -845,6 +845,28 @@ model AnalyticsDailyHealth {
   @@id([day, kind, detail])
 }
 
+/// ZP-544: the feed-view A/B test (ZP-543). Test visits only (their
+/// visit_start carries `view`), by the day the visit started; opens, WhatsApp
+/// taps and restock requests that day or the next, like AnalyticsDailyVisits.
+/// See docs/storefront/analytics.md.
+model AnalyticsDailyFeedView {
+  day             DateTime @db.Date
+  /// clean | info
+  view            String   @db.VarChar(8)
+  /// Test visits that started this day with this view.
+  visits          Int      @default(0)
+  /// Distinct device ids among them (null ids not counted).
+  devices         Int      @default(0)
+  /// Visits that opened a piece (details sheet or product page, OPEN_TYPES).
+  openVisits      Int      @default(0)
+  /// Visits with at least one whatsapp_enquire.
+  enquiringVisits Int      @default(0)
+  /// Visits with at least one restock_request.
+  restockVisits   Int      @default(0)
+
+  @@id([day, view])
+}
+
 /// Size / colour demand per piece, by day of the event. Values are the
 /// piece's own option spelling (checked at ingest).
 model AnalyticsDailyOption {

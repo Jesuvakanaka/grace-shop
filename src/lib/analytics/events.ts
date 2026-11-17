@@ -32,6 +32,13 @@ export const PRODUCT_OPEN_SOURCES = ['feed', 'collection', 'shop', 'new', 'relat
 export const SHARE_METHODS = ['native', 'copy', 'whatsapp', 'facebook', 'other'] as const
 export const LOAD_ERROR_KINDS = ['image', 'video', 'feed', 'page', 'other'] as const
 export const VIDEO_PROGRESS_STEPS = [25, 50, 75, 100] as const
+/**
+ * ZP-544: the feed views of the A/B test (ZP-543). visit_start carries `view`
+ * only for test visits (the view came from the random assignment; see
+ * testFeedView in ./context.ts). Fixed settings and ?view= previews send none.
+ */
+export const FEED_VIEWS = ['clean', 'info'] as const
+export type FeedView = (typeof FEED_VIEWS)[number]
 /** ZP-510: how the feed's details sheet was closed (drag down, backdrop tap, ✕, browser / Android back, Escape; ZP-513: also_like = a "You may also like" piece tapped). */
 export const SHEET_CLOSE_REASONS = ['swipe', 'backdrop', 'button', 'back', 'escape', 'also_like'] as const
 
@@ -148,6 +155,8 @@ export const EVENT_SPECS: Readonly<Record<AnalyticsEventType, EventSpec>> = {
       lang: opt(lang),
       landing: path,
       returning: bool,
+      // ZP-544: the feed view of an A/B test visit; absent otherwise (and from older clients).
+      view: opt(oneOf(FEED_VIEWS)),
     },
   },
   // slug = the last look seen. duration = visible seconds since the visit started.

@@ -12,14 +12,15 @@
 //   hide go in one beacon; pagehide (unload) sends synchronously.
 // - Visit id: random UUID in sessionStorage; a new visit after 30 min idle.
 // - Device id: random UUID in localStorage (returning visitors, hearts).
-// - visit_start (once per visit, with the visit context) and visit_end (every
+// - visit_start (once per visit, with the visit context; ZP-544: plus the
+//   feed view when the visit is part of the A/B test) and visit_end (every
 //   time the page hides: visible seconds so far, looks seen, last event).
 // - GPC / DNT, automated browsers and preview pages: disabled, nothing stored.
 // - Storage access is always in try/catch; if blocked, the visit id lives in
 //   memory for this page and no device id is sent.
 import { campaignFromSearch, deviceClass, normalizePage, visitSource } from './context'
 import type { PageVisibilitySource } from './dwell'
-import { BATCH_VERSION, MAX_BATCH_EVENTS, isPrivatePagePath, validateEvent, type AnalyticsEventType, type PropValue } from './events'
+import { BATCH_VERSION, MAX_BATCH_EVENTS, isPrivatePagePath, validateEvent, type AnalyticsEventType, type FeedView, type PropValue } from './events'
 import { isAutomatedClient, isOptedOutClient, type PrivacyNavigator } from './privacy'
 
 export const ANALYTICS_ENDPOINT = '/api/public/events'
@@ -52,6 +53,12 @@ export type AnalyticsEnv = {
   onPageHide(fn: () => void): void
   /** Run fn at the end of the current task (queueMicrotask in the browser). */
   defer(fn: () => void): void
+  /**
+   * ZP-544: the feed view of an A/B test visit (testFeedView of the page's
+   * <html> dataset), undefined when this is not a test visit. Read when a
+   * visit starts; optional (tests and older callers omit it).
+   */
+  feedView?(): FeedView | undefined
   /** Development only: report a dropped event. Absent in production. */
   warn?: (message: string) => void
 }
@@ -280,6 +287,13 @@ export function createAnalyticsClient(env: AnalyticsEnv): AnalyticsClient {
     if (lang) props.lang = lang
     props.landing = page()
     props.returning = returning
+    let view: FeedView | undefined
+    try {
+      view = env.feedView?.()
+    } catch {
+      view = undefined // reading the page must never break the visit
+    }
+    if (view) props.view = view
     returning = true // a later visit of this page life is a returning one
     const start = build({ type: 'visit_start', at: env.now(), page: page(), props })
     if (start) enqueue(start)

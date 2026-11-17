@@ -259,6 +259,52 @@ raises the cost of a script slightly; attributing visits to a hashed IP
 bucket at ingest to cap visits per address per piece and day (no IP stored,
 but a privacy-notice change).
 
+## The feed-view A/B test and the ranking (ZP-544)
+
+**Question:** while the feed runs the Clean / Info view A/B test (ZP-543),
+can the test skew the popularity ranking?
+
+**Conclusion: no change to the ranking code.** Per-piece indexes are
+unaffected in expectation; the remaining effects are real behaviour, not an
+artefact of the test. Reasoning:
+
+1. **Assignment is independent of the piece.** A browser gets its view at
+   random (50/50) before it sees anything, and every view sees the **same
+   feed order** (the ranking, exploration slots and collections do not
+   depend on the view). So for every piece, the visits that saw it are the
+   same 50/50 mix of views, in expectation.
+2. **The score uses only rates against the catalogue mean.** Each signal is
+   `(piece's distinct visits doing X) / (visits that saw it)`, divided by the
+   same rate pooled over all candidates (`computeScores`). If a view changes
+   a behaviour for every piece by the same factor (say the Info panel's
+   "Reserve on WhatsApp" doubles enquiries, or the missing eye button sends
+   Show details to about zero for Info visits), numerator and catalogue mean
+   change by the same factor and the index (and so the score and order) is
+   unchanged in expectation. The rollup does not know the view and does not
+   need to.
+3. **What does change, and why it is not a skew.**
+   - *Noise, not bias:* a signal that one view hardly produces (Show details
+     for Info visits) rests on about half the visits, so it is noisier;
+     smoothing (`RANKING_MIN_VIEWS`) already pulls thin data toward 1.
+   - *Interactions:* a view can help some pieces more than others, e.g. the
+     Info view puts "Ask about restock" on sold-out looks (more restock
+     requests without opening the sheet, if it records `restock_request` like
+     the sheet's button) and "Ask for price" on ask-for-price pieces.
+     That shifts those pieces' rates for real, as the half of the visitors
+     who see that view actually behave. It is not an error of the test: with
+     100% Info it would be twice as strong. Sold-out pieces are ordered last
+     and never auto-Featured anyway, and pieces with no restock requests get
+     the same restock index whatever the catalogue mean is.
+   - *After the test:* the window is 28 days with a 14-day half-life, so
+     once one view is kept the ranking reflects that view within a few
+     weeks, with no reset needed.
+4. **Volume:** the test does not change how many visits a piece gets (same
+   order for both views), and the ranking never uses raw views.
+
+If a future view changed the **order** (e.g. a different feed per view), or
+showed some pieces only in one view, this would no longer hold: rank on one
+view's visits, or per view, then.
+
 ## Tests
 
 | file | covers |

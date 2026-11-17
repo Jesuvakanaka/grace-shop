@@ -19,6 +19,7 @@ import {
   type StorageLike,
   type TrackProps,
 } from './client-core'
+import { testFeedView } from './context'
 import { createDwellTimer, createDwellTracker, documentVisibility } from './dwell'
 import type { AnalyticsEventType } from './events'
 
@@ -87,6 +88,8 @@ function browserEnv(): AnalyticsEnv {
     visibility: documentVisibility,
     onPageHide: (fn) => window.addEventListener('pagehide', fn),
     defer: (fn) => (typeof queueMicrotask === 'function' ? queueMicrotask(fn) : void Promise.resolve().then(fn)),
+    // ZP-544: the A/B test view that the ZP-543 inline script put on <html> before first paint.
+    feedView: () => testFeedView(document.documentElement?.dataset),
     warn: process.env.NODE_ENV !== 'production' ? (message) => console.warn(message) : undefined,
   }
 }
