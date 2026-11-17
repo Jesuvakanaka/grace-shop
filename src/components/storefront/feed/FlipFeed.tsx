@@ -65,6 +65,8 @@ import { DetailsSheet } from "./DetailsSheet";
 import { ChevronIcon, MenuLinesIcon } from "./feed-icons";
 import { FeedGuide } from "./FeedGuide";
 import { FeedSlide } from "./FeedSlide";
+import { useFeedView, useFeedViewMode } from "./FeedView";
+import { FEED_VIEW_PARAM, serverViews } from "@/lib/storefront/feed-view";
 
 /** Start loading the next page this many slides before the end. */
 const LOAD_AHEAD = 3;
@@ -200,6 +202,11 @@ export function FlipFeed({
 
   const searchParams = useSearchParams();
   const pathname = usePathname();
+  // ZP-543: the view in effect once known (after hydration); until then the
+  // views the server rendered (one, or both for an A/B test, CSS picks).
+  const feedViewMode = useFeedViewMode();
+  const knownView = useFeedView();
+  const slideViews = knownView ? [knownView] : serverViews(feedViewMode, searchParams.get(FEED_VIEW_PARAM));
   // Review: once a /p/<slug> landing's address has become the feed's, the tab
   // title is the feed's too (after the router has applied the page metadata).
   useEffect(() => {
@@ -1051,6 +1058,7 @@ export function FlipFeed({
               priority={i === 0 ? "high" : i === 1 ? "eager" : "lazy"}
               // Null until the current slide is read from the scroll position (a #look- reload starts elsewhere).
               slideOffset={synced ? i - active : null}
+              views={slideViews}
               details={details}
               onToggleDetails={toggleDetails}
               visitHref={links.visit}
@@ -1118,7 +1126,7 @@ export function FlipFeed({
       </div>
 
       {guide === "open" ? (
-        <FeedGuide onDone={onGuideDone} fallbackFocus={focusFeed} />
+        <FeedGuide onDone={onGuideDone} fallbackFocus={focusFeed} view={knownView ?? "clean"} />
       ) : null}
 
       <CollectionSheet

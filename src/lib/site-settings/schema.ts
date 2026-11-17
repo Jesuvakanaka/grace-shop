@@ -5,6 +5,7 @@
 // (the migration seeds the row from those). tests/migration-site-settings.test.ts
 // checks that the seeded row equals SITE_SETTINGS_DEFAULTS.
 import type { FeedRankingMode } from '@/lib/ranking/feed-order'
+import type { FeedViewMode } from '@/lib/storefront/feed-view'
 import type { SizeChartRow } from '@/lib/storefront-model/size-chart'
 
 export const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
@@ -67,6 +68,8 @@ export type SiteSettingsData = {
   googleReviewUrl: string | null
   // ZP-506: feed order. AUTO = by popularity (also sets Featured automatically); NEWEST = newest first (emergency switch).
   feedRanking: FeedRankingMode
+  // ZP-543: the feed's view. CLEAN (today's feed), INFO (the info panel) or AB (50/50 test). See src/lib/storefront/feed-view.ts.
+  feedView: FeedViewMode
   // ZP-513 details card. Hours a reserved piece is held (null hides "We hold it for …").
   holdHours: number | null
   /** "EcoCash · cash · card"; null hides "Pay in store". */
@@ -110,6 +113,7 @@ export const SITE_SETTINGS_DEFAULTS: Readonly<SiteSettingsData> = Object.freeze(
   showItemNumber: false,
   googleReviewUrl: null,
   feedRanking: 'AUTO',
+  feedView: 'CLEAN',
   holdHours: null,
   paymentMethods: null,
   defaultSizeChart: null,

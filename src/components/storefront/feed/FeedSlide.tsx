@@ -5,6 +5,14 @@ import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { track, useActiveDwell, useDwell } from "@/lib/analytics/client";
 import { lookAnchorId, photoLinkLabel, photoNav, railItems, type FeedBadge, type FeedItem } from "@/lib/storefront/feed";
 import { TOUR_SETTLE_MS, tourPhotoMs } from "@/lib/storefront/feed-guide";
+import {
+  infoActions,
+  infoAvailability,
+  infoPrice,
+  infoPrimary,
+  type FeedView,
+  type InfoAvailability,
+} from "@/lib/storefront/feed-view";
 import { isPlainClick } from "@/lib/storefront/feed-sheet";
 import { mediaItems } from "@/lib/storefront/feed-media";
 import { enquiryEvent, photoProps } from "@/lib/storefront/tracking";
@@ -48,6 +56,20 @@ const railLabel = "text-[11px] font-medium tracking-[0.06em] [text-shadow:0_1px_
 const hintBottom = "bottom-[max(env(safe-area-inset-bottom),12px)]";
 const railBottom = "bottom-[calc(max(env(safe-area-inset-bottom),12px)_+_40px)]";
 const captionBottom = "bottom-[calc(max(env(safe-area-inset-bottom),12px)_+_38px)]";
+// ZP-543 info view: the panel reaches the bottom edge; its content ends above the swipe hint.
+const infoPanelBottom = "pb-[calc(max(env(safe-area-inset-bottom),12px)_+_38px)]";
+/** The panel's two buttons: at least 48px (44px on short screens) tall. */
+const infoButton =
+  "sf-focus flex min-h-12 items-center justify-center gap-2 rounded-[2px] px-3 text-center text-[14px] font-medium leading-tight [@media(max-height:700px)]:min-h-11";
+const infoTagTone: Record<InfoAvailability["kind"], string> = {
+  "in-stock": "border border-brand-cream-50/70 text-brand-cream-50",
+  "few-left": "bg-brand-lime text-brand-ink",
+  "sold-out": "bg-brand-cream-50 text-brand-ink",
+};
+/** The round Share / Call buttons above the panel: 44px on every screen (touch target). */
+const infoRound = "flex h-11 w-11 items-center justify-center rounded-full";
+const CLEAN_ONLY: readonly FeedView[] = ["clean"];
+
 // The previous / next photo pills, beside the progress bars (top 68px), clear of the rail.
 const photoArrow =
   "sf-focus absolute top-[82px] z-[1] flex h-9 w-9 items-center justify-center rounded-full border border-brand-cream-50/30 bg-[rgba(20,20,18,0.5)] text-brand-cream-50";
@@ -66,7 +88,14 @@ type FeedSlideProps = {
    * on the next slide only). Null until the current slide is known.
    */
   slideOffset: number | null;
-  /** Caption and rail shown ("Show details"); otherwise the clean view (photos only). */
+  /**
+   * ZP-543: the feed views to render: the one in effect, or (server render of
+   * an A/B test, until hydration) both, each marked for CSS (`.sf-view-*`).
+   * Clean is today's slide; info has the always-visible panel instead of the
+   * caption, the rail and the eye.
+   */
+  views?: readonly FeedView[];
+  /** Clean view: caption and rail shown ("Show details"); otherwise photos only. */
   details: boolean;
   onToggleDetails: () => void;
   visitHref: string;
@@ -112,6 +141,7 @@ export function FeedSlide({
   total,
   priority,
   slideOffset,
+  views = CLEAN_ONLY,
   details,
   onToggleDetails,
   visitHref,
@@ -203,6 +233,15 @@ export function FeedSlide({
   };
   const leave = () => onLeave(item.slug);
   const nav = photoNav(photo, count);
+  // ZP-543: which views to render; with both (A/B before hydration) CSS shows one.
+  const showClean = views.includes("clean");
+  const showInfo = views.includes("info");
+  const both = showClean && showInfo;
+  const cleanClass = both ? "sf-view-clean" : undefined;
+  const infoClass = both ? "sf-view-info" : undefined;
+  const infoOnly = showInfo && !showClean;
+  const availability = infoAvailability(item);
+  const primary = infoPrimary(item);
   const rail = railItems({ details, enquire: item.enquireHref !== null, share: item.shareUrl !== null, call: callHref !== null }).filter(
     (kind) => !(preview && kind === "love"),
   );
@@ -288,7 +327,8 @@ export function FeedSlide({
       >
         {media.map((entryItem, i) => {
           // Clean view: the first item (video or photo) is the keyboard / screen reader way in.
-          const entry = i === 0 && !details;
+          // ZP-543: the info view's panel is the way in there.
+          const entry = i === 0 && !details && !infoOnly;
           if (entryItem.kind === "video") {
             return (
               <FeedVideo
@@ -379,14 +419,17 @@ export function FeedSlide({
       ) : null}
 
       {/* Clean view: the look keeps its heading for screen readers. */}
-      {!details ? <h2 className="sr-only">{item.name}</h2> : null}
+      {showClean && !details ? <h2 className={cn("sr-only", cleanClass)}>{item.name}</h2> : null}
 
-      {details ? (
+      {showClean && details ? (
         <>
           {/* Light bottom scrim: at least 62% ink behind the caption lines, plus a text shadow. */}
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-[190px] bg-[linear-gradient(rgba(20,20,18,0)_0%,rgba(20,20,18,0.62)_45%,rgba(20,20,18,0.72)_100%)]"
+            className={cn(
+              "pointer-events-none absolute inset-x-0 bottom-0 h-[190px] bg-[linear-gradient(rgba(20,20,18,0)_0%,rgba(20,20,18,0.62)_45%,rgba(20,20,18,0.72)_100%)]",
+              cleanClass,
+            )}
           />
           <Link
             href={item.href}
@@ -396,6 +439,7 @@ export function FeedSlide({
               "sf-focus absolute left-4 right-[84px] flex flex-col gap-[3px] rounded-[2px] p-1 text-brand-cream-50 [text-shadow:0_1px_3px_rgba(0,0,0,0.55)]",
               // Clear of the first-slide swipe hint while it shows.
               captionBottom,
+              cleanClass,
             )}
           >
             <h2 className="m-0 truncate font-serif text-[21px] font-semibold leading-[1.15]">{item.name}</h2>
@@ -429,111 +473,214 @@ export function FeedSlide({
       {/* The rail, top to bottom (railItems): [Share, Details: with details only], WhatsApp
           (or Visit us), the heart, the eye. The WhatsApp button, the heart and
           the eye float in clean view too; the eye stays at the bottom and never moves. */}
-      <div className={cn("absolute right-3 flex flex-col items-center gap-3.5 [@media(max-height:700px)]:gap-2", railBottom)}>
-        {rail.map((kind) => {
-          switch (kind) {
-            case "share":
-              return (
-                <button
-                  key={kind}
-                  type="button"
-                  onClick={() => void onShare()}
-                  className={railItem}
-                  aria-label={`Share the ${item.name}`}
-                >
-                  <span className={cn(railRing, railQuiet)}>
-                    <ShareIcon className="h-[22px] w-[22px]" />
-                  </span>
-                  <span className={railLabel}>Share</span>
-                </button>
-              );
-            case "details":
-              return (
+      {showClean ? (
+        <div className={cn("absolute right-3 flex flex-col items-center gap-3.5 [@media(max-height:700px)]:gap-2", railBottom, cleanClass)}>
+          {rail.map((kind) => {
+            switch (kind) {
+              case "share":
+                return (
+                  <button
+                    key={kind}
+                    type="button"
+                    onClick={() => void onShare()}
+                    className={railItem}
+                    aria-label={`Share the ${item.name}`}
+                  >
+                    <span className={cn(railRing, railQuiet)}>
+                      <ShareIcon className="h-[22px] w-[22px]" />
+                    </span>
+                    <span className={railLabel}>Share</span>
+                  </button>
+                );
+              case "details":
+                return (
+                  <Link
+                    key={kind}
+                    href={item.href}
+                    onClick={leave}
+                    className={railItem}
+                    aria-haspopup="dialog"
+                    aria-label={`Details of the ${item.name}`}
+                  >
+                    <span className={cn(railRing, railQuiet)}>
+                      <DetailsIcon className="h-[22px] w-[22px]" />
+                    </span>
+                    <span className={railLabel}>Details</span>
+                  </Link>
+                );
+              case "enquire":
+                return (
+                  <a
+                    key={kind}
+                    href={item.enquireHref as string}
+                    onClick={enquire}
+                    className={railItem}
+                    aria-label={item.soldOut ? `Ask about a restock of the ${item.name} on WhatsApp` : `Enquire about the ${item.name} on WhatsApp`}
+                  >
+                    {/* The official WhatsApp logo: white on WhatsApp green (#25D366). A plain link, no target. */}
+                    <span className={cn(railRing, "bg-[#25D366] text-white shadow-[0_2px_8px_rgba(0,0,0,0.25)]")}>
+                      <WhatsAppLogoIcon className="h-7 w-7" />
+                    </span>
+                    <span className={railLabel}>WhatsApp</span>
+                  </a>
+                );
+              case "call":
+                return (
+                  <a
+                    key={kind}
+                    href={callHref as string}
+                    onClick={() => track("call", { slug, collection, screen: "feed" })}
+                    className={railItem}
+                    aria-label="Call VYRA"
+                  >
+                    <span className={cn(railSmall, railQuiet)}>
+                      <PhoneIcon className="h-5 w-5" />
+                    </span>
+                    <span className={cn(railLabel, railLabelOptional)}>Call</span>
+                  </a>
+                );
+              case "visit":
+                return (
+                  <Link key={kind} href={visitHref} onClick={() => track("visit_us", { screen: "feed" })} className={railItem}>
+                    <span className={cn(railRing, "border border-brand-olive bg-brand-olive")}>
+                      <PinIcon className="h-6 w-6" />
+                    </span>
+                    <span className={railLabel}>Visit us</span>
+                  </Link>
+                );
+              case "love":
+                return (
+                  <LoveButton
+                    key={kind}
+                    slug={slug}
+                    name={item.name}
+                    loves={item.loves}
+                    variant="rail"
+                    className="[@media(max-height:700px)]:gap-1"
+                  />
+                );
+              case "eye":
+                return (
+                  <button
+                    key={kind}
+                    type="button"
+                    onClick={onToggleDetails}
+                    // One fixed name; aria-pressed says whether details are shown.
+                    aria-pressed={details}
+                    aria-label="Show details"
+                    className={railItem}
+                  >
+                    <span className={cn(railSmall, railQuiet)}>
+                      <EyeIcon className="h-5 w-5" />
+                    </span>
+                    <span className={cn(railLabel, railLabelOptional)}>{details ? "Hide" : "Show details"}</span>
+                  </button>
+                );
+            }
+          })}
+        </div>
+      ) : null}
+
+      {/* ZP-543: the info view. The round buttons (save, share, Call) stacked at the right,
+          then the always-visible panel on a dark gradient (>= 86% ink behind its text), down
+          to the bottom edge, where the swipe hint sits on top of it. */}
+      {showInfo ? (
+        <div className={cn("pointer-events-none absolute inset-x-0 bottom-0 flex flex-col", infoClass)}>
+          <div className="pointer-events-auto mb-2 mr-3 flex flex-col items-center gap-3 self-end [@media(max-height:700px)]:gap-2">
+            {infoActions({ share: item.shareUrl !== null, call: callHref !== null, preview }).map((kind) => {
+              switch (kind) {
+                case "love":
+                  return (
+                    <LoveButton key={kind} slug={slug} name={item.name} loves={item.loves} variant="rail" className="[@media(max-height:700px)]:gap-1" />
+                  );
+                case "share":
+                  return (
+                    <button key={kind} type="button" onClick={() => void onShare()} className={railItem} aria-label={`Share the ${item.name}`}>
+                      <span className={cn(infoRound, railQuiet)}>
+                        <ShareIcon className="h-5 w-5" />
+                      </span>
+                      <span className={cn(railLabel, railLabelOptional)}>Share</span>
+                    </button>
+                  );
+                case "call":
+                  return (
+                    <a
+                      key={kind}
+                      href={callHref as string}
+                      onClick={() => track("call", { slug, collection, screen: "feed" })}
+                      className={railItem}
+                      aria-label="Call VYRA"
+                    >
+                      <span className={cn(infoRound, railQuiet)}>
+                        <PhoneIcon className="h-5 w-5" />
+                      </span>
+                      <span className={cn(railLabel, railLabelOptional)}>Call</span>
+                    </a>
+                  );
+              }
+            })}
+          </div>
+          <div
+            className={cn(
+              "pointer-events-auto bg-[linear-gradient(rgba(20,20,18,0)_0px,rgba(20,20,18,0.86)_36px,rgba(20,20,18,0.92)_100%)] px-4 pt-9 text-brand-cream-50 [@media(max-height:700px)]:bg-[linear-gradient(rgba(20,20,18,0)_0px,rgba(20,20,18,0.86)_28px,rgba(20,20,18,0.92)_100%)] [@media(max-height:700px)]:pt-7",
+              infoPanelBottom,
+            )}
+          >
+            <span
+              className={cn(
+                "inline-block rounded-[2px] px-1.5 py-[3px] text-[10px] font-semibold uppercase leading-none tracking-[0.16em]",
+                infoTagTone[availability.kind],
+              )}
+            >
+              {availability.label}
+            </span>
+            {/* The look's heading in this view. */}
+            <h2 className="m-0 mt-2 line-clamp-2 font-serif text-[25px] font-semibold leading-[1.12] [@media(max-height:700px)]:mt-1.5 [@media(max-height:700px)]:line-clamp-1 [@media(max-height:700px)]:text-[22px]">
+              {item.name}
+            </h2>
+            <p className="m-0 mt-1 flex items-center gap-2 text-[15px] font-medium">
+              {infoPrice(item.price)}
+              {item.rating ? (
+                <span className="text-[13px] font-medium text-brand-cream-50/90">
+                  <span aria-hidden="true">{item.rating.text}</span>
+                  <span className="sr-only">{item.rating.label}</span>
+                </span>
+              ) : null}
+            </p>
+            <div className="mt-3 flex flex-col gap-2 min-[400px]:flex-row [@media(max-height:700px)]:mt-2.5">
+              {primary.kind === "visit" ? (
                 <Link
-                  key={kind}
-                  href={item.href}
-                  onClick={leave}
-                  className={railItem}
-                  aria-haspopup="dialog"
-                  aria-label={`Details of the ${item.name}`}
+                  href={visitHref}
+                  onClick={() => track("visit_us", { screen: "feed" })}
+                  className={cn(infoButton, "flex-[1.15] bg-brand-olive text-white hover:bg-brand-olive-700")}
                 >
-                  <span className={cn(railRing, railQuiet)}>
-                    <DetailsIcon className="h-[22px] w-[22px]" />
-                  </span>
-                  <span className={railLabel}>Details</span>
+                  <PinIcon className="h-[18px] w-[18px] shrink-0" />
+                  {primary.label}
                 </Link>
-              );
-            case "enquire":
-              return (
+              ) : (
                 <a
-                  key={kind}
                   href={item.enquireHref as string}
                   onClick={enquire}
-                  className={railItem}
-                  aria-label={item.soldOut ? `Ask about a restock of the ${item.name} on WhatsApp` : `Enquire about the ${item.name} on WhatsApp`}
+                  className={cn(infoButton, "flex-[1.15] bg-brand-olive text-white hover:bg-brand-olive-700")}
                 >
-                  {/* The official WhatsApp logo: white on WhatsApp green (#25D366). A plain link, no target. */}
-                  <span className={cn(railRing, "bg-[#25D366] text-white shadow-[0_2px_8px_rgba(0,0,0,0.25)]")}>
-                    <WhatsAppLogoIcon className="h-7 w-7" />
-                  </span>
-                  <span className={railLabel}>WhatsApp</span>
+                  <WhatsAppLogoIcon className="h-[18px] w-[18px] shrink-0" />
+                  {primary.label}
+                  <span className="sr-only">: {item.name}</span>
                 </a>
-              );
-            case "call":
-              return (
-                <a
-                  key={kind}
-                  href={callHref as string}
-                  onClick={() => track("call", { slug, collection, screen: "feed" })}
-                  className={railItem}
-                  aria-label="Call VYRA"
-                >
-                  <span className={cn(railSmall, railQuiet)}>
-                    <PhoneIcon className="h-5 w-5" />
-                  </span>
-                  <span className={cn(railLabel, railLabelOptional)}>Call</span>
-                </a>
-              );
-            case "visit":
-              return (
-                <Link key={kind} href={visitHref} onClick={() => track("visit_us", { screen: "feed" })} className={railItem}>
-                  <span className={cn(railRing, "border border-brand-olive bg-brand-olive")}>
-                    <PinIcon className="h-6 w-6" />
-                  </span>
-                  <span className={railLabel}>Visit us</span>
-                </Link>
-              );
-            case "love":
-              return (
-                <LoveButton
-                  key={kind}
-                  slug={slug}
-                  name={item.name}
-                  loves={item.loves}
-                  variant="rail"
-                  className="[@media(max-height:700px)]:gap-1"
-                />
-              );
-            case "eye":
-              return (
-                <button
-                  key={kind}
-                  type="button"
-                  onClick={onToggleDetails}
-                  // One fixed name; aria-pressed says whether details are shown.
-                  aria-pressed={details}
-                  aria-label="Show details"
-                  className={railItem}
-                >
-                  <span className={cn(railSmall, railQuiet)}>
-                    <EyeIcon className="h-5 w-5" />
-                  </span>
-                  <span className={cn(railLabel, railLabelOptional)}>{details ? "Hide" : "Show details"}</span>
-                </button>
-              );
-          }
-        })}
-      </div>
+              )}
+              <Link
+                href={item.href}
+                onClick={leave}
+                aria-haspopup="dialog"
+                className={cn(infoButton, "flex-1 border border-brand-cream-50/70! text-brand-cream-50 hover:bg-brand-cream-50/10")}
+              >
+                View sizes &amp; details
+                <span className="sr-only">: {item.name}</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* "Swipe up for the next look" on every look, always (owner): small and quiet, over
           the gesture bar / toolbar inset, below the caption and the rail. */}

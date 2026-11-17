@@ -591,6 +591,55 @@ export default function WebsiteSettingsPage() {
         </fieldset>
       </Section>
 
+      <Section
+        id="feed-view"
+        title="Feed view"
+        hint="How each look is shown on the landing page. A change shows on the next page load (within a minute everywhere). Add ?view=clean or ?view=info to a shop link to check a view without changing this."
+      >
+        <fieldset className="space-y-3" aria-describedby={errors.feedView ? 'error-feedView' : undefined}>
+          <legend className="sr-only">Feed view</legend>
+          {(
+            [
+              {
+                value: 'CLEAN',
+                label: 'Clean view',
+                hint: 'Photos only. Name, price, Share and Details show when the visitor taps the eye.',
+              },
+              {
+                value: 'INFO',
+                label: 'Info view',
+                hint: 'A panel at the bottom of every photo: In stock / Few left / Sold out, name, price, Reserve on WhatsApp and View sizes & details.',
+              },
+              {
+                value: 'AB',
+                label: 'A/B test',
+                hint: 'Each visitor gets one of the two views at random (half and half) and keeps it. Insights compares them.',
+              },
+            ] as const
+          ).map((o) => (
+            <label key={o.value} className="flex items-start gap-3 text-sm text-slate-700">
+              <input
+                type="radio"
+                name="feedView"
+                value={o.value}
+                checked={form.feedView === o.value}
+                onChange={() => set('feedView', o.value)}
+                data-testid={`input-feedView-${o.value}`}
+              />
+              <span>
+                {o.label}
+                <span className="block text-xs text-slate-500">{o.hint}</span>
+              </span>
+            </label>
+          ))}
+          {errors.feedView && (
+            <span id="error-feedView" className="text-xs text-rose-700" role="alert" data-testid="error-feedView">
+              {errors.feedView}
+            </span>
+          )}
+        </fieldset>
+      </Section>
+
       <div className="flex justify-end pb-nav lg:pb-0">
         <button type="submit" className="btn btn-primary w-full sm:w-auto" disabled={saving || uploading !== null} data-testid="settings-save">
           {saving ? 'Saving…' : 'Save settings'}

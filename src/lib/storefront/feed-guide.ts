@@ -7,6 +7,7 @@
 // src/components/storefront/feed/FeedGuide.tsx. Tested in
 // tests/storefront-feed-guide.test.ts. See docs/storefront/feed.md.
 import { parseLookHash } from './feed'
+import type { FeedView } from './feed-view'
 
 /** localStorage key: the visitor chose "Don't show this again". A new key, so ZP-509's "seen" does not hide it. */
 export const FEED_GUIDE_STORAGE_KEY = 'vyra:feed:help'
@@ -73,7 +74,7 @@ export function shouldOpenGuide(input: { hidden: boolean; hash: string; replay: 
 
 export const GUIDE_TITLE = 'How to use VYRA'
 
-export type GuideIcon = 'up' | 'side' | 'tap' | 'eye' | 'contact' | 'menu'
+export type GuideIcon = 'up' | 'side' | 'tap' | 'eye' | 'panel' | 'contact' | 'menu'
 export type GuideTip = { title: string; body: string; icon: GuideIcon }
 /** "touch": phones and tablets; "desktop": a fine pointer on a wide screen. */
 export type GuideLayout = 'touch' | 'desktop'
@@ -81,7 +82,25 @@ export type GuideLayout = 'touch' | 'desktop'
 const CONTACT_TIP: GuideTip = { title: 'WhatsApp or Call', body: 'Ask about a piece or call the shop.', icon: 'contact' }
 const MENU_TIP: GuideTip = { title: 'Open the menu', body: 'Browse collections, read about VYRA and find the shop.', icon: 'menu' }
 
-export function guideTips(layout: GuideLayout): GuideTip[] {
+/**
+ * ZP-543: the info view has no eye (its panel is always shown), so its tip
+ * points at the panel's buttons instead; every other tip is the same.
+ */
+function panelTip(layout: GuideLayout): GuideTip {
+  return {
+    title: layout === 'desktop' ? 'Click the buttons at the bottom' : 'Tap the buttons at the bottom',
+    body: 'Reserve on WhatsApp, or view sizes and details.',
+    icon: 'panel',
+  }
+}
+
+/** The pop-up's tips for a layout and the feed view in effect (clean: the eye tip). */
+export function guideTips(layout: GuideLayout, view: FeedView = 'clean'): GuideTip[] {
+  const tips = cleanGuideTips(layout)
+  return view === 'info' ? tips.map((tip) => (tip.icon === 'eye' ? panelTip(layout) : tip)) : tips
+}
+
+function cleanGuideTips(layout: GuideLayout): GuideTip[] {
   if (layout === 'desktop') {
     return [
       { title: 'Scroll or press ↓', body: 'See the next look. Press ↑ to go back.', icon: 'up' },

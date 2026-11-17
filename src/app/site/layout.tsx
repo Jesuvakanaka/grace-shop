@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { SiteBaseProvider } from "@/components/storefront";
 import { SimpleTopBar } from "@/components/storefront/SimpleTopBar";
 import { StorefrontFrame } from "@/components/storefront/feed/StorefrontFrame";
+import { FeedViewProvider } from "@/components/storefront/feed/FeedView";
+import { getFeedViewMode } from "@/lib/site-settings/public";
 import { ShellMenuProvider } from "@/components/storefront/ShellMenu";
 import { getMenuData } from "@/lib/storefront/menu-data";
 import { getShellData } from "@/lib/storefront/shell";
@@ -17,6 +19,9 @@ import { AnalyticsProvider } from "@/lib/analytics/provider";
 // not the feed (privacy, review form, 404) get a simple top bar (wordmark +
 // "Back to the looks"), no header navigation and no footer. Reads the request host for link prefixing, so storefront
 // pages render dynamically; their data comes from the cached reads.
+//
+// ZP-543: FeedViewProvider (first) sets <html data-feed-view> before first
+// paint from the owner's Feed view setting (docs/storefront/feed.md).
 //
 // ZP-500: the landing page (/) is a full-screen feed with no header or
 // footer; StorefrontFrame decides that from the selected layout segment.
@@ -35,27 +40,30 @@ export default async function StorefrontLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const [shell, menu] = await Promise.all([getShellData(), getMenuData()]);
+  const [shell, menu, feedView] = await Promise.all([getShellData(), getMenuData(), getFeedViewMode()]);
   return (
-    <SiteBaseProvider base={shell.base}>
-      {/* ZP-493: first-party, anonymous analytics (visit_start / visit_end). See /privacy. */}
-      <AnalyticsProvider />
-      {/* ZP-503: the menu's content for the header and the landing feed. */}
-      <ShellMenuProvider menu={menu}>
-        <StorefrontFrame
-          skipLink={
-            <a
-              href="#main"
-              className="sf-focus sf-label sr-only z-50 bg-brand-ink px-4 py-4 text-brand-cream focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:inline-flex focus:min-h-11 focus:items-center"
-            >
-              Skip to content
-            </a>
-          }
-          header={<SimpleTopBar homeHref={shell.homeHref} />}
-        >
-          {children}
-        </StorefrontFrame>
-      </ShellMenuProvider>
-    </SiteBaseProvider>
+    // ZP-543: first, so its inline script sets <html data-feed-view> before the feed is painted.
+    <FeedViewProvider mode={feedView}>
+      <SiteBaseProvider base={shell.base}>
+        {/* ZP-493: first-party, anonymous analytics (visit_start / visit_end). See /privacy. */}
+        <AnalyticsProvider />
+        {/* ZP-503: the menu's content for the header and the landing feed. */}
+        <ShellMenuProvider menu={menu}>
+          <StorefrontFrame
+            skipLink={
+              <a
+                href="#main"
+                className="sf-focus sf-label sr-only z-50 bg-brand-ink px-4 py-4 text-brand-cream focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:inline-flex focus:min-h-11 focus:items-center"
+              >
+                Skip to content
+              </a>
+            }
+            header={<SimpleTopBar homeHref={shell.homeHref} />}
+          >
+            {children}
+          </StorefrontFrame>
+        </ShellMenuProvider>
+      </SiteBaseProvider>
+    </FeedViewProvider>
   );
 }

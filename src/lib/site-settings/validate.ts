@@ -7,6 +7,7 @@
 // by field name ("openingHours.mon" for one day of the week, "_form" for the
 // body as a whole).
 import { FEED_RANKING_MODES } from '@/lib/ranking/feed-order'
+import { isFeedViewMode } from '@/lib/storefront/feed-view'
 import { isValidImageKey } from '@/lib/storage/keys'
 import { parseSizeChart } from '@/lib/storefront-model/size-chart'
 import {
@@ -252,6 +253,8 @@ const CHECKS: Record<Exclude<SiteSettingsField, 'openingHours'>, Check> = {
   // ZP-506
   feedRanking: (v) =>
     (FEED_RANKING_MODES as readonly unknown[]).includes(v) ? { value: v } : fail('Choose "Rank automatically" or "Newest first".'),
+  // ZP-543
+  feedView: (v) => (isFeedViewMode(v) ? { value: v } : fail('Choose "Clean view", "Info view" or "A/B test".')),
 }
 
 export function validateSiteSettingsInput(input: unknown): ValidationResult {

@@ -4,6 +4,7 @@ import { EDITABLE_FIELDS, SITE_SETTINGS_DEFAULTS, type SiteSettingsData } from '
 import { validateOpeningHours } from './validate'
 import { settingsImageKeys } from './dto'
 import { readSizeChart } from '@/lib/storefront-model/size-chart'
+import type { FeedViewMode } from '@/lib/storefront/feed-view'
 
 export const SITE_SETTINGS_ID = 1
 
@@ -35,6 +36,12 @@ export async function isSettingsImageKey(db: Db, key: string): Promise<boolean> 
 export async function readFewLeftThreshold(db: Db): Promise<number> {
   const row = await db.siteSettings.findUnique({ where: { id: SITE_SETTINGS_ID }, select: { fewLeftThreshold: true } })
   return row?.fewLeftThreshold ?? SITE_SETTINGS_DEFAULTS.fewLeftThreshold
+}
+
+/** ZP-543: the feed view setting; the default (CLEAN) when the row is missing. */
+export async function readFeedViewMode(db: Db): Promise<FeedViewMode> {
+  const row = await db.siteSettings.findUnique({ where: { id: SITE_SETTINGS_ID }, select: { feedView: true } })
+  return row?.feedView ?? SITE_SETTINGS_DEFAULTS.feedView
 }
 
 function toColumns(patch: Partial<SiteSettingsData>) {
