@@ -264,15 +264,20 @@ but a privacy-notice change).
 **Question:** while the feed runs the Clean / Info view A/B test (ZP-543),
 can the test skew the popularity ranking?
 
-**Conclusion: no change to the ranking code.** Per-piece indexes are
-unaffected in expectation; the remaining effects are real behaviour, not an
-artefact of the test. Reasoning:
+**Conclusion: no change to the ranking code, provided both views make
+people scroll about equally deep** (see the check at the end). Then per-piece
+indexes are unaffected in expectation, and the remaining effects are real
+behaviour, not an artefact of the test. Reasoning:
 
 1. **Assignment is independent of the piece.** A browser gets its view at
    random (50/50) before it sees anything, and every view sees the **same
    feed order** (the ranking, exploration slots and collections do not
-   depend on the view). So for every piece, the visits that saw it are the
-   same 50/50 mix of views, in expectation.
+   depend on the view). So pieces near the top are seen by the same 50/50
+   mix of views, in expectation. Deeper pieces keep that mix only if both
+   views scroll about equally deep: if one view's visitors scroll further,
+   pieces lower in the feed are seen mostly by that view, and its behaviour
+   (more enquiries, say) lifts their rates against the top pieces for as long
+   as the test runs.
 2. **The score uses only rates against the catalogue mean.** Each signal is
    `(piece's distinct visits doing X) / (visits that saw it)`, divided by the
    same rate pooled over all candidates (`computeScores`). If a view changes
@@ -280,8 +285,10 @@ artefact of the test. Reasoning:
    "Reserve on WhatsApp" doubles enquiries, or the missing eye button sends
    Show details to about zero for Info visits), numerator and catalogue mean
    change by the same factor and the index (and so the score and order) is
-   unchanged in expectation. The rollup does not know the view and does not
-   need to.
+   unchanged in expectation, given point 1's equal mix. A view that adds a
+   roughly fixed number of taps rather than a multiple moves indexes toward
+   1 instead, which can shift how much a signal weighs in the score. The
+   rollup does not know the view.
 3. **What does change, and why it is not a skew.**
    - *Noise, not bias:* a signal that one view hardly produces (Show details
      for Info visits) rests on about half the visits, so it is noisier;
@@ -301,9 +308,11 @@ artefact of the test. Reasoning:
 4. **Volume:** the test does not change how many visits a piece gets (same
    order for both views), and the ranking never uses raw views.
 
-If a future view changed the **order** (e.g. a different feed per view), or
-showed some pieces only in one view, this would no longer hold: rank on one
-view's visits, or per view, then.
+**Check once the test has data:** compare how deep each view's visits scroll
+(looks seen per visit, by view). If they differ a lot, or a future view
+changes the **order** (e.g. a different feed per view) or shows some pieces
+only in one view, the reasoning above no longer holds: rank on one view's
+visits, or per view, then.
 
 ## Tests
 
