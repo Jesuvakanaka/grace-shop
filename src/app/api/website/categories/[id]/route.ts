@@ -1,5 +1,6 @@
 // ZP-483: one website category. OWNER only.
-// PATCH: rename, slug, description, hero image, publish. DELETE: only when empty.
+// PATCH: rename, slug, description, hero image, publish, (ZP-1019) "Show after
+// ladies' pieces in the feed". DELETE: only when empty.
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { authorize, OWNER_ONLY } from '@/lib/api-auth'

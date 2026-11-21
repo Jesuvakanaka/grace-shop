@@ -497,6 +497,32 @@ describe('admin website API (ZP-483)', () => {
       const cleared = await call(categoryRoute.PATCH, 'PATCH', { id: String(cat.id) }, { heroImageUrl: null })
       assert.strictEqual(cleared.json.heroImageKey, null)
     })
+
+    test('ZP-1019: "Show after ladies\' pieces in the feed" defaults to false, is saved, reaches the public DTO', async () => {
+      const created = await call(categoriesRoute.POST, 'POST', {}, { name: 'ZP483 Men' })
+      assert.strictEqual(created.status, 201, JSON.stringify(created.json))
+      assert.strictEqual(created.json.showLastInFeed, false, 'column default')
+      const raw = await prisma.category.create({ data: { name: 'ZP483 Raw', slug: 'zp483-raw' } })
+      assert.strictEqual(raw.showLastInFeed, false, 'database default (migration)')
+
+      const id = String(created.json.id)
+      const on = await call(categoryRoute.PATCH, 'PATCH', { id }, { showLastInFeed: true, published: true })
+      assert.strictEqual(on.status, 200, JSON.stringify(on.json))
+      assert.strictEqual(on.json.showLastInFeed, true)
+      const list = await call(categoriesRoute.GET, 'GET')
+      assert.strictEqual(list.json.find((c: any) => c.id === created.json.id).showLastInFeed, true)
+      const { loadPublicCategories } = await import('../src/lib/storefront/queries')
+      const pub = (await loadPublicCategories(prisma)).find((c) => c.slug === created.json.slug)
+      assert.strictEqual(pub?.showLastInFeed, true)
+
+      const bad = await call(categoryRoute.PATCH, 'PATCH', { id }, { showLastInFeed: 'yes' })
+      assert.strictEqual(bad.status, 400)
+      assert.strictEqual(bad.json.field, 'showLastInFeed')
+      const off = await call(categoryRoute.PATCH, 'PATCH', { id }, { showLastInFeed: false })
+      assert.strictEqual(off.json.showLastInFeed, false)
+      const withFlag = await call(categoriesRoute.POST, 'POST', {}, { name: 'ZP483 Girls', showLastInFeed: true })
+      assert.strictEqual(withFlag.json.showLastInFeed, true)
+    })
   })
 
   describe('preview token', () => {

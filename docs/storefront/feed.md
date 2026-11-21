@@ -12,7 +12,7 @@ pure model and tests stay).
 | File | What it does |
 | --- | --- |
 | `src/app/site/page.tsx` | Server page: reads `?c=`, loads the first 12 slides, renders `FlipFeed`. |
-| `src/lib/storefront/feed.ts` | Pure: order, tabs, tab filter, paging, slide DTO, URL state. Tested in `tests/storefront-feed.test.ts`. |
+| `src/lib/storefront/feed.ts` | Pure: order, tabs, tab filter, paging, slide DTO, URL state. Tested in `tests/storefront-feed.test.ts` (ZP-1019 ladies-first partition: `tests/storefront-feed-ladies-first.test.ts`). |
 | `src/lib/storefront/feed-data.ts` | Server only: builds the feed from the cached catalogue, categories and settings. |
 | `src/lib/storefront/feed-actions.ts` | Server action `loadFeedAction` for "load more" and tab switches. |
 | `src/components/storefront/feed/FlipFeed.tsx` | Client: the feed, top bar, collection pill, clean view, keyboard, end slide, URL state, menu. |
@@ -50,7 +50,29 @@ published since the last run first), sold-out pieces last. With the admin
 switch on "Newest first", or while there is too little data, it is newest
 first (sold-out last). Featured no longer has precedence: it is itself set
 automatically by the ranking. Input is the catalogue's "newest" sort;
-`feedProducts(products, ranking)` with the cached `getFeedRanking()`.
+`feedProducts(products, ranking, showLast)` with the cached `getFeedRanking()`.
+
+**Ladies' pieces first (ZP-1019).** A category can be set to "Show after
+ladies' pieces in the feed" (Website → Categories → Edit, owner only;
+`Category.showLastInFeed`, default off; the owner ticks it for Men and
+Girls). After the ranking / newest order above, the main feed (New in, both
+"Rank automatically" and "Newest first") is a stable partition
+(`partitionShowLast`):
+
+1. available pieces whose category does **not** have the setting,
+2. then available pieces whose category has it,
+3. then sold-out pieces (in today's order; not split by the setting).
+
+The order inside each group is today's, so ranks, cold start (new pieces
+first) and exploration slots keep their relative order. `showLast` is
+`showLastCategorySlugs(categories)` from the cached category list
+(`PublicCategory.showLastInFeed`; a category save expires it through the
+`storefront:categories` tag). Every feed order reads the one ordered list in
+`feed-data.ts` (`feedSource`): the first load, the "load more" / tab server
+action (`loadFeedAction`), `/p/<slug>` looks and the details sheet's "You may
+also like" (`orderedFeedPieces`), so they agree. The menu's "N looks" counts
+use the same partition (counts do not depend on the order). Collections
+(`?c=<slug>`) are one category, so their order is unchanged.
 
 Before ZP-506 (still `orderFeed`, used without a ranking):
 

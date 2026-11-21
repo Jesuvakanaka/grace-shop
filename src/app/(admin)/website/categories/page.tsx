@@ -1,6 +1,7 @@
 'use client';
 // ZP-483: website categories (OWNER only). Create, rename, slug, reorder,
-// publish, hero image, delete when empty.
+// publish, hero image, delete when empty. ZP-1019: "Show after ladies' pieces
+// in the feed" (the feed order).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
@@ -17,8 +18,14 @@ interface Category {
   heroImageUrl: string | null;
   sortOrder: number;
   published: boolean;
+  /** ZP-1019: "Show after ladies' pieces in the feed". */
+  showLastInFeed: boolean;
   productCount: number;
 }
+
+/** ZP-1019: the feed order setting (OWNER only, like this whole page). */
+const SHOW_LAST_LABEL = "Show after ladies' pieces in the feed";
+const SHOW_LAST_HINT = "Tick for Men's and Girls' categories: in New in, their pieces come after the ladies' pieces (sold-out pieces stay last).";
 
 type FieldErrors = { error: string; field?: string } | null;
 
@@ -240,6 +247,11 @@ export default function WebsiteCategoriesPage() {
                   <span className={`badge ${c.published ? 'badge-success' : 'badge-neutral'}`} data-testid="category-status">
                     {c.published ? 'Published' : 'Hidden'}
                   </span>
+                  {c.showLastInFeed && (
+                    <span className="badge badge-neutral" title={SHOW_LAST_LABEL} data-testid="category-show-last">
+                      After ladies&apos; pieces
+                    </span>
+                  )}
                   <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                     <button type="button" className="btn btn-sm btn-secondary" onClick={() => togglePublished(c)} data-testid="category-toggle-published">
                       {c.published ? 'Unpublish' : 'Publish'}
@@ -278,6 +290,7 @@ function CategoryEditor({ category, onCancel, onSaved }: { category: Category; o
   const [slug, setSlug] = useState(category.slug);
   const [description, setDescription] = useState(category.description ?? '');
   const [hero, setHero] = useState<string | null>(category.heroImageUrl);
+  const [showLast, setShowLast] = useState(category.showLastInFeed);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<FieldErrors>(null);
@@ -301,7 +314,7 @@ function CategoryEditor({ category, onCancel, onSaved }: { category: Category; o
     e.preventDefault();
     setSaving(true);
     setError(null);
-    const body: Record<string, unknown> = { name, description: description || null, heroImageUrl: hero };
+    const body: Record<string, unknown> = { name, description: description || null, heroImageUrl: hero, showLastInFeed: showLast };
     if (slug !== category.slug) body.slug = slug;
     const r = await send(`/api/website/categories/${category.id}`, 'PATCH', body);
     setSaving(false);
@@ -361,6 +374,22 @@ function CategoryEditor({ category, onCancel, onSaved }: { category: Category; o
         </div>
         <p className="text-xs text-slate-500 mt-1">{PHOTO_GUIDANCE}</p>
         {error?.field === 'heroImageUrl' && <p className="text-sm text-rose-700 mt-1">{error.error}</p>}
+      </div>
+      <div>
+        <label className="flex items-center gap-2 text-sm font-medium text-slate-700" htmlFor={`cat-show-last-${category.id}`}>
+          <input
+            id={`cat-show-last-${category.id}`}
+            type="checkbox"
+            className="h-4 w-4"
+            checked={showLast}
+            onChange={(e) => setShowLast(e.target.checked)}
+            aria-describedby={`cat-show-last-hint-${category.id}`}
+            data-testid="category-edit-show-last"
+          />
+          {SHOW_LAST_LABEL}
+        </label>
+        <p id={`cat-show-last-hint-${category.id}`} className="text-xs text-slate-500 mt-1">{SHOW_LAST_HINT}</p>
+        {error?.field === 'showLastInFeed' && <p className="text-sm text-rose-700 mt-1">{error.error}</p>}
       </div>
       {error && !error.field && <p className="text-sm text-rose-700">{error.error}</p>}
       <div className="flex gap-2 justify-end">

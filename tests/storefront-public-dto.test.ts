@@ -199,6 +199,8 @@ describe('public product DTO', () => {
       name: 'Dresses',
       description: 'All dresses',
       heroImage: { url: `/api/images/public/${'d'.repeat(32)}.webp`, alt: 'Dresses', srcSet: SRCSET('d'), width: null, height: null },
+      // ZP-1019: false when the row does not have it.
+      showLastInFeed: false,
     })
     assert.strictEqual(
       toPublicCategory({ slug: 'x', name: 'X', description: null, heroImageKey: 'bad' }).heroImage,

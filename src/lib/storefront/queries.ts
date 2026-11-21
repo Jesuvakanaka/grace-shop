@@ -70,6 +70,8 @@ const CATEGORY_SELECT = {
   name: true,
   description: true,
   heroImageKey: true,
+  // ZP-1019: the feed order (ladies' pieces first).
+  showLastInFeed: true,
 } satisfies Prisma.CategorySelect
 
 export type CatalogueLoadOptions = {

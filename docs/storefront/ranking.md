@@ -153,9 +153,20 @@ also say `coldStart` and `featured` (picked).
   the day moves to the end at once.
 - **NEWEST, or no ranks** (too little data): newest first, sold-out last.
   Featured gives no precedence.
-- Collections (`?c=`) filter the same order.
-- `feedProducts(products, ranking)` (`src/lib/storefront/feed.ts`); the menu's
-  "N looks" counts call it without a ranking (order does not matter there).
+- **Ladies' pieces first (ZP-1019), both modes:** after the order above, a
+  stable partition (`partitionShowLast` in `src/lib/storefront/feed.ts`):
+  available pieces of categories without "Show after ladies' pieces in the
+  feed" (`Category.showLastInFeed`), then available pieces of categories with
+  it (Men, Girls), then sold-out pieces as above (not split by the setting).
+  Ranks, cold start and exploration keep their relative order inside each
+  group, so a brand-new Men's piece (no rank yet) now comes after the ladies'
+  pieces instead of at the top. With no category ticked the order is
+  unchanged. See `docs/storefront/feed.md` ("Order").
+- Collections (`?c=`) filter the same order (one category, so unchanged by
+  the partition).
+- `feedProducts(products, ranking, showLastCategorySlugs(categories))`
+  (`src/lib/storefront/feed.ts`); the menu's "N looks" counts call it without
+  a ranking (order does not matter there).
 
 **When a nightly change shows:** the job runs outside Next.js and cannot
 expire the cache, so the new order and Featured flags appear when the cached
