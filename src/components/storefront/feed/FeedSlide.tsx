@@ -199,6 +199,8 @@ export function FeedSlide({
   const infoPanelRef = useRef<HTMLDivElement>(null);
   const infoPillRef = useRef<HTMLButtonElement>(null);
   const infoSlimRef = useRef<HTMLButtonElement>(null);
+  /** The photo the strip last came to rest on (a drag that snaps back changes nothing). */
+  const settledPhoto = useRef(0);
   /** Where focus goes once the mode the visitor asked for has rendered. */
   const infoFocus = useRef<"panel" | "pill" | "slim" | null>(null);
   useEffect(() => {
@@ -269,7 +271,13 @@ export function FeedSlide({
     if (!infoView || !el || typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.intersectionRatio < 0.01)) setInfoMode((mode) => nextInfoMode(mode, "leave-look"));
+        if (!entries.some((entry) => entry.intersectionRatio < 0.01)) return;
+        // Review: the reset removes the panel's controls; focus inside them would drop to
+        // <body> and the arrow keys would stop reaching the feed, so hand it to the feed first.
+        if (el.contains(document.activeElement) && document.activeElement !== el) {
+          el.closest<HTMLElement>('[role="region"]')?.focus({ preventScroll: true });
+        }
+        setInfoMode((mode) => nextInfoMode(mode, "leave-look"));
       },
       { threshold: [0, 0.01] },
     );
@@ -280,11 +288,16 @@ export function FeedSlide({
   const onStripScroll = () => {
     const el = strip.current;
     if (!el) return;
-    const i = Math.round(el.scrollLeft / Math.max(1, el.clientWidth));
-    if (i !== photo) {
-      setPhoto(i);
-      // ZP-1018: the visitor's own move to another photo shrinks the info panel
-      // to its slim line (never the tour's, nor its smooth scroll settling).
+    const width = Math.max(1, el.clientWidth);
+    const i = Math.round(el.scrollLeft / width);
+    if (i !== photo) setPhoto(i);
+    // ZP-1018: the visitor's own move to another photo shrinks the info panel to
+    // its slim line (never the tour's, nor its smooth scroll settling). Only once
+    // the strip has settled on that photo: a drag past halfway that snaps back is
+    // no move (review).
+    const settled = Math.abs(el.scrollLeft - i * width) < 2;
+    if (settled && i !== settledPhoto.current) {
+      settledPhoto.current = i;
       const sinceTourEndMs = Date.now() - tourEndedAt.current;
       if (infoMode === "details" && isVisitorPhotoChange({ touring, afterTour, sinceTourEndMs, settleMs: TOUR_SETTLE_MS })) {
         // Focus inside the panel (keyboard) moves to the slim line rather than being lost.
