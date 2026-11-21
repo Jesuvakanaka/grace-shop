@@ -651,3 +651,39 @@ body {
 :root[data-feed-view="info"] .sf-view-clean {
   display: none !important;
 }
+
+/*
+ * ZP-1018: the info view's panel slides up and fades in (about 260 ms) when
+ * "Show details" (or a tap on the slim line) opens it; its buttons at the
+ * right fade in. No animation with reduced motion.
+ */
+@keyframes sf-panel-up {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes sf-panel-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.sf-panel-up {
+  animation: sf-panel-up 260ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.sf-panel-fade {
+  animation: sf-panel-fade 260ms ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sf-panel-up,
+  .sf-panel-fade {
+    animation: none;
+  }
+}

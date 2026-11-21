@@ -283,7 +283,9 @@ behaviour, not an artefact of the test. Reasoning:
    same rate pooled over all candidates (`computeScores`). If a view changes
    a behaviour for every piece by the same factor (say the Info panel's
    "Reserve on WhatsApp" doubles enquiries, or the missing eye button sends
-   Show details to about zero for Info visits), numerator and catalogue mean
+   Show details to about zero for Info visits; since ZP-1018 the Info view
+   opens on the photo and its own Show details sends `details_show` like the
+   eye, with the same meaning), numerator and catalogue mean
    change by the same factor and the index (and so the score and order) is
    unchanged in expectation, given point 1's equal mix. A view that adds a
    roughly fixed number of taps rather than a multiple moves indexes toward

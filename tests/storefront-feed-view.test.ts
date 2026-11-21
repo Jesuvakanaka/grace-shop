@@ -265,8 +265,9 @@ describe('feed view: the info panel', () => {
     assert.strictEqual(infoPrice('Ask for price'), 'Ask for price')
   })
 
-  test('primary button: Reserve, Ask about restock (sold out), Visit us (no WhatsApp)', () => {
-    assert.deepStrictEqual(infoPrimary(item()), { kind: 'reserve', label: 'Reserve on WhatsApp' })
+  test('primary button: Ask price on WhatsApp (ZP-1018), Ask about restock (sold out), Visit us (no WhatsApp)', () => {
+    assert.deepStrictEqual(infoPrimary(item()), { kind: 'ask', label: 'Ask price on WhatsApp' })
+    assert.deepStrictEqual(infoPrimary(item({ badge: { kind: 'few-left', label: 'Few left' } })), { kind: 'ask', label: 'Ask price on WhatsApp' })
     assert.deepStrictEqual(infoPrimary(item({ soldOut: true })), { kind: 'restock', label: 'Ask about restock' })
     assert.deepStrictEqual(infoPrimary(item({ enquireHref: null })), { kind: 'visit', label: 'Visit us' })
     assert.deepStrictEqual(infoPrimary(item({ enquireHref: null, soldOut: true })), { kind: 'visit', label: 'Visit us' })
@@ -280,7 +281,7 @@ describe('feed view: the info panel', () => {
 })
 
 describe('feed view: the pop-up tips', () => {
-  test('clean view is unchanged; info view swaps the eye tip for the panel buttons', () => {
+  test('clean view is unchanged; info view (ZP-1018): Show details for the price and buttons, WhatsApp and Call on the right', () => {
     for (const layout of ['touch', 'desktop'] as const) {
       const clean = guideTips(layout)
       assert.deepStrictEqual(guideTips(layout, 'clean'), clean)
@@ -289,8 +290,17 @@ describe('feed view: the pop-up tips', () => {
       assert.ok(!info.some((t) => t.icon === 'eye' || /eye/i.test(t.title)))
       const eyeAt = clean.findIndex((t) => t.icon === 'eye')
       assert.strictEqual(info[eyeAt].icon, 'panel')
-      assert.match(info[eyeAt].body, /Reserve on WhatsApp/)
-      assert.deepStrictEqual(info.filter((_, i) => i !== eyeAt), clean.filter((_, i) => i !== eyeAt))
+      assert.match(info[eyeAt].title, layout === 'desktop' ? /^Click Show details$/ : /^Tap Show details$/)
+      assert.match(info[eyeAt].body, /price/)
+      assert.match(info[eyeAt].body, /buttons/)
+      assert.ok(!info.some((t) => /Reserve/.test(t.title + t.body)), 'no Reserve wording left')
+      const contactAt = clean.findIndex((t) => t.icon === 'contact')
+      assert.match(info[contactAt].title + ' ' + info[contactAt].body, /on the right/)
+      assert.match(info[contactAt].title, /WhatsApp/)
+      assert.match(info[contactAt].title, /Call/)
+      // Every other tip is clean view's.
+      const same = (_: unknown, i: number) => i !== eyeAt && i !== contactAt
+      assert.deepStrictEqual(info.filter(same), clean.filter(same))
     }
   })
 })

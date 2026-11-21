@@ -83,21 +83,24 @@ const CONTACT_TIP: GuideTip = { title: 'WhatsApp or Call', body: 'Ask about a pi
 const MENU_TIP: GuideTip = { title: 'Open the menu', body: 'Browse collections, read about VYRA and find the shop.', icon: 'menu' }
 
 /**
- * ZP-543: the info view has no eye (its panel is always shown), so its tip
- * points at the panel's buttons instead; every other tip is the same.
+ * ZP-543 / ZP-1018: the info view has no eye. Each look opens on the whole
+ * photo with a "Show details" pill (the price and the buttons) and WhatsApp
+ * and Call at the right, so those two tips say so; every other tip is the same.
  */
 function panelTip(layout: GuideLayout): GuideTip {
   return {
-    title: layout === 'desktop' ? 'Click the buttons at the bottom' : 'Tap the buttons at the bottom',
-    body: 'Reserve on WhatsApp, or view sizes and details.',
+    title: layout === 'desktop' ? 'Click Show details' : 'Tap Show details',
+    body: 'See the price and the buttons. Hide details shows the whole photo again.',
     icon: 'panel',
   }
 }
+const INFO_CONTACT_TIP: GuideTip = { title: 'WhatsApp or Call, on the right', body: 'Ask about a piece or call the shop.', icon: 'contact' }
 
 /** The pop-up's tips for a layout and the feed view in effect (clean: the eye tip). */
 export function guideTips(layout: GuideLayout, view: FeedView = 'clean'): GuideTip[] {
   const tips = cleanGuideTips(layout)
-  return view === 'info' ? tips.map((tip) => (tip.icon === 'eye' ? panelTip(layout) : tip)) : tips
+  if (view !== 'info') return tips
+  return tips.map((tip) => (tip.icon === 'eye' ? panelTip(layout) : tip.icon === 'contact' ? INFO_CONTACT_TIP : tip))
 }
 
 function cleanGuideTips(layout: GuideLayout): GuideTip[] {

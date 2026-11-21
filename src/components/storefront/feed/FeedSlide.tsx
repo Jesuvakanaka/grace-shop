@@ -1,17 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useId, useRef, useState, type MouseEvent } from "react";
 import { track, useActiveDwell, useDwell } from "@/lib/analytics/client";
 import { lookAnchorId, photoLinkLabel, photoNav, railItems, type FeedBadge, type FeedItem } from "@/lib/storefront/feed";
 import { TOUR_SETTLE_MS, tourPhotoMs } from "@/lib/storefront/feed-guide";
 import {
+  INFO_MODE_START,
   infoActions,
   infoAvailability,
+  infoModeTrack,
+  infoPhotoRail,
   infoPrice,
   infoPrimary,
+  infoSlimLine,
+  isVisitorPhotoChange,
+  nextInfoMode,
   type FeedView,
   type InfoAvailability,
+  type InfoMode,
+  type InfoModeEvent,
 } from "@/lib/storefront/feed-view";
 import { isPlainClick } from "@/lib/storefront/feed-sheet";
 import { mediaItems } from "@/lib/storefront/feed-media";
@@ -23,7 +31,7 @@ import { ImageFallback } from "../StorefrontImage";
 import { FeedPhoto } from "./FeedPhoto";
 import { FeedVideo } from "../video/FeedVideo";
 import { PhoneIcon, WhatsAppLogoIcon } from "../icons";
-import { ChevronIcon, DetailsIcon, EyeIcon, PinIcon, ShareIcon } from "./feed-icons";
+import { ChevronIcon, CornersIcon, DetailsIcon, EyeIcon, PinIcon, ShareIcon } from "./feed-icons";
 
 /** Phones: the full width; computers: the phone-shaped column (about 9/16 of the viewport height). */
 const SLIDE_SIZES = "(min-width: 768px) 57vh, 100vw";
@@ -69,6 +77,14 @@ const infoTagTone: Record<InfoAvailability["kind"], string> = {
 /** The round Share / Call buttons above the panel: 44px on every screen (touch target). */
 const infoRound = "flex h-11 w-11 items-center justify-center rounded-full";
 const CLEAN_ONLY: readonly FeedView[] = ["clean"];
+// ZP-1018 info view, photo mode: labels over the bare photo get a heavier
+// shadow (no scrim there), and the "Show details" pill its own dark fill.
+const infoLabel = "text-[11px] font-medium tracking-[0.06em] [text-shadow:0_1px_2px_rgba(0,0,0,0.9),0_0_8px_rgba(0,0,0,0.65)]";
+const infoPill =
+  "sf-focus absolute left-1/2 flex min-h-11 -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full border border-brand-cream-50/45! bg-[rgba(20,20,18,0.74)] px-5 text-[13px] font-medium tracking-[0.04em] text-brand-cream-50 shadow-[0_2px_10px_rgba(0,0,0,0.3)]";
+/** The panel's dark gradient (at least 86% ink behind its text) down to the bottom edge. */
+const infoPanelBg =
+  "bg-[linear-gradient(rgba(20,20,18,0)_0px,rgba(20,20,18,0.86)_36px,rgba(20,20,18,0.92)_100%)] [@media(max-height:700px)]:bg-[linear-gradient(rgba(20,20,18,0)_0px,rgba(20,20,18,0.86)_28px,rgba(20,20,18,0.92)_100%)]";
 
 // The previous / next photo pills, beside the progress bars (top 68px), clear of the rail.
 const photoArrow =
@@ -91,8 +107,9 @@ type FeedSlideProps = {
   /**
    * ZP-543: the feed views to render: the one in effect, or (server render of
    * an A/B test, until hydration) both, each marked for CSS (`.sf-view-*`).
-   * Clean is today's slide; info has the always-visible panel instead of the
-   * caption, the rail and the eye.
+   * Clean is today's slide; info (ZP-1018) opens on the whole photo with
+   * WhatsApp / Call and a "Show details" pill, and shows its panel on demand
+   * instead of the caption, the rail and the eye.
    */
   views?: readonly FeedView[];
   /** Clean view: caption and rail shown ("Show details"); otherwise photos only. */
@@ -168,6 +185,30 @@ export function FeedSlide({
   const [afterTour, setAfterTour] = useState(false);
   const tourEndedAt = useRef(0);
 
+  // ZP-1018: the info view's mode for this look (photo / details / slim,
+  // feed-view.ts). Every look opens in photo mode and starts there again once
+  // it has left the screen (the observer below).
+  const [infoMode, setInfoMode] = useState<InfoMode>(INFO_MODE_START);
+  // The tour runs in photo mode: a replay over a look with its panel open closes it.
+  const [touringSeen, setTouringSeen] = useState(touring);
+  if (touring !== touringSeen) {
+    setTouringSeen(touring);
+    if (touring) setInfoMode(nextInfoMode(infoMode, "tour-start"));
+  }
+  const infoHeadingId = useId();
+  const infoPanelRef = useRef<HTMLDivElement>(null);
+  const infoPillRef = useRef<HTMLButtonElement>(null);
+  const infoSlimRef = useRef<HTMLButtonElement>(null);
+  /** Where focus goes once the mode the visitor asked for has rendered. */
+  const infoFocus = useRef<"panel" | "pill" | "slim" | null>(null);
+  useEffect(() => {
+    const target = infoFocus.current;
+    if (!target) return;
+    infoFocus.current = null;
+    const el = target === "panel" ? infoPanelRef.current : target === "pill" ? infoPillRef.current : infoSlimRef.current;
+    el?.focus({ preventScroll: true });
+  }, [infoMode]);
+
   // ZP-516: the first-visit tour. Slides through every photo, then back to the
   // first. Any touch, click, scroll or key stops it where it is (ending the
   // tour turns `touring` off, which clears the timer and the listeners).
@@ -218,11 +259,39 @@ export function FeedSlide({
     return () => observer.disconnect();
   }, []);
 
+  // ZP-1018: once this look has left the screen, its next visit opens on the
+  // whole photo again (info view only). Its own observer: a look snapped just
+  // off screen still touches the viewport's edge (isIntersecting, ratio 0), so
+  // "gone" here is under 1% visible, never at the halfway point of a swipe.
+  const infoView = views.includes("info");
+  useEffect(() => {
+    const el = article.current;
+    if (!infoView || !el || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.intersectionRatio < 0.01)) setInfoMode((mode) => nextInfoMode(mode, "leave-look"));
+      },
+      { threshold: [0, 0.01] },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [infoView]);
+
   const onStripScroll = () => {
     const el = strip.current;
     if (!el) return;
     const i = Math.round(el.scrollLeft / Math.max(1, el.clientWidth));
-    if (i !== photo) setPhoto(i);
+    if (i !== photo) {
+      setPhoto(i);
+      // ZP-1018: the visitor's own move to another photo shrinks the info panel
+      // to its slim line (never the tour's, nor its smooth scroll settling).
+      const sinceTourEndMs = Date.now() - tourEndedAt.current;
+      if (infoMode === "details" && isVisitorPhotoChange({ touring, afterTour, sinceTourEndMs, settleMs: TOUR_SETTLE_MS })) {
+        // Focus inside the panel (keyboard) moves to the slim line rather than being lost.
+        if (infoPanelRef.current?.contains(document.activeElement)) infoFocus.current = "slim";
+        setInfoMode((mode) => nextInfoMode(mode, "photo-swipe"));
+      }
+    }
     if (afterTour && Date.now() - tourEndedAt.current > TOUR_SETTLE_MS) setAfterTour(false);
   };
   const stepPhoto = (dir: 1 | -1) => {
@@ -299,6 +368,13 @@ export function FeedSlide({
   const enquire = () => {
     const e = enquiryEvent({ soldOut: item.soldOut, screen: "feed" });
     track(e.type, { slug, collection, ...e.props });
+  };
+  /** ZP-1018: Show details / Hide details / the slim line; the same details events as clean view's eye. */
+  const changeInfo = (event: InfoModeEvent, focus: "panel" | "pill") => {
+    const sent = infoModeTrack(infoMode, event);
+    if (sent) track(sent, { slug, collection });
+    infoFocus.current = focus;
+    setInfoMode(nextInfoMode(infoMode, event));
   };
   const onShare = async () => {
     const outcome = await share(item.shareUrl as string, `${item.name} – VYRA`);
@@ -581,12 +657,84 @@ export function FeedSlide({
         </div>
       ) : null}
 
-      {/* ZP-543: the info view. The round buttons (save, share, Call) stacked at the right,
-          then the always-visible panel on a dark gradient (>= 86% ink behind its text), down
-          to the bottom edge, where the swipe hint sits on top of it. */}
-      {showInfo ? (
+      {/* ZP-1018: the info view in photo mode (how every look opens): the whole photo, no
+          panel and no bottom gradient; WhatsApp (or Visit us) and Call at the right, the
+          "Show details" pill at the bottom centre. The server renders this mode. */}
+      {showInfo && infoMode === "photo" ? (
+        <>
+          <h2 className={cn("sr-only", infoClass)}>{item.name}</h2>
+          <div className={cn("absolute right-3 flex flex-col items-center gap-3.5 [@media(max-height:700px)]:gap-2", railBottom, infoClass)}>
+            {infoPhotoRail({ enquire: item.enquireHref !== null, call: callHref !== null }).map((kind) => {
+              switch (kind) {
+                case "enquire":
+                  return (
+                    <a
+                      key={kind}
+                      href={item.enquireHref as string}
+                      onClick={enquire}
+                      className={railItem}
+                      aria-label={item.soldOut ? `Ask about a restock of the ${item.name} on WhatsApp` : `Enquire about the ${item.name} on WhatsApp`}
+                    >
+                      {/* The official WhatsApp logo: white on WhatsApp green (#25D366), as in clean view. */}
+                      <span className={cn(railRing, "bg-[#25D366] text-white shadow-[0_2px_8px_rgba(0,0,0,0.25)]")}>
+                        <WhatsAppLogoIcon className="h-7 w-7" />
+                      </span>
+                      <span className={infoLabel}>WhatsApp</span>
+                    </a>
+                  );
+                case "visit":
+                  return (
+                    <Link key={kind} href={visitHref} onClick={() => track("visit_us", { screen: "feed" })} className={railItem}>
+                      <span className={cn(railRing, "border border-brand-olive bg-brand-olive")}>
+                        <PinIcon className="h-6 w-6" />
+                      </span>
+                      <span className={infoLabel}>Visit us</span>
+                    </Link>
+                  );
+                case "call":
+                  return (
+                    <a
+                      key={kind}
+                      href={callHref as string}
+                      onClick={() => track("call", { slug, collection, screen: "feed" })}
+                      className={railItem}
+                      aria-label="Call VYRA"
+                    >
+                      <span className={cn(railSmall, railQuiet)}>
+                        <PhoneIcon className="h-5 w-5" />
+                      </span>
+                      <span className={cn(infoLabel, railLabelOptional)}>Call</span>
+                    </a>
+                  );
+              }
+            })}
+          </div>
+          <button
+            ref={infoPillRef}
+            type="button"
+            onClick={() => changeInfo("show", "panel")}
+            aria-expanded={false}
+            className={cn(infoPill, railBottom, infoClass)}
+          >
+            <ChevronIcon direction="up" className="h-4 w-4 shrink-0" />
+            Show details
+          </button>
+        </>
+      ) : null}
+
+      {/* ZP-1018: details mode (after Show details): Hide details, the heart, share and Call
+          stacked at the right, then the ZP-543 panel on a dark gradient (>= 86% ink behind its
+          text) down to the bottom edge, where the swipe hint sits on top of it. A swipe to
+          another photo shrinks the panel to one slim line; tapping it brings it back. */}
+      {showInfo && infoMode !== "photo" ? (
         <div className={cn("pointer-events-none absolute inset-x-0 bottom-0 flex flex-col", infoClass)}>
-          <div className="pointer-events-auto mb-2 mr-3 flex flex-col items-center gap-3 self-end [@media(max-height:700px)]:gap-2">
+          <div className="sf-panel-fade pointer-events-auto mb-2 mr-3 flex flex-col items-center gap-3 self-end [@media(max-height:700px)]:gap-2">
+            <button type="button" onClick={() => changeInfo("hide", "pill")} aria-expanded={true} className={railItem}>
+              <span className={cn(infoRound, railQuiet)}>
+                <CornersIcon className="h-5 w-5" />
+              </span>
+              <span className={infoLabel}>Hide details</span>
+            </button>
             {infoActions({ share: item.shareUrl !== null, call: callHref !== null, preview }).map((kind) => {
               switch (kind) {
                 case "love":
@@ -620,11 +768,48 @@ export function FeedSlide({
               }
             })}
           </div>
+          {infoMode === "slim" ? (
+            // The slim line: the name (one line), "Ask for price · tap for more" (a button that
+            // brings the full panel back) and a round WhatsApp button (Visit us without a number).
+            <div className={cn("pointer-events-auto flex items-center gap-3 px-4 pt-7 text-brand-cream-50", infoPanelBg, infoPanelBottom)}>
+              <h2 className="sr-only">{item.name}</h2>
+              <button
+                ref={infoSlimRef}
+                type="button"
+                onClick={() => changeInfo("expand", "panel")}
+                aria-expanded={false}
+                className="sf-focus flex min-h-11 min-w-0 flex-1 flex-col justify-center rounded-[2px] text-left"
+              >
+                <span className="block w-full truncate font-serif text-[18px] font-semibold leading-tight">{item.name}</span>
+                <span className="text-[13px] font-medium text-brand-cream-50/90">{infoSlimLine(item.price)}</span>
+              </button>
+              {primary.kind === "visit" ? (
+                <Link
+                  href={visitHref}
+                  onClick={() => track("visit_us", { screen: "feed" })}
+                  aria-label="Visit us"
+                  className={cn("sf-focus shrink-0 rounded-full", infoRound, "bg-brand-olive text-white")}
+                >
+                  <PinIcon className="h-5 w-5" />
+                </Link>
+              ) : (
+                <a
+                  href={item.enquireHref as string}
+                  onClick={enquire}
+                  aria-label={item.soldOut ? `Ask about a restock of the ${item.name} on WhatsApp` : `Ask the price of the ${item.name} on WhatsApp`}
+                  className={cn("sf-focus shrink-0 rounded-full", infoRound, "bg-[#25D366] text-white shadow-[0_2px_8px_rgba(0,0,0,0.25)]")}
+                >
+                  <WhatsAppLogoIcon className="h-6 w-6" />
+                </a>
+              )}
+            </div>
+          ) : (
           <div
-            className={cn(
-              "pointer-events-auto bg-[linear-gradient(rgba(20,20,18,0)_0px,rgba(20,20,18,0.86)_36px,rgba(20,20,18,0.92)_100%)] px-4 pt-9 text-brand-cream-50 [@media(max-height:700px)]:bg-[linear-gradient(rgba(20,20,18,0)_0px,rgba(20,20,18,0.86)_28px,rgba(20,20,18,0.92)_100%)] [@media(max-height:700px)]:pt-7",
-              infoPanelBottom,
-            )}
+            ref={infoPanelRef}
+            role="group"
+            aria-labelledby={infoHeadingId}
+            tabIndex={-1}
+            className={cn("sf-panel-up pointer-events-auto px-4 pt-9 text-brand-cream-50 outline-none [@media(max-height:700px)]:pt-7", infoPanelBg, infoPanelBottom)}
           >
             <span
               className={cn(
@@ -635,7 +820,7 @@ export function FeedSlide({
               {availability.label}
             </span>
             {/* The look's heading in this view. */}
-            <h2 className="m-0 mt-2 line-clamp-2 font-serif text-[25px] font-semibold leading-[1.12] [@media(max-height:700px)]:mt-1.5 [@media(max-height:700px)]:line-clamp-1 [@media(max-height:700px)]:text-[22px]">
+            <h2 id={infoHeadingId} className="m-0 mt-2 line-clamp-2 font-serif text-[25px] font-semibold leading-[1.12] [@media(max-height:700px)]:mt-1.5 [@media(max-height:700px)]:line-clamp-1 [@media(max-height:700px)]:text-[22px]">
               {item.name}
             </h2>
             <p className="m-0 mt-1 flex items-center gap-2 text-[15px] font-medium">
@@ -679,6 +864,7 @@ export function FeedSlide({
               </Link>
             </div>
           </div>
+          )}
         </div>
       ) : null}
 
