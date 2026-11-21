@@ -211,15 +211,18 @@ enum PriceDisplay {
 }
 
 model Category {
-  id           Int      @id @default(autoincrement())
-  name         String
-  slug         String   @unique
-  description  String?
-  heroImageKey String? // storage key, e.g. products/<32 hex>.webp
-  sortOrder    Int      @default(0)
-  published    Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id             Int      @id @default(autoincrement())
+  name           String
+  slug           String   @unique
+  description    String?
+  heroImageKey   String? // storage key, e.g. products/<32 hex>.webp
+  sortOrder      Int      @default(0)
+  published      Boolean  @default(false)
+  // ZP-1019: "Show after ladies' pieces in the feed" (e.g. Men, Girls). The
+  // main feed shows this category's available pieces after the others'.
+  showLastInFeed Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   products Product[]
 }

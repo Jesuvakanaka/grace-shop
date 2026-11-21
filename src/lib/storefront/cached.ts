@@ -35,8 +35,11 @@ export type CacheFn = <T extends (...args: never[]) => Promise<unknown>>(
   options: { tags: string[]; revalidate: number },
 ) => T
 
-/** Bump when the cached shape changes, so old entries are never read. */
-const CACHE_VERSION = 'v1'
+/**
+ * Bump when the cached shape changes, so old entries are never read.
+ * v2 (ZP-1019): PublicCategory.showLastInFeed.
+ */
+const CACHE_VERSION = 'v2'
 
 export function createStorefront(deps: { db: Db; cache: CacheFn }) {
   const catalogue = deps.cache(
@@ -51,6 +54,8 @@ export function createStorefront(deps: { db: Db; cache: CacheFn }) {
       revalidate: STOREFRONT_REVALIDATE_SECONDS,
     },
   )
+  // ZP-1019: also carries each category's showLastInFeed (the feed order), so
+  // a category save (storefront:categories tag) reorders the feed.
   const categories = deps.cache(
     (): Promise<PublicCategory[]> => loadPublicCategories(deps.db),
     ['storefront', 'categories', CACHE_VERSION],

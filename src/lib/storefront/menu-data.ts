@@ -8,7 +8,7 @@
 import 'server-only'
 import { cache } from 'react'
 import { hostRoutingConfigFromEnv } from '@/lib/host-routing'
-import { feedProducts, feedTabs } from './feed'
+import { feedProducts, feedTabs, showLastCategorySlugs } from './feed'
 import { getReviewsIndex, listPublishedProducts, type PublicProduct } from './index'
 import { MAX_PAGE_SIZE } from './listing'
 import { buildMenuModel, type MenuModel } from './menu-model'
@@ -25,7 +25,8 @@ async function allPublished(): Promise<PublicProduct[]> {
 
 export const getMenuData = cache(async (): Promise<MenuModel> => {
   const [shell, products, reviews] = await Promise.all([getShellData(), allPublished(), getReviewsIndex()])
-  const tabs = feedTabs(shell.categories, feedProducts(products))
+  // ZP-1019: same partition as the feed (counts do not depend on the order).
+  const tabs = feedTabs(shell.categories, feedProducts(products, undefined, showLastCategorySlugs(shell.categories)))
   // ZP-508: the shop rating box (cached reviews entry).
   const adminHost = hostRoutingConfigFromEnv().adminHosts[0] ?? null
   return buildMenuModel({ settings: shell.settings, tabs, base: shell.base, shopRating: reviews.shop, adminHost })

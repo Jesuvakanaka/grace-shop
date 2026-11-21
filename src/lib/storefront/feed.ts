@@ -55,18 +55,51 @@ export function orderFeed<T extends Pick<PublicProduct, 'featured' | 'availabili
 }
 
 /**
+ * ZP-1019: ladies' pieces first. A stable partition of an already ordered
+ * feed: available pieces whose category is NOT in `showLast`, then available
+ * pieces whose category is in it (the categories set to "Show after ladies'
+ * pieces in the feed", e.g. Men and Girls), then sold-out pieces (not split
+ * by the flag). The order inside each group is the input's, so ranks, cold
+ * start and exploration keep their relative order. Returns a new array.
+ */
+export function partitionShowLast<T extends Pick<PublicProduct, 'availability'> & { category?: { slug: string } }>(
+  ordered: readonly T[],
+  showLast: Iterable<string>,
+): T[] {
+  const last = new Set(showLast)
+  if (last.size === 0) return [...ordered]
+  const first: T[] = []
+  const after: T[] = []
+  const soldOut: T[] = []
+  for (const p of ordered) {
+    if (p.availability === 'SOLD_OUT') soldOut.push(p)
+    else if (p.category && last.has(p.category.slug)) after.push(p)
+    else first.push(p)
+  }
+  return [...first, ...after, ...soldOut]
+}
+
+/** ZP-1019: the slugs of the categories set to "Show after ladies' pieces in the feed". */
+export function showLastCategorySlugs(categories: readonly Pick<PublicCategory, 'slug' | 'showLastInFeed'>[]): Set<string> {
+  return new Set(categories.filter((c) => c.showLastInFeed === true).map((c) => c.slug))
+}
+
+/**
  * The feed is photo-first: pieces without a photo are left out, the rest in
  * feed order. ZP-506: with a `ranking` (the landing feed always passes one)
  * the order is the popularity ranking (src/lib/ranking/feed-order.ts):
  * Featured no longer has precedence, it follows the ranking. Without one
  * (counts only, e.g. the menu) the legacy orderFeed is used.
+ * ZP-1019: `showLast` (showLastCategorySlugs of the published categories)
+ * then moves those categories' available pieces after the others'
+ * (partitionShowLast). A collection (one category) keeps its order.
  */
-export function feedProducts<T extends Pick<PublicProduct, 'ref' | 'featured' | 'availability' | 'images'>>(
-  newestFirst: readonly T[],
-  ranking?: FeedRanking,
-): T[] {
+export function feedProducts<
+  T extends Pick<PublicProduct, 'ref' | 'featured' | 'availability' | 'images'> & { category?: { slug: string } },
+>(newestFirst: readonly T[], ranking?: FeedRanking, showLast: Iterable<string> = []): T[] {
   const withPhotos = newestFirst.filter((p) => p.images.length > 0)
-  return ranking ? orderFeedByRanking(withPhotos, ranking) : orderFeed(withPhotos)
+  const ordered = ranking ? orderFeedByRanking(withPhotos, ranking) : orderFeed(withPhotos)
+  return partitionShowLast(ordered, showLast)
 }
 
 // ------------------------------------------------------------------- tabs

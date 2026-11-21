@@ -258,9 +258,11 @@ export type CategoryInput = {
   /** Storage key from an uploaded picture URL, or null to clear. */
   heroImageKey?: string | null
   published?: boolean
+  /** ZP-1019: "Show after ladies' pieces in the feed". */
+  showLastInFeed?: boolean
 }
 
-const CATEGORY_FIELDS = ['name', 'slug', 'description', 'heroImageUrl', 'published'] as const
+const CATEGORY_FIELDS = ['name', 'slug', 'description', 'heroImageUrl', 'published', 'showLastInFeed'] as const
 
 export function parseCategoryInput(body: unknown, { create }: { create: boolean }): Parsed<CategoryInput> {
   if (!isPlainObject(body)) return fail('Invalid JSON body')
@@ -295,6 +297,12 @@ export function parseCategoryInput(body: unknown, { create }: { create: boolean 
   if (body.published !== undefined) {
     if (typeof body.published !== 'boolean') return fail('Published must be true or false.', 'published')
     data.published = body.published
+  }
+  if (body.showLastInFeed !== undefined) {
+    if (typeof body.showLastInFeed !== 'boolean') {
+      return fail('"Show after ladies\' pieces in the feed" must be true or false.', 'showLastInFeed')
+    }
+    data.showLastInFeed = body.showLastInFeed
   }
   return { ok: true, data }
 }

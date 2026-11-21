@@ -18,6 +18,7 @@ type CategoryRow = {
   heroImageKey: string | null
   sortOrder: number
   published: boolean
+  showLastInFeed: boolean
   _count?: { products: number }
 }
 
@@ -31,6 +32,7 @@ function toDto(c: CategoryRow) {
     heroImageUrl: c.heroImageKey ? imageUrlForKey(c.heroImageKey) : null,
     sortOrder: c.sortOrder,
     published: c.published,
+    showLastInFeed: c.showLastInFeed,
     productCount: c._count?.products ?? 0,
   }
 }
@@ -83,6 +85,7 @@ export async function createCategory(db: PrismaClient, input: CategoryInput) {
         description: input.description ?? null,
         heroImageKey: input.heroImageKey ?? null,
         published: input.published ?? false,
+        showLastInFeed: input.showLastInFeed ?? false,
         sortOrder: (last._max.sortOrder ?? -1) + 1,
       },
       include: withCount,
@@ -102,6 +105,7 @@ export async function updateCategory(db: PrismaClient, id: number, input: Catego
     if (input.description !== undefined) data.description = input.description
     if (input.heroImageKey !== undefined) data.heroImageKey = input.heroImageKey
     if (input.published !== undefined) data.published = input.published
+    if (input.showLastInFeed !== undefined) data.showLastInFeed = input.showLastInFeed
     const row = await tx.category.update({ where: { id }, data, include: withCount })
     return { oldSlug: current.slug, category: toDto(row) }
   })

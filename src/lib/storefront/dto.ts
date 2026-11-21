@@ -101,6 +101,13 @@ export type PublicCategory = {
   name: string
   description: string | null
   heroImage: PublicImage | null
+  /**
+   * ZP-1019: "Show after ladies' pieces in the feed": the main feed shows this
+   * category's available pieces after the other categories' (partitionShowLast
+   * in ./feed.ts). Always set by toPublicCategory; optional in the type so
+   * hand-written DTOs (fixtures, design previews) need not list it.
+   */
+  showLastInFeed?: boolean
 }
 
 /**
@@ -149,6 +156,8 @@ export type PublicCategoryRow = {
   name: string
   description: string | null
   heroImageKey: string | null
+  /** ZP-1019: copied as `showLastInFeed`. Optional so older fixtures need not list it. */
+  showLastInFeed?: boolean
 }
 
 export type ProductDtoOptions = {
@@ -274,5 +283,6 @@ export function toPublicCategory(row: PublicCategoryRow): PublicCategory {
     name: row.name,
     description: text(row.description),
     heroImage: row.heroImageKey && isValidImageKey(row.heroImageKey) ? image(row.heroImageKey, row.name) : null,
+    showLastInFeed: row.showLastInFeed === true,
   }
 }

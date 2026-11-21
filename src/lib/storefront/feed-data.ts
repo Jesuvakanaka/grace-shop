@@ -16,6 +16,7 @@ import {
   feedTabs,
   filterFeed,
   resolveFeedTab,
+  showLastCategorySlugs,
   toFeedItem,
   type FeedItem,
   type FeedPage,
@@ -43,7 +44,10 @@ async function newestFirst(): Promise<PublicProduct[]> {
  */
 const feedSource = cache(async (): Promise<{ ordered: PublicProduct[]; tabs: FeedTab[] }> => {
   const [products, categories, ranking] = await Promise.all([newestFirst(), listPublishedCategories(), getFeedRanking()])
-  const ordered = feedProducts(products, ranking)
+  // ZP-1019: categories set to "Show after ladies' pieces" (Men, Girls) come
+  // after the others' available pieces. Every feed order (first load, the
+  // paged actions, /p/<slug> looks, "You may also like") reads this one.
+  const ordered = feedProducts(products, ranking, showLastCategorySlugs(categories))
   return { ordered, tabs: feedTabs(categories, ordered) }
 })
 

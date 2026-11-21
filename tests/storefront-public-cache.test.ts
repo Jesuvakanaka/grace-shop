@@ -120,6 +120,7 @@ describe('storefront cache entries are bounded', () => {
       name: 'ZP484C',
       description: null,
       heroImage: null,
+      showLastInFeed: false,
     })
   })
 
