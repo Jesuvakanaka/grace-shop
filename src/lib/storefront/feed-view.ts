@@ -4,8 +4,10 @@
 //
 // Two views of the landing feed:
 //   clean: today's feed (photos only; caption, Share, Details behind the eye).
-//   info:  an always-visible panel at the bottom of the photo (availability,
-//          name, price, Reserve on WhatsApp, View sizes & details).
+//   info:  ZP-1018: every look opens on the whole photo (WhatsApp / Call at the
+//          right, a "Show details" pill); Show details slides up the panel
+//          (availability, name, price, Ask price on WhatsApp, View sizes &
+//          details). See "info panel modes" below.
 // The owner's setting (SiteSettings.feedView) picks CLEAN, INFO or AB.
 //
 // Shared contract with the analytics (ZP-544, src/lib/analytics/**):
@@ -22,7 +24,7 @@
 //  5. `?view=clean|info` on any storefront URL forces that view for that page
 //     load: never a test visit, never stored.
 
-export const FEED_VIEW_MODES = ['CLEAN', 'INFO', 'AB'] as const
+export const FEED_VIEW_MODES =['CLEAN', 'INFO', 'AB'] as const
 /** The owner's setting (Prisma enum FeedView). */
 export type FeedViewMode = (typeof FEED_VIEW_MODES)[number]
 export const FEED_VIEW_DEFAULT_MODE: FeedViewMode = 'CLEAN'
@@ -170,12 +172,16 @@ export function infoPrice(price: string): string {
   return price.startsWith('$') ? `US${price}` : price
 }
 
-export type InfoPrimary = { kind: 'reserve' | 'restock' | 'visit'; label: string }
+export type InfoPrimary = { kind: 'ask' | 'restock' | 'visit'; label: string }
 
-/** The panel's main button: the existing enquiry link (restock message when sold out), or Visit us without WhatsApp. */
+/**
+ * The panel's main button: the existing enquiry link (restock message when
+ * sold out), or Visit us without WhatsApp. ZP-1018: every piece is now "Ask
+ * for price", so the button asks for it.
+ */
 export function infoPrimary(item: Pick<InfoItem, 'soldOut' | 'enquireHref'>): InfoPrimary {
   if (item.enquireHref === null) return { kind: 'visit', label: 'Visit us' }
-  return item.soldOut ? { kind: 'restock', label: 'Ask about restock' } : { kind: 'reserve', label: 'Reserve on WhatsApp' }
+  return item.soldOut ? { kind: 'restock', label: 'Ask about restock' } : { kind: 'ask', label: 'Ask price on WhatsApp' }
 }
 
 export type InfoAction = 'love' | 'share' | 'call'
@@ -187,4 +193,83 @@ export function infoActions(input: { share: boolean; call: boolean; preview?: bo
     ...(input.share ? (['share'] as const) : []),
     ...(input.call ? (['call'] as const) : []),
   ]
+}
+
+// ------------------------------------------------------ info panel modes
+//
+// ZP-1018: the info view opens every look on the whole photo, details on demand.
+//   photo:   the photo only; WhatsApp (or Visit us) and Call at the right and a
+//            "Show details" pill at the bottom centre. How every look opens.
+//   details: the panel (above), with Hide details, the heart, share and Call
+//            stacked at the right above it (infoActions).
+//   slim:    the panel shrunk to one line (name, "Ask for price · tap for
+//            more", a round WhatsApp button) after the visitor swiped to
+//            another photo of the same look; tapping the line brings it back.
+// Each look keeps its own mode (FeedSlide) and starts again in photo mode once
+// it has left the screen (another look, a collection switch, "You may also
+// like"). Tested in tests/storefront-feed-info-mode.test.ts.
+
+export const INFO_MODES = ['photo', 'details', 'slim'] as const
+export type InfoMode = (typeof INFO_MODES)[number]
+/** How every look opens. */
+export const INFO_MODE_START: InfoMode = 'photo'
+
+/**
+ * show: Show details. hide: Hide details. expand: a tap on the slim line.
+ * photo-swipe: the visitor's own move to another photo of the same look
+ * (isVisitorPhotoChange). leave-look: the look left the screen. tour-start:
+ * the first-visit photo tour starts on the look (it runs in photo mode).
+ */
+export type InfoModeEvent = 'show' | 'hide' | 'expand' | 'photo-swipe' | 'leave-look' | 'tour-start'
+
+export function nextInfoMode(mode: InfoMode, event: InfoModeEvent): InfoMode {
+  switch (event) {
+    case 'show':
+      return 'details'
+    case 'hide':
+    case 'leave-look':
+    case 'tour-start':
+      return 'photo'
+    case 'expand':
+      return mode === 'slim' ? 'details' : mode
+    case 'photo-swipe':
+      return mode === 'details' ? 'slim' : mode
+  }
+}
+
+/**
+ * The analytics event for a change: the same ones clean view's eye sends. The
+ * popularity ranking reads details_show, so in both views it means "the
+ * visitor asked to see this look's details": Show details from photo mode;
+ * details_hide for Hide details from the panel or the slim line. Nothing else
+ * (not the slim line, a reset or the tour).
+ */
+export function infoModeTrack(mode: InfoMode, event: InfoModeEvent): 'details_show' | 'details_hide' | null {
+  if (event === 'show' && mode === 'photo') return 'details_show'
+  if (event === 'hide' && mode !== 'photo') return 'details_hide'
+  return null
+}
+
+/**
+ * A move to another photo is the visitor's own (it may shrink the panel)
+ * unless the tour is running, or the tour has just ended and its own smooth
+ * scroll is still settling (`settleMs`: feed-guide's TOUR_SETTLE_MS, passed
+ * in so this module, read by the site settings, stays free of the feed code).
+ * The same rule keeps the tour's photos out of photo_view (ZP-516).
+ */
+export function isVisitorPhotoChange(input: { touring: boolean; afterTour: boolean; sinceTourEndMs: number; settleMs: number }): boolean {
+  if (input.touring) return false
+  return !input.afterTour || input.sinceTourEndMs > input.settleMs
+}
+
+export type InfoPhotoRailItem = 'enquire' | 'visit' | 'call'
+
+/** Photo mode's right-hand buttons, top to bottom: WhatsApp (Visit us without a number), Call with a phone. */
+export function infoPhotoRail(input: { enquire: boolean; call: boolean }): InfoPhotoRailItem[] {
+  return [input.enquire ? 'enquire' : 'visit', ...(input.call ? (['call'] as const) : [])]
+}
+
+/** The slim line's second line: "Ask for price · tap for more". */
+export function infoSlimLine(price: string): string {
+  return `${infoPrice(price)} · tap for more`
 }

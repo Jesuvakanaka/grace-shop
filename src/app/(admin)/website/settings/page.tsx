@@ -608,7 +608,7 @@ export default function WebsiteSettingsPage() {
               {
                 value: 'INFO',
                 label: 'Info view',
-                hint: 'A panel at the bottom of every photo: In stock / Few left / Sold out, name, price, Reserve on WhatsApp and View sizes & details.',
+                hint: 'Each look opens on the whole photo with WhatsApp and Call. Show details brings up a panel: In stock / Few left / Sold out, name, price, Ask price on WhatsApp and View sizes & details.',
               },
               {
                 value: 'AB',

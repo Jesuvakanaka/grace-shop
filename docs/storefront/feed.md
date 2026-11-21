@@ -130,9 +130,10 @@ the site. It replaced ZP-509's three-step finger animation (owner, 2026-11-04).
 
 Six rows (`guideTips`), with touch and computer wording: next look, more
 photos, the photo (details sheet), the eye, WhatsApp or Call, the menu.
-ZP-543: in the info view (below) the eye row becomes "Tap / Click the buttons
-at the bottom: Reserve on WhatsApp, or view sizes and details"
-(`guideTips(layout, 'info')`).
+ZP-543 / ZP-1018: in the info view (below) the eye row becomes "Tap / Click
+Show details: See the price and the buttons. Hide details shows the whole
+photo again" and the contact row "WhatsApp or Call, on the right"
+(`guideTips(layout, 'info')`); the other rows are the same.
 
 - **Install the app** (`InstallAppRow`, also in the menu): the browser's prompt
   on Chrome and Android, the steps on iPhone and iPad; absent when already
@@ -249,28 +250,51 @@ Website settings → **Feed view** (owner only; `SiteSettings.feedView`, enum
 `FeedView`, migration `20261117090000_feed_view_setting`):
 
 - **Clean view** (`CLEAN`, the default): the feed as above, unchanged.
-- **Info view** (`INFO`): every look shows an always-visible panel over the
-  bottom of the photo instead of the caption, the rail and the eye:
-  availability tag (**In stock** / **Few left** / **Sold out**, from the
-  slide's badge, `infoAvailability`), the name (serif 25px, two lines at most;
-  one line at 22px on short screens), the price (`US$65`, or "Ask for price",
-  `infoPrice`) with the rating, then **Reserve on WhatsApp** (the same
-  enquiry link and `enquire` event as the rail; sold out: **Ask about
-  restock** with the restock message; no WhatsApp number: **Visit us**,
-  `infoPrimary`) and **View sizes & details** (a link to `/p/<slug>`, so a
-  plain tap opens the details sheet like the photo). The buttons are side by
-  side from 400px wide, stacked below; 48px tall (44px on short screens),
-  olive with the white WhatsApp logo like every WhatsApp text button.
-  Above the panel at the right: the heart, **Share** (with a share URL) and
-  **Call** (with a phone), 44px round buttons (`infoActions`); no eye.
-  The panel sits on a dark gradient (at least 86% ink behind its text) down
-  to the bottom edge; the swipe hint stays on top of it. The photo strip,
-  progress bars, photo arrows, top bar, collection pill, photo fit (ZP-515),
-  tour (ZP-516) and pop-up (ZP-518) are unchanged. The photo link leaves the
-  tab order (the panel is the way in) and the panel's name is the look's `<h2>`.
-  Measured locally (fixture looks): the panel's text starts about 64% down at
-  360×640, 73% at 375×812, 80% at 412×915 and about 70% in the computer column;
-  photos keep `object-position: 50% 20%`, so faces stay clear.
+- **Info view** (`INFO`), photo first (ZP-1018, owner-approved prototype
+  "Option C"). Each look has a mode (`InfoMode`, `nextInfoMode` in
+  `feed-view.ts`, kept per look in `FeedSlide`):
+  - **Photo mode**, how every look opens (and what the server renders): the
+    whole photo, no panel and no bottom gradient. At the right the same green
+    **WhatsApp** button as clean view (sold out: the restock message; no
+    WhatsApp number: **Visit us**) and **Call** with a phone
+    (`infoPhotoRail`); at the bottom centre a **Show details** pill (44px,
+    74% ink fill, so its text is well above 4.5:1 on any photo; the labels
+    under the buttons have a heavy text shadow). No heart, share or corners
+    button in this mode; the look's `<h2>` is screen-reader only.
+  - **Details mode** (after Show details): the panel slides up and fades in
+    (`.sf-panel-up`, 260 ms; none with reduced motion): availability tag
+    (**In stock** / **Few left** / **Sold out**, `infoAvailability`), the
+    name (serif 25px, two lines at most; one line at 22px on short screens,
+    the look's `<h2>`), the price (`infoPrice`; every piece is now "Ask for
+    price") with the rating, then **Ask price on WhatsApp** (the enquiry link
+    and `enquire` event as the rail; sold out: **Ask about restock**; no
+    WhatsApp number: **Visit us**, `infoPrimary`) and **View sizes &
+    details** (a link to `/p/<slug>`: a plain tap opens the details sheet).
+    The buttons are side by side from 400px wide, stacked below; 48px tall
+    (44px on short screens). Above the panel at the right: the corners button
+    with **Hide details** under it (back to photo mode), then the heart,
+    **Share** (with a share URL) and **Call** (with a phone)
+    (`infoActions`). The panel sits on a dark gradient (at least 86% ink
+    behind its text) down to the bottom edge; the swipe hint stays on top.
+  - **Slim line**: the visitor's own sideways move to another photo of the
+    same look (swipe or photo arrow; never the tour's, `isVisitorPhotoChange`)
+    shrinks the panel to one line: the name (one line), "Ask for price · tap
+    for more" (`infoSlimLine`; tapping it brings the full panel back) and a
+    round WhatsApp button (Visit us without a number).
+  - **Reset**: a look starts in photo mode again once it has left the screen
+    (swipe up or down, "You may also like"); a collection switch renders new
+    slides. The tour (ZP-516) runs in photo mode (a replay over an open
+    panel closes it) and its sideways moves never shrink a panel.
+  - **Analytics**: Show details sends `details_show` and Hide details
+    `details_hide` (`infoModeTrack`), exactly like clean view's eye, so the
+    ranking's `details_show` means "asked for this look's details" in both
+    views. The slim line, its tap and the reset send nothing.
+  - **Focus**: Show details moves focus to the panel (named by the look's
+    name), Hide details back to the pill, the slim line's tap to the panel; a
+    shrink while focus is in the panel moves it to the slim line.
+  The photo strip, progress bars, photo arrows, top bar, collection pill,
+  photo fit (ZP-515), details sheet and pop-up (ZP-518) are unchanged. The
+  photo link stays out of the tab order (the pill and the panel are the way in).
 - **A/B test** (`AB`): each browser gets one of the two at random, 50/50,
   kept in `localStorage` `vyra:feed:view-ab` (`clean` | `info`) so it keeps
   its view. Storage blocked or not writable: a random view per page load and

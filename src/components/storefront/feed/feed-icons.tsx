@@ -57,7 +57,14 @@ export const EyeIcon = ({ className }: IconProps) => (
   </Icon>
 );
 
-export const ChevronIcon = ({ className, direction }: IconProps & { direction: "up" | "down" | "left" | "right" }) => {
+/** ZP-1018: four corners (the whole photo): the info view's "Hide details". */
+export const CornersIcon = ({ className }: IconProps) => (
+  <Icon className={className}>
+    <path {...line} d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4" />
+  </Icon>
+);
+
+export const ChevronIcon =({ className, direction }: IconProps & { direction: "up" | "down" | "left" | "right" }) => {
   const d = { up: "M6 15l6-6 6 6", down: "M6 9l6 6 6-6", left: "M15 5l-7 7 7 7", right: "M9 5l7 7-7 7" }[direction];
   return (
     <Icon className={className}>

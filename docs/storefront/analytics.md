@@ -305,7 +305,7 @@ Prop builders are pure and tested in `tests/storefront-tracking.test.ts`
 | `look_dwell` | `FeedSlide`, `useDwell` on the slide `<article>` | |
 | `photo_view` / `photo_dwell` | `FeedSlide` (the strip's photo on the current slide) | `index` / `of` among the photos (a video first is not counted), `image` file name; `useActiveDwell` keyed per photo |
 | `video_start`, `video_progress`, `video_replay`, `video_seconds` | `FeedVideo`, `GalleryVideo` via `useVideoTracking` | a viewing ends when the video leaves the view (the playback hook's 60% observer) or unmounts; a page hide sends the seconds so far; every loop is a replay; 100% on the first loop or `ended` |
-| `details_show` / `details_hide` | `FlipFeed` eye | the current look's slug |
+| `details_show` / `details_hide` | `FlipFeed` eye (clean view); `FeedSlide` Show details / Hide details (info view, ZP-1018) | the current look's slug |
 | `collection_switch` | `FlipFeed`, a collection picked in the sheet, once its looks arrived | `from`, `to` |
 | `feed_load_more` | `FlipFeed`, a next page arrived | `loaded` = looks loaded so far |
 | `feed_end_reached` | `FlipFeed`, the end slide reached | once per collection per page load, `looks` |
