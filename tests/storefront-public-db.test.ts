@@ -128,6 +128,7 @@ describe('storefront public data layer (database)', () => {
         name: 'ZP484 Public',
         description: null,
         heroImage: { url: `/api/images/public/${HEX('8')}.webp`, alt: 'ZP484 Public', srcSet: SRCSET('8'), width: null, height: null },
+        showLastInFeed: false,
       })
     })
 
