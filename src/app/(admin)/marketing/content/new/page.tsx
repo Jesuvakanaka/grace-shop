@@ -23,9 +23,13 @@ export default function NewContentPage() {
 
   useEffect(() => {
     mk<{ channels: ChannelItem[] }>('/api/marketing/channels').then((d) => setChannels(d.channels)).catch((e) => setError(e.message));
-    mk<{ campaigns: Campaign[] }>('/api/marketing/campaigns').then((d) => setCampaigns(d.campaigns)).catch(() => {});
     const c = new URLSearchParams(window.location.search).get('campaignId');
-    if (c) setCampaignId(c);
+    mk<{ campaigns: Campaign[] }>('/api/marketing/campaigns')
+      .then((d) => {
+        setCampaigns(d.campaigns);
+        if (c) setCampaignId(c);
+      })
+      .catch(() => {});
   }, []);
 
   const choose = (p: PickerProduct) => {

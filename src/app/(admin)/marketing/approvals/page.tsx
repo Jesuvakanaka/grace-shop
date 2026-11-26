@@ -25,7 +25,14 @@ export default function ApprovalsPage() {
       setError(e instanceof Error ? e.message : 'Could not load.');
     }
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    Promise.all([mk<{ posts: Post[] }>('/api/marketing/posts?status=PENDING_APPROVAL'), mk<{ content: Content[] }>('/api/marketing/content')])
+      .then(([p, c]) => {
+        setPosts(p.posts);
+        setTitles(Object.fromEntries(c.content.map((x) => [x.id, x.title])));
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : 'Could not load.'));
+  }, []);
 
   const move = async (ids: number[], action: 'approve' | 'reject') => {
     setBusy(true);

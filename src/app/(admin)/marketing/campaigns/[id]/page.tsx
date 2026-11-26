@@ -40,7 +40,7 @@ export default function CampaignPage() {
   // Names of the chosen products (kept listed even if no longer published).
   const idsKey = productIds.join(',');
   useEffect(() => {
-    if (!idsKey) return setProducts([]);
+    if (!idsKey) return;
     mk<{ products: PickerProduct[] }>(`/api/marketing/products?ids=${idsKey}`).then((d) => setProducts(d.products)).catch(() => {});
   }, [idsKey]);
 

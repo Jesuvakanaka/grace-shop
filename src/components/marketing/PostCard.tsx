@@ -1,7 +1,7 @@
 'use client';
 // ZP-1200: one post (content as it goes out on one channel): edit the words, see the tracking link,
 // move it along (submit, approve, schedule, publish, share ...), and the share bundle for manual channels.
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { SharePhotos } from '@/components/SharePhotos';
 import { useToast } from '@/components/Toast';
@@ -36,11 +36,15 @@ export function PostCard({
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ActionButton | null>(null);
 
-  useEffect(() => {
+  // Take the saved values again when the post changes on the server
+  // (the "adjust state while rendering" pattern, instead of an effect).
+  const [seen, setSeen] = useState(post);
+  if (seen.text !== post.text || seen.imageKeys !== post.imageKeys || seen.scheduledFor !== post.scheduledFor) {
+    setSeen(post);
     setText(post.text);
     setKeys(post.imageKeys);
     setWhen(toLocalInput(post.scheduledFor));
-  }, [post.text, post.imageKeys, post.scheduledFor]);
+  }
 
   if (!ch) return null;
   const count = charCount(text, ch.limits.maxText);
