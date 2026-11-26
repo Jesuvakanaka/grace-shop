@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import { useToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { SharePhotos } from '@/components/SharePhotos';
 import type { CaptureDraftDto } from '@/lib/capture/drafts';
 
 type Draft = Omit<CaptureDraftDto, 'createdAt' | 'updatedAt'>;
@@ -164,6 +165,9 @@ export default function CaptureReviewPage() {
   const set = <K extends keyof Edits>(key: K, value: Edits[K]) => setEdits({ ...form, [key]: value });
   const errFor = (field: string) => (fieldError?.field === field ? <p className="text-sm text-rose-700 mt-1">{fieldError.error}</p> : null);
   const readOnly = draft.status === 'APPROVED' || draft.status === 'REJECTED';
+  // Finished photos only (AI or own), once all are made.
+  const finished = draft.imageMode === 'AI' ? draft.photos.generated : draft.photos.own;
+  const sharePhotos = finished.length > 0 && finished.every(Boolean) ? (finished as string[]) : [];
   const editable = !readOnly && !!draft.listing;
   const isAi = draft.imageMode === 'AI';
 
@@ -295,12 +299,19 @@ export default function CaptureReviewPage() {
         <h2 className="text-lg font-semibold">Photos</h2>
         {isAi && (
           <p className="text-sm text-slate-600">
-            These model photos are AI-styled. The real garment photo stays in the gallery, shown last on the site.
+            These model photos are AI-styled. Only these go on the website; your own photo below stays private.
           </p>
         )}
         {slotCards.length > 0 && <div className="grid gap-4 sm:grid-cols-3">{slotCards}</div>}
+        {sharePhotos.length > 0 && (
+          <SharePhotos
+            urls={sharePhotos}
+            title={draft.listing?.publicName || 'VYRA'}
+            text={[draft.listing?.publicName, draft.sellingPriceUsd !== null ? `$${draft.sellingPriceUsd}` : null, draft.listingType === 'PRE_ORDER' ? 'Pre-order' : null].filter(Boolean).join(' · ') || undefined}
+          />
+        )}
         <div>
-          <p className="text-sm font-medium text-slate-700 mb-2">Your photo (shown last on the site)</p>
+          <p className="text-sm font-medium text-slate-700 mb-2">Your photo (not shown on the website)</p>
           <div className="flex flex-wrap gap-3">
             {draft.photos.reference.map((url, i) => (
               <div key={url} className="w-32 sm:w-40 aspect-[3/4] rounded-lg bg-brand-cream-100 overflow-hidden">
