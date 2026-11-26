@@ -12,10 +12,10 @@ test('buildPhotoPrompt per slot', () => {
   assert.match(p0, /Make only Image 1 \(pose: Elegant standing/)
   assert.match(p0, /Details that must be kept exactly: 3 satin bows/)
   assert.match(p0, /girls/)
-  assert.doesNotMatch(p0, /second reference image/)
+  assert.doesNotMatch(p0, /LAST reference image/)
   const p2 = buildPhotoPrompt({ slot: 2, details: [], hasModelReference: true })
   assert.match(p2, /Make only Image 3 \(pose: Beautiful seated/)
-  assert.match(p2, /second reference image shows the model/)
+  assert.match(p2, /LAST reference image shows the model/)
   assert.doesNotMatch(p2, /Details that must/)
 })
 
