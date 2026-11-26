@@ -1,0 +1,15 @@
+{
+  "name": "vyra-garment-image-test",
+  "private": true,
+  "description": "Standalone test of OpenAI GPT Image 2.5 on garment photos. Not part of the shop.",
+  "type": "module",
+  "scripts": {
+    "start": "node run.mjs",
+    "dry-run": "node run.mjs --dry-run",
+    "page": "node run.mjs --page-only"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "openai": "7.65.0"
+  }
+}

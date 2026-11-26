@@ -46,3 +46,6 @@ docs/**/*.xlsx
 # ... EXCEPT the seed inputs: `npm run init` (scripts/init-system.js), run as a
 # Cloud Run Job from this same image, reads these at runtime.
 !docs/business-control-inputs/*.xlsx
+
+# Standalone experiments (own package.json, local photos); never part of the image
+experiments

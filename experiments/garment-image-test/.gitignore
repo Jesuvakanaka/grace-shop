@@ -1,0 +1,7 @@
+# Your photos and the generated pictures stay on your computer.
+test-input/*
+!test-input/.gitkeep
+!test-input/*.txt
+test-output/
+node_modules/
+.env*
