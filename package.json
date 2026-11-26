@@ -28,6 +28,7 @@
     "user:set": "node scripts/set-user.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.14.0",
     "@google-cloud/storage": "^8.4.0",
     "@prisma/client": "^6.9.0",
     "bcryptjs": "^2.4.3",
@@ -35,6 +36,7 @@
     "fflate": "^0.8.3",
     "jose": "^6.0.11",
     "next": "16.4.3",
+    "openai": "^7.65.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "sharp": "^0.35.5",
