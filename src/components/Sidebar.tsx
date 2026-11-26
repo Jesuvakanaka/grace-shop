@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import { pendingReviewsLabel, usePendingReviews } from '@/components/usePendingReviews';
+import { STOREFRONT_PREFIX } from '@/lib/host-routing';
+import { SITE_ROUTES, sitePath } from '@/lib/storefront/paths';
 
 const navItems = [
   { label: 'Dashboard', href: '/', icon: '📊', testId: 'sidebar-dashboard' },
@@ -78,6 +80,20 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             </Link>
           );
         })}
+        {/* Back to the public VYRA website (served under /site on the admin host). */}
+        <a
+          href={sitePath(STOREFRONT_PREFIX, SITE_ROUTES.home)}
+          target="_blank"
+          rel="noopener"
+          onClick={onNavigate}
+          className="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+          data-testid="sidebar-view-website"
+        >
+          <span>🛍️</span>
+          <span>View website</span>
+          <span className="ml-auto text-xs text-slate-400" aria-hidden="true">↗</span>
+          <span className="sr-only"> (opens in a new tab)</span>
+        </a>
       </nav>
 
       <div className="p-4 border-t border-slate-100">

@@ -8,6 +8,8 @@ import { ProductPicture } from '@/components/ProductPicture';
 import { useToast } from '@/components/Toast';
 import { slugify, type PublishMissing } from '@/lib/storefront-model';
 import { publicProductRef } from '@/lib/storefront/product-ref';
+import { STOREFRONT_PREFIX } from '@/lib/host-routing';
+import { SITE_ROUTES, sitePath } from '@/lib/storefront/paths';
 import {
   ALT_TEXT_MAX,
   DESCRIPTION_HINT,
@@ -370,6 +372,17 @@ export function WebsiteSection({
         </label>
         {!product.published && missingText && (
           <p className="text-sm text-amber-700 mt-2" data-testid="website-missing">{missingText}</p>
+        )}
+        {product.published && product.slug && (
+          <a
+            href={sitePath(STOREFRONT_PREFIX, SITE_ROUTES.product(product.slug))}
+            target="_blank"
+            rel="noopener"
+            className="inline-block text-sm font-medium text-brand-olive-700 underline underline-offset-4 mt-2"
+            data-testid="website-view-product"
+          >
+            View on website ↗<span className="sr-only"> (opens in a new tab)</span>
+          </a>
         )}
         <p className="text-xs text-slate-500 mt-2" data-testid="website-new-arrival">{newArrivalText(product)}</p>
         {/* ZP-504: customers' WhatsApp enquiries for this piece end with "(ref V-0099)". */}

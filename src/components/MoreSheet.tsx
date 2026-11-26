@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
 import { pendingReviewsLabel, usePendingReviews } from '@/components/usePendingReviews';
 import { Sheet } from '@/components/ui/Sheet';
+import { STOREFRONT_PREFIX } from '@/lib/host-routing';
+import { SITE_ROUTES, sitePath } from '@/lib/storefront/paths';
 
 const moreItems = [
   { label: 'Daily Log', href: '/daily-log', icon: '📋', testId: 'more-nav-daily-log' },
@@ -33,6 +35,20 @@ export function MoreSheet({ open, onClose }: MoreSheetProps) {
   return (
     <Sheet open={open} onClose={onClose} title="More">
       <div className="space-y-1">
+        {/* Back to the public VYRA website (served under /site on the admin host). */}
+        <a
+          href={sitePath(STOREFRONT_PREFIX, SITE_ROUTES.home)}
+          target="_blank"
+          rel="noopener"
+          onClick={onClose}
+          className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-700 hover:bg-slate-50 active:bg-slate-100"
+          data-testid="more-nav-view-website"
+        >
+          <span className="text-xl">🛍️</span>
+          <span className="font-medium">View website</span>
+          <span className="ml-auto text-sm text-slate-400" aria-hidden="true">↗</span>
+          <span className="sr-only"> (opens in a new tab)</span>
+        </a>
         {visible.map((item) => (
           <Link
             key={item.href}
