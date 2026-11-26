@@ -38,6 +38,12 @@ const PRICE_PER_M = { textInput: 5.0, imageInput: 8.0, imageOutput: 30.0 }
 const GUESS_USD = { low: 0.02, medium: 0.06, high: 0.2, xhigh: 0.3, max: 0.4, auto: 0.2 }
 const GUESS_INPUT_USD = { front: 0.015, angled: 0.03, back: 0.03 } // reference pictures + prompt
 
+// When a model reference picture is given (--model-ref, or one picture in the
+// model-reference/ folder), this replaces the fictional-model description.
+const MODEL_REF_LOOK =
+  'The model is the woman shown in the LAST reference image: keep her face, hair, skin tone, body shape and proportions exactly the same, so she is clearly the same person. ' +
+  'Use that image only for who the model is. Ignore her clothing, pose and background there: she wears only the garment from the first reference image, styled as described.'
+
 // VYRA theme colours, from src/app/globals.css (--color-bg, --color-surface-raised, --color-accent).
 const THEME_BACKGROUND =
   'a soft warm cream (#EDE6D3 to #F6F2E8) seamless studio backdrop with subtle olive green (#5F7A1F) undertones'
@@ -102,7 +108,8 @@ function parseArgs(argv) {
     qualities: DEFAULT_QUALITIES,
     input: path.join(HERE, 'test-input'),
     output: path.join(HERE, 'test-output'),
-    modelLook: DEFAULT_MODEL_LOOK,
+    modelLook: null, // set below: --model-look, else model reference text, else DEFAULT_MODEL_LOOK
+    modelRef: null,
     dryRun: false,
     pageOnly: false,
   }
@@ -121,12 +128,13 @@ function parseArgs(argv) {
     else if (arg === '--input') opts.input = path.resolve(next())
     else if (arg === '--output') opts.output = path.resolve(next())
     else if (arg === '--model-look') opts.modelLook = next()
+    else if (arg === '--model-ref') opts.modelRef = path.resolve(next())
     else if (arg === '--dry-run') opts.dryRun = true
     else if (arg === '--page-only') opts.pageOnly = true
     else if (arg === '--help' || arg === '-h') {
       console.log(
         'Usage: node run.mjs [--limit N] [--model ID] [--quality medium,high] [--input DIR] [--output DIR]\n' +
-          '                   [--model-look "description"] [--dry-run] [--page-only]',
+          '                   [--model-look "description"] [--model-ref picture.jpg] [--dry-run] [--page-only]',
       )
       process.exit(0)
     } else throw new Error(`Unknown option: ${arg}`)
@@ -242,8 +250,10 @@ async function withRetries(label, fn, attempts = 5) {
 // ---------------------------------------------------------------------------
 
 async function generateView({ client, toFile, opts, garment, quality, view, frontPath }) {
+  // Order matters, the prompt refers to it: garment first, then the front view, then the model reference last.
   const refs = [await toFile(await fs.readFile(garment.file), `garment${path.extname(garment.file)}`, { type: mimeFor(garment.file) })]
   if (view.usesFront) refs.push(await toFile(await fs.readFile(frontPath), 'front-view.png', { type: 'image/png' }))
+  if (opts.modelRef) refs.push(await toFile(await fs.readFile(opts.modelRef), `model${path.extname(opts.modelRef)}`, { type: mimeFor(opts.modelRef) }))
   const prompt = [BASE_PROMPT, PROMPT_CLARIFICATION, garment.notes && `About this garment: ${garment.notes}`, opts.modelLook, view.text]
     .filter(Boolean)
     .join('\n\n')
@@ -282,6 +292,18 @@ async function main() {
     return
   }
 
+  // Model reference: --model-ref, else a single picture in model-reference/.
+  if (!opts.modelRef) {
+    const refDir = path.join(HERE, 'model-reference')
+    const pics = (await fs.readdir(refDir).catch(() => [])).filter((f) => !f.startsWith('.') && INPUT_EXTENSIONS.has(path.extname(f).toLowerCase()))
+    if (pics.length > 1) throw new Error(`Put only one picture in ${refDir} (found ${pics.length}), or choose one with --model-ref.`)
+    if (pics.length === 1) opts.modelRef = path.join(refDir, pics[0])
+  }
+  if (opts.modelRef && !INPUT_EXTENSIONS.has(path.extname(opts.modelRef).toLowerCase())) throw new Error('--model-ref must be a JPG, PNG or WebP picture')
+  if (opts.modelRef && !(await exists(opts.modelRef))) throw new Error(`Model reference not found: ${opts.modelRef}`)
+  opts.modelLook ??= opts.modelRef ? MODEL_REF_LOOK : DEFAULT_MODEL_LOOK
+  console.log(opts.modelRef ? `Model reference: ${opts.modelRef}` : 'No model reference: using a fictional model.')
+
   const allGarments = await listGarments(opts.input)
   if (allGarments.length === 0) {
     console.log(`No photos in ${opts.input}. Add JPG, PNG or WebP garment photos and run again.`)
@@ -303,7 +325,7 @@ async function main() {
   const garments = todo.slice(0, opts.limit)
 
   const estimate = garments.reduce(
-    (sum, g) => sum + g.missing.reduce((s, m) => s + (GUESS_USD[m.quality] ?? GUESS_USD.high) + GUESS_INPUT_USD[m.view.id], 0),
+    (sum, g) => sum + g.missing.reduce((s, m) => s + (GUESS_USD[m.quality] ?? GUESS_USD.high) + GUESS_INPUT_USD[m.view.id] + (opts.modelRef ? 0.015 : 0), 0),
     0,
   )
   const imageCount = garments.reduce((n, g) => n + g.missing.length, 0)

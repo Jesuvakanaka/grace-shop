@@ -50,6 +50,12 @@ $env:OPENAI_API_KEY = "sk-..."        # Windows PowerShell
 2. Optional: add notes for a garment in a text file with the same name, e.g.
    `denim-pinafore-dress.txt` saying "knee-length". They are added to the prompt.
    Use this for things a flat photo can't show, like length or fit.
+   Optional: to dress a specific model, put one picture of her in
+   `model-reference/` (or pass `--model-ref path/to/picture.jpg`). She is then
+   used in every picture, in place of the fictional model, and her own clothes
+   and background in that picture are ignored. Only use a picture of someone
+   who has agreed to appear in the shop's images, or of a model you generated.
+   This adds about a cent per picture.
 3. Check what will run and the rough cost, without spending anything:
 
    ```sh
@@ -74,7 +80,8 @@ any time. A failed picture is retried on the next run.
 | `--model gpt-image-2.5-sunburst` | Use Sunburst instead of Flare (the default). You can also set `OPENAI_IMAGE_MODEL`. |
 | `--output test-output-sunburst` | Save to another folder. Use this when switching model, otherwise the earlier results count as done. |
 | `--quality medium,high` | Which qualities to make. The API accepts `low`, `medium`, `high`, `auto`; 2.5 models also accept `xhigh` and `max`. |
-| `--model-look "..."` | Describe the fictional model, to replace the default description. |
+| `--model-ref picture.jpg` | Dress this model instead of a fictional one (same as one picture in `model-reference/`). |
+| `--model-look "..."` | Describe the model in your own words, replacing the default description. |
 | `--dry-run` | Show what would run and the estimate, call nothing. |
 | `--page-only` | Rebuild `index.html` from saved results. |
 
