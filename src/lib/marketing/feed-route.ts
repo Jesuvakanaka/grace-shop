@@ -15,7 +15,8 @@ export interface FeedDeps {
   hubOn?: boolean
 }
 
-async function defaultProducts(): Promise<PublicProduct[]> {
+/** Every published product from the cached public catalogue (public DTO only). */
+export async function loadPublishedProducts(): Promise<PublicProduct[]> {
   const { listPublishedProducts } = await import('@/lib/storefront')
   const all: PublicProduct[] = []
   for (let page = 1; ; page++) {
@@ -34,7 +35,7 @@ export async function serveFeed(request: Request, kind: 'csv' | 'xml', deps: Fee
   try {
     const { storefrontHosts } = hostRoutingConfigFromEnv()
     const host = request.headers.get('host')
-    const items = buildFeedItems(await (deps.loadProducts ?? defaultProducts)(), { storefrontHosts, host })
+    const items = buildFeedItems(await (deps.loadProducts ?? loadPublishedProducts)(), { storefrontHosts, host })
     const primary = primaryStorefrontHost(storefrontHosts)
     const siteLink = primary ? `https://${primary}/` : host ? `https://${host}/` : 'https://vyra.example/'
     const headers = { 'Cache-Control': 'public, max-age=300, s-maxage=300', 'X-Content-Type-Options': 'nosniff' }

@@ -1,11 +1,12 @@
 'use client';
-// ZP-1200: every channel the hub knows. Facebook and Instagram can be connected here (the rest say coming soon).
+// ZP-1200: every channel the hub knows. Channels with a Connect box can be connected here (the rest say coming soon).
 import React, { useCallback, useEffect, useState } from 'react';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useToast } from '@/components/Toast';
 import { mk, type ChannelItem } from '@/components/marketing/api';
 import { Card, ErrorNote, Loading } from '@/components/marketing/parts';
-import { connectedAsText, connectFormError, groupByFamily, modeLabel } from '@/lib/marketing/ui';
+import { connectFieldsError } from '@/lib/marketing/channels';
+import { connectedAsText, groupByFamily, modeLabel } from '@/lib/marketing/ui';
 
 function statusText(c: ChannelItem): string {
   if (c.mode === 'manual') return 'No connection needed';
@@ -16,8 +17,7 @@ function statusText(c: ChannelItem): string {
 
 function ConnectPanel({ c, onDone }: { c: ChannelItem; onDone: () => void }) {
   const toast = useToast();
-  const [pageId, setPageId] = useState('');
-  const [token, setToken] = useState('');
+  const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
@@ -25,18 +25,19 @@ function ConnectPanel({ c, onDone }: { c: ChannelItem; onDone: () => void }) {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const bad = connectFormError(pageId, token);
+    const bad = connectFieldsError(c.connectFields, values);
     if (bad) { setError(bad); return; }
     setBusy(true);
     setError(null);
     try {
-      await mk('/api/marketing/channels/connect', { method: 'POST', body: { kind: c.kind, pageId: pageId.trim(), accessToken: token.trim() } });
-      setToken('');
-      setPageId('');
+      const body: Record<string, string> = { kind: c.kind };
+      for (const f of c.connectFields) body[f.name] = (values[f.name] ?? '').trim();
+      await mk('/api/marketing/channels/connect', { method: 'POST', body });
+      setValues({});
       toast.success('Connected. Posting is still off until you switch it on in Settings.');
       onDone();
     } catch (err) {
-      setToken('');
+      setValues((v) => Object.fromEntries(Object.entries(v).filter(([k]) => c.connectFields.find((f) => f.name === k)?.kind !== 'secret')));
       setError(err instanceof Error ? err.message : 'Could not connect.');
     } finally {
       setBusy(false);
@@ -59,6 +60,24 @@ function ConnectPanel({ c, onDone }: { c: ChannelItem; onDone: () => void }) {
     }
   };
 
+  const sync = async (mode: 'products' | 'register-feed') => {
+    if (!c.channel) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const d = await mk<{ result: { mode: string; sent?: number; skipped?: number; failed?: number; firstError?: string | null } }>(`/api/marketing/channels/${c.channel.id}/sync-products`, { method: 'POST', body: { mode } });
+      const r = d.result;
+      if (r.mode === 'products') toast.success(`Sent ${r.sent} products to Google${r.skipped ? `, ${r.skipped} skipped (no price or photo)` : ''}${r.failed ? `, ${r.failed} refused` : ''}.`);
+      else toast.success('Google will now fetch your product feed every day.');
+      if (r.firstError) setError(r.firstError);
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not send products.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="mt-3 space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4" data-testid={`connect-panel-${c.kind}`}>
       {connected && c.channel ? (
@@ -74,19 +93,29 @@ function ConnectPanel({ c, onDone }: { c: ChannelItem; onDone: () => void }) {
             <ol className="list-decimal pl-5 space-y-1 text-sm text-slate-600">{c.setupSteps.map((n) => <li key={n}>{n}</li>)}</ol>
           </div>
           <p className="text-sm rounded border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">Connecting does not switch posting on. Nothing is posted until live posting is on in Settings and you approve each post.</p>
-          <div>
-            <label className="label" htmlFor={`pid-${c.kind}`}>Facebook Page ID</label>
-            <input id={`pid-${c.kind}`} className="input max-w-sm" inputMode="numeric" autoComplete="off" value={pageId} onChange={(e) => setPageId(e.target.value)} data-testid={`page-id-${c.kind}`} />
-          </div>
-          <div>
-            <label className="label" htmlFor={`tok-${c.kind}`}>Access token</label>
-            <input id={`tok-${c.kind}`} className="input max-w-sm" type="password" autoComplete="new-password" value={token} onChange={(e) => setToken(e.target.value)} data-testid={`token-${c.kind}`} />
-            <p className="text-xs text-slate-500 mt-1">It is checked with Meta, saved encrypted, and never shown again.</p>
-          </div>
+          {c.connectFields.map((f) => (
+            <div key={f.name}>
+              <label className="label" htmlFor={`f-${c.kind}-${f.name}`}>{f.label}</label>
+              <input
+                id={`f-${c.kind}-${f.name}`} className="input max-w-sm" autoComplete={f.kind === 'secret' ? 'new-password' : 'off'}
+                type={f.kind === 'secret' ? 'password' : 'text'} inputMode={f.kind === 'digits' ? 'numeric' : undefined}
+                value={values[f.name] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
+                data-testid={f.name === 'pageId' ? `page-id-${c.kind}` : f.name === 'accessToken' ? `token-${c.kind}` : `field-${c.kind}-${f.name}`}
+              />
+              {f.help ? <p className="text-xs text-slate-500 mt-1">{f.help}</p> : null}
+            </div>
+          ))}
           <ErrorNote message={error} />
-          <button type="submit" className="btn btn-primary" disabled={busy} data-testid={`connect-${c.kind}`}>{busy ? 'Checking with Meta…' : 'Connect'}</button>
+          <button type="submit" className="btn btn-primary" disabled={busy} data-testid={`connect-${c.kind}`}>{busy ? (c.family === 'google' ? 'Checking with Google…' : 'Checking…') : 'Connect'}</button>
         </form>
       )}
+      {connected && c.kind === 'GOOGLE_MERCHANT' ? (
+        <div className="flex flex-wrap gap-2" data-testid="merchant-sync">
+          <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => sync('products')} data-testid="sync-products">Send products to Google</button>
+          <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => sync('register-feed')} data-testid="register-feed">Register my product feed with Google</button>
+          <p className="basis-full text-xs text-slate-500">Needs live posting on in Settings and &quot;Product feed&quot; switched on. Products without a price are skipped.</p>
+        </div>
+      ) : null}
       {connected ? <ErrorNote message={error} /> : null}
       <ConfirmDialog open={confirm} title={`Disconnect ${c.label}?`} message="The saved token is wiped. Posts for this channel cannot go out until you connect it again." confirmText="Disconnect" variant="danger" onCancel={() => setConfirm(false)} onConfirm={disconnect} />
     </div>

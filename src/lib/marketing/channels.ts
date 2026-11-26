@@ -6,6 +6,67 @@ export type ChannelMode = 'api' | 'manual'
 export type PostFormat = 'POST' | 'STORY' | 'REEL' | 'CAROUSEL' | 'MESSAGE' | 'PIN' | 'VIDEO' | 'EMAIL' | 'SMS' | 'AD'
 export const POST_FORMATS: readonly PostFormat[] = ['POST', 'STORY', 'REEL', 'CAROUSEL', 'MESSAGE', 'PIN', 'VIDEO', 'EMAIL', 'SMS', 'AD']
 
+/** One box of the Connect form. `digits` = a number such as a Page ID; `text` = an ID or name; `secret` = a token or key (never shown again). */
+export interface ConnectField {
+  name: string
+  label: string
+  kind: 'digits' | 'text' | 'secret'
+  help?: string
+  max?: number
+}
+
+const PAGE_ID: ConnectField = { name: 'pageId', label: 'Facebook Page ID', kind: 'digits', max: 40 }
+const ACCESS_TOKEN: ConnectField = { name: 'accessToken', label: 'Access token', kind: 'secret', max: 1000, help: 'It is checked with Meta, saved encrypted, and never shown again.' }
+const GOOGLE_OAUTH: readonly ConnectField[] = [
+  { name: 'clientId', label: 'OAuth client ID', kind: 'text', max: 200 },
+  { name: 'clientSecret', label: 'OAuth client secret', kind: 'secret', max: 200 },
+  { name: 'refreshToken', label: 'Refresh token', kind: 'secret', max: 1000, help: 'It is checked with Google, saved encrypted, and never shown again.' },
+]
+
+/** The Connect form fields per kind. Kinds not listed have no connect form yet. */
+export const CONNECT_FIELDS: Readonly<Record<string, readonly ConnectField[]>> = {
+  FACEBOOK_PAGE: [PAGE_ID, ACCESS_TOKEN],
+  INSTAGRAM: [PAGE_ID, ACCESS_TOKEN],
+  META_ADS: [
+    { name: 'adAccountId', label: 'Ad account ID', kind: 'text', max: 40, help: 'Usually written act_123456789.' },
+    { ...PAGE_ID, label: 'Facebook Page ID (the ads run as this Page)' },
+    ACCESS_TOKEN,
+  ],
+  GOOGLE_BUSINESS: [
+    { name: 'accountId', label: 'Business Profile account ID', kind: 'digits', max: 30 },
+    { name: 'locationId', label: 'Location ID', kind: 'digits', max: 30 },
+    ...GOOGLE_OAUTH,
+  ],
+  GOOGLE_MERCHANT: [
+    { name: 'merchantId', label: 'Merchant Center ID', kind: 'digits', max: 30 },
+    ...GOOGLE_OAUTH,
+  ],
+  PINTEREST: [
+    { name: 'boardId', label: 'Board ID', kind: 'digits', max: 30, help: 'The board the pins go to (the number in the board link, or from the Pinterest app).' },
+    { ...ACCESS_TOKEN, label: 'Pinterest access token', help: 'It is checked with Pinterest, saved encrypted, and never shown again.' },
+  ],
+  TELEGRAM: [
+    { name: 'channel', label: 'Channel (@username or chat ID)', kind: 'text', max: 100, help: 'Add the bot to the channel as an administrator first.' },
+    { name: 'botToken', label: 'Bot token (from @BotFather)', kind: 'secret', max: 200 },
+  ],
+  X: [{ ...ACCESS_TOKEN, label: 'X user access token', help: 'OAuth 2.0 user token. X tokens expire after about 2 hours, so this needs reconnecting until a refresh is added.' }],
+  YOUTUBE: [...GOOGLE_OAUTH],
+  TIKTOK: [{ ...ACCESS_TOKEN, label: 'TikTok access token', help: 'Posts go to your TikTok inbox as drafts; you finish them in the app.' }],
+  THREADS: [{ ...ACCESS_TOKEN, label: 'Threads access token', help: 'It is checked with Threads, saved encrypted, and never shown again. The Threads profile ID is read from it.' }],
+}
+
+/** Plain message for the first bad value, or null. Pure: the page checks before sending and the API checks again. */
+export function connectFieldsError(fields: readonly ConnectField[], values: Record<string, string | undefined>): string | null {
+  for (const f of fields) {
+    const v = (values[f.name] ?? '').trim()
+    if (v === '') return `Fill in: ${f.label}.`
+    if (/\s/.test(v)) return `${f.label} must not contain spaces.`
+    if (f.kind === 'digits' && !/^\d{5,30}$/.test(v)) return `${f.label} is a number (digits only).`
+    if (f.max && v.length > f.max) return `${f.label} is too long.`
+  }
+  return null
+}
+
 export interface ChannelDef {
   kind: string
   label: string
@@ -16,6 +77,8 @@ export interface ChannelDef {
   limits: { maxText: number; maxHashtags: number; needsImage: boolean; imageFormat: 'jpeg' | 'any'; maxImages: number }
   /** A connector exists in code for this channel yet. */
   connector: boolean
+  /** The boxes of the Connect form (and the body the connect API accepts), in order. Plain data so the page can render them. */
+  connectFields: readonly ConnectField[]
   /** Plain-English steps the owner follows to switch it on. */
   setupSteps: readonly string[]
   /** What the official API cannot do. */
@@ -45,6 +108,7 @@ function def(
     capabilities: { publish: false, schedule: false, ads: false, catalog: false, messages: false, insights: false, ...caps },
     limits: { maxText: 2000, maxHashtags: 30, needsImage: false, imageFormat: 'any', maxImages: 1, ...limits },
     connector: false,
+    connectFields: [],
     setupSteps,
     apiNotes,
   }
@@ -61,7 +125,7 @@ const META_PAGE_STEPS = [
 const MANUAL_NOTE = 'No official API: the hub prepares the words and photos and you post them yourself, then mark it as shared.'
 
 /** Channels with a connector in src/lib/marketing/connectors. */
-const WITH_CONNECTOR = new Set(['FACEBOOK_PAGE', 'INSTAGRAM', 'META_ADS', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK'])
+const WITH_CONNECTOR = new Set(['FACEBOOK_PAGE', 'INSTAGRAM', 'META_ADS', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK', 'THREADS', 'GOOGLE_BUSINESS', 'GOOGLE_MERCHANT'])
 
 export const CHANNELS: readonly ChannelDef[] = [
   def('FACEBOOK_PAGE', 'Facebook Page', 'meta', 'api', ['POST', 'STORY', 'VIDEO'],
@@ -73,9 +137,9 @@ export const CHANNELS: readonly ChannelDef[] = [
     ['Switch the VYRA Instagram account to a Business or Creator account (Settings, Account type).', 'Link it to the VYRA Facebook Page (Page settings, Linked accounts).', ...META_PAGE_STEPS],
     ['The Instagram API publishes JPEG photos only (the hub converts the photos for you).', 'No shopping tags, no filters, no music. Links in a caption are not clickable.', 'At most 50 posts in 24 hours. Reels need a video and are not published automatically yet.']),
   def('THREADS', 'Threads', 'meta', 'api', ['POST'],
-    { publish: true, insights: true }, { maxText: 500, maxHashtags: 1, maxImages: 10 },
-    ['Make sure the VYRA Instagram account has a Threads profile.', 'In your Meta developer app add the Threads API and create a token for the profile.', 'Paste the token into the Connect box.'],
-    ['Text limit is 500 characters and only one topic tag per post.', 'No scheduling through the API: the hub holds the post until it is due.']),
+    { publish: true }, { maxText: 500, maxHashtags: 1, imageFormat: 'jpeg', maxImages: 1 },
+    ['Make sure the VYRA Instagram account has a Threads profile (open Threads and sign in with Instagram).', 'In Meta for Developers create an app, add the "Access the Threads API" use case, and add the VYRA profile as a Threads tester (App roles, Roles). Accept the invitation in the Threads app (Settings, Account, Website permissions, Invites).', 'In the app, Use cases, Threads API, generate a user token with threads_basic and threads_content_publish. Exchange it for a long-lived token (valid 60 days) as the Meta guide shows.', 'Paste the token into the Connect box. The hub checks it with Threads and reads the profile from it.', 'Turn on live posting in the settings only when you are ready: nothing goes out until you switch it on and approve each post.'],
+    ['Text posts are limited to 500 characters; one photo per post here (no carousels yet). Links count as text, at most 5 per post.', 'No scheduling through the API: the hub holds the post until it is due.', 'Long-lived tokens last 60 days and must be renewed; when Threads rejects the token the post fails and you connect again.', 'Until Meta approves the app, only profiles with a role on the app can post.']),
   def('META_ADS', 'Facebook and Instagram ads', 'meta', 'api', ['AD'],
     { publish: true, ads: true, insights: true }, { maxText: 2000, needsImage: true, maxImages: 10 },
     ['In Meta Business Settings, Accounts, Ad accounts, add (or create) the VYRA ad account.', 'Add a payment method that works from Zimbabwe (Billing, Payment methods). Test with a $1 a day boost first.', 'Users, System users: add a system user, assign it the ad account and the Page, then generate a token with ads_management and ads_read (expiry Never). Standard access is enough for your own ad account.', 'Paste the ad account ID (act_123456789), the Page ID and the token into the Connect box. The token is saved encrypted and never shown again.', 'Set a monthly spend cap in the hub settings. Without one, no ad can be created. Use a USD ad account.'],
@@ -100,13 +164,13 @@ export const CHANNELS: readonly ChannelDef[] = [
     ['Create a Meta business and add the WhatsApp product to your developer app.', 'Add a phone number and get the phone number ID and a permanent token.', 'Submit message templates for approval in WhatsApp Manager.', 'Paste the phone number ID and token into the Connect box.'],
     ['You can only message customers who opted in.', 'Outside the 24-hour reply window only approved templates can be sent, and each conversation is charged by Meta.', 'Using the number here changes how the WhatsApp app behaves on that number (broadcast lists become read-only).']),
   def('GOOGLE_BUSINESS', 'Google Business Profile', 'google', 'api', ['POST'],
-    { publish: true, insights: true }, { maxText: 1500, maxHashtags: 0, maxImages: 1 },
-    ['Claim the VYRA listing at business.google.com.', 'Request access to the Business Profile APIs in Google Cloud and create OAuth credentials.', 'Paste the refresh token and the location ID into the Connect box.'],
-    ['API access has to be requested from Google and can take days.', 'Posts last 7 days unless they are events or offers.']),
+    { publish: true }, { maxText: 1500, maxHashtags: 0, imageFormat: 'jpeg', maxImages: 1 },
+    ['Claim and verify the VYRA listing at business.google.com.', 'In Google Cloud create a project, then ask Google for access to the Business Profile APIs (the "GBP API access" request form). Google has to approve the project before any call works; this can take days.', 'Once approved, enable the Business Profile APIs, set up the OAuth consent screen, and create an OAuth client ID (type "Web application") with the https://www.googleapis.com/auth/business.manage scope.', 'Use the OAuth Playground (or your own sign-in) to sign in as the account that owns the listing and copy the refresh token. Find the account ID and the location ID (the numbers in accounts/123/locations/456).', 'Paste the account ID, location ID, client ID, client secret and refresh token into the Connect box. The hub checks them by listing the location.'],
+    ['API access needs Google\'s approval of the project, and it can take days. Until then every call is refused.', 'A "What\'s new" post with one photo and a Learn more or Call button. Posts show for 7 days unless they are events or offers. Links in the words are not clickable; the button carries the link.', 'The photo must be a JPEG or PNG of at least 400 x 300 pixels.', 'Insights are not read yet.']),
   def('GOOGLE_MERCHANT', 'Google Merchant Center (free listings)', 'google', 'api', ['POST'],
-    { publish: true, catalog: true, insights: true }, { maxText: 5000, needsImage: true, maxImages: 10 },
-    ['Create a Merchant Center account and verify the VYRA website.', 'Create a Google Cloud service account and add it as a user in Merchant Center.', 'Paste the service account key and merchant ID into the Connect box.'],
-    ['The old Content API ended on 18 August 2026: the hub uses the Merchant API.', 'Products appear only after Google reviews them, which can take days.']),
+    { catalog: true }, { maxText: 5000, needsImage: true, maxImages: 10 },
+    ['Create a Merchant Center account and verify and claim the VYRA website.', 'In Google Cloud enable the Merchant API and create an OAuth client ID (type "Web application") with the https://www.googleapis.com/auth/content scope.', 'Sign in as a Merchant Center admin (OAuth Playground works) and copy the refresh token. Register the Google Cloud project with Merchant Center (Settings, Developer registration).', 'Paste the Merchant Center ID, client ID, client secret and refresh token into the Connect box. The hub checks them with Google.', 'Turn on "Product feed" in the hub settings, then press "Send products to Google" on this channel (needs live posting on). The hub either registers your feed link as a data source or sends the products one by one.'],
+    ['The old Content API ended on 18 August 2026: the hub uses the Merchant API.', 'This channel carries your product catalogue, not posts: it cannot publish a post.', 'Google needs a price on every product; pieces with a hidden price are skipped.', 'Products appear only after Google reviews them, which can take days.']),
   def('GOOGLE_ADS', 'Google Ads', 'google', 'api', ['AD'],
     { publish: true, ads: true, insights: true }, { maxText: 90, maxHashtags: 0, maxImages: 1 },
     ['Create a Google Ads account with a payment method.', 'Apply for a developer token (Tools, API Center). Google reviews it.', 'Create OAuth credentials and paste the refresh token and customer ID into the Connect box.', 'Set a monthly spend cap in the hub settings.'],
@@ -151,7 +215,7 @@ export const CHANNELS: readonly ChannelDef[] = [
   def('PRINT_QR', 'Print and QR codes', 'offline', 'manual', ['POST'],
     {}, { maxText: 300, maxHashtags: 0, maxImages: 1 }, ['Print the QR code and tag line on flyers, bags or the shop window.', 'Each print run has its own tracking link, so scans show up in the results.'],
     ['Scans are counted as visits with the tracking tag; walk-ins cannot be tracked.']),
-].map((c) => (WITH_CONNECTOR.has(c.kind) ? { ...c, connector: true } : c))
+].map((c) => ({ ...c, connector: WITH_CONNECTOR.has(c.kind), connectFields: CONNECT_FIELDS[c.kind] ?? [] }))
 
 const BY_KIND = new Map(CHANNELS.map((c) => [c.kind, c]))
 

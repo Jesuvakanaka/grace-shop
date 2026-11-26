@@ -30,7 +30,7 @@ export const pinterestConnector: Connector = {
   async publish(post: ConnectorPost, ctx: ConnectorContext): Promise<PublishResult> {
     gateOrThrow(ctx)
     const t = token(ctx.credentials)
-    const boardId = ctx.externalId || (typeof ctx.config?.boardId === 'string' ? ctx.config.boardId : '')
+    const boardId = (typeof ctx.config?.boardId === 'string' && ctx.config.boardId) || ctx.externalId || ''
     if (!t) return { ok: false, error: 'This channel has no Pinterest access token saved.', retryable: false }
     if (!boardId) return { ok: false, error: 'This channel has no Pinterest board ID saved. Each pin goes to one board.', retryable: false }
     if (post.format !== 'PIN' && post.format !== 'POST') return { ok: false, error: `Pinterest cannot publish a ${post.format.toLowerCase()} automatically. Use a pin.`, retryable: false }

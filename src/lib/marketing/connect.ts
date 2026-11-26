@@ -4,13 +4,17 @@ import type { MarketingChannel } from '@prisma/client'
 import { WebsiteError } from '@/lib/website/http'
 import { writeAudit, type Db } from './audit'
 import { toChannelRowDto, type ChannelRowDto } from './channel-rows'
+import { getChannel, connectFieldsError } from './channels'
+import { getConnector } from './connectors'
 import { verifyAdAccount, cleanAccountId } from './connectors/meta-ads'
 import { lookupPage, MetaGraphError } from './connectors/meta-graph'
 import type { FetchLike } from './connectors/types'
 import { encryptJson, tokenHint } from './secrets'
 import { asObject, onlyKeys, oneOf, requiredText } from './validate'
 
-export const CONNECTABLE_KINDS = ['FACEBOOK_PAGE', 'INSTAGRAM', 'META_ADS'] as const
+export const CONNECTABLE_KINDS = ['FACEBOOK_PAGE', 'INSTAGRAM', 'META_ADS', 'THREADS', 'GOOGLE_BUSINESS', 'GOOGLE_MERCHANT', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK'] as const
+/** Kinds connected through the registry's `connectFields` and the connector's own verify(). */
+const FIELD_KINDS: readonly string[] = ['THREADS', 'GOOGLE_BUSINESS', 'GOOGLE_MERCHANT', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK']
 
 async function saveRow(
   db: Db, kind: string, name: string, externalId: string, accessToken: string, config: Record<string, string>, actor: string,
@@ -46,8 +50,9 @@ export async function connectMeta(
   deps: { fetch: FetchLike },
 ): Promise<{ channels: ChannelRowDto[]; instagramLinked: boolean }> {
   const o = asObject(body)
-  onlyKeys(o, ['kind', 'pageId', 'accessToken', 'adAccountId'])
   const kind = oneOf(o.kind, 'kind', CONNECTABLE_KINDS)
+  if (FIELD_KINDS.includes(kind)) return connectWithFields(db, kind, o, actor, deps)
+  onlyKeys(o, ['kind', 'pageId', 'accessToken', 'adAccountId'])
   if (kind === 'META_ADS') return connectMetaAds(db, o, actor, deps)
   if ('adAccountId' in o) throw new WebsiteError(400, 'Unknown field "adAccountId"', { field: 'adAccountId' })
   const pageId = requiredText(o.pageId, 'pageId', 40)
@@ -108,5 +113,41 @@ export async function connectMetaAds(
   if (!v.ok) throw new WebsiteError(400, v.error, { field: 'accessToken' })
   const config = { pageId, adAccountId: v.id, currency: v.currency ?? '', accountName: v.name ?? '' }
   const row = await saveRow(db, 'META_ADS', v.name ?? 'Meta ad account', v.id, accessToken, config, actor, { accessToken, adAccountId: v.id, pageId })
+  return { channels: [toChannelRowDto(row)], instagramLinked: false }
+}
+
+/**
+ * Connect a channel from the field list in the registry (Threads, Google Business Profile, Google Merchant Center).
+ * Every field is validated, the connector's verify() makes a read-only call, then the values are saved encrypted.
+ * Non-secret fields are kept in config; only tokenHint (last 4 of the last secret field) is ever returned.
+ */
+export async function connectWithFields(
+  db: Db, kind: string, o: Record<string, unknown>, actor: string, deps: { fetch: FetchLike },
+): Promise<{ channels: ChannelRowDto[]; instagramLinked: boolean }> {
+  const def = getChannel(kind)
+  const connector = getConnector(kind)
+  if (!def || !connector || def.connectFields.length === 0) throw new WebsiteError(400, 'This channel cannot be connected here yet.', { field: 'kind' })
+  onlyKeys(o, ['kind', ...def.connectFields.map((f) => f.name)])
+  const values: Record<string, string> = {}
+  for (const f of def.connectFields) {
+    const v = o[f.name]
+    if (v !== undefined && typeof v !== 'string') throw new WebsiteError(400, `${f.label} must be text.`, { field: f.name })
+    values[f.name] = (v ?? '').trim()
+  }
+  const bad = connectFieldsError(def.connectFields, values)
+  if (bad) {
+    const field = def.connectFields.find((f) => connectFieldsError([f], values))?.name
+    throw new WebsiteError(400, bad, { field })
+  }
+  const v = await connector.verify(values, deps.fetch)
+  if (!v.ok) throw new WebsiteError(400, v.error, { field: def.connectFields.filter((f) => f.kind === 'secret').at(-1)?.name })
+  const secrets = def.connectFields.filter((f) => f.kind === 'secret')
+  const hintSource = values[secrets[secrets.length - 1].name]
+  const config: Record<string, string> = {}
+  for (const f of def.connectFields) if (f.kind !== 'secret') config[f.name] = values[f.name]
+  // Keep settings the hub saved later (for example the Merchant data source) when the owner reconnects.
+  const existing = await db.marketingChannel.findFirst({ where: { kind }, orderBy: { id: 'asc' } })
+  const kept = existing?.config && typeof existing.config === 'object' && !Array.isArray(existing.config) ? (existing.config as Record<string, string>) : {}
+  const row = await saveRow(db, kind, v.name ?? def.label, v.externalId ?? '', hintSource, { ...kept, ...config }, actor, values)
   return { channels: [toChannelRowDto(row)], instagramLinked: false }
 }
