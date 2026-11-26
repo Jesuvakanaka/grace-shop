@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { EmptyState } from '@/components/EmptyState';
 import { useToast } from '@/components/Toast';
 import { mk, type Content, type Post } from '@/components/marketing/api';
+import { PlanMyWeek } from '@/components/marketing/ai';
 import { Card, ErrorNote, Loading } from '@/components/marketing/parts';
 import { charCount, channelLabel } from '@/lib/marketing/ui';
 import { getChannel } from '@/lib/marketing/channels';
@@ -58,10 +59,11 @@ export default function ApprovalsPage() {
   }, [posts]);
 
   if (!posts) return error ? <ErrorNote message={error} /> : <Loading />;
-  if (posts.length === 0) return <EmptyState icon="✅" title="Nothing waiting" description="Posts you submit for approval show up here." />;
+  if (posts.length === 0) return <div className="space-y-6"><EmptyState icon="✅" title="Nothing waiting" description="Posts you submit for approval show up here." /><PlanMyWeek /></div>;
 
   return (
     <div className="space-y-6">
+      <PlanMyWeek />
       <ErrorNote message={error} />
       {groups.map(([contentId, list]) => (
         <Card key={contentId} className="space-y-4">

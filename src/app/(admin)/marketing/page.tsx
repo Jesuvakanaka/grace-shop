@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Card, ErrorNote, Loading, StatusPill, useHubStatus } from '@/components/marketing/parts';
 import { mk, type Post } from '@/components/marketing/api';
+import { PlanMyWeek, SuggestionsPanel } from '@/components/marketing/ai';
 import { channelLabel, liveBlockers, publishedThisWeek, shareBundlesReady, weekBuckets } from '@/lib/marketing/ui';
 
 const dayName = (d: Date) => d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' });
@@ -19,6 +20,7 @@ export default function MarketingOverviewPage() {
   const [ready, setReady] = useState(false);
   const [now] = useState(() => new Date());
 
+  const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
     const from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7).toISOString();
     const to = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7).toISOString();
@@ -36,7 +38,7 @@ export default function MarketingOverviewPage() {
         setReady(true);
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Could not load.'));
-  }, [now]);
+  }, [now, reloadKey]);
 
   const blockers = status ? liveBlockers(status.live) : [];
   const days = useMemo(() => weekBuckets(week, new Date(now.getFullYear(), now.getMonth(), now.getDate()), 7), [week, now]);
@@ -70,6 +72,10 @@ export default function MarketingOverviewPage() {
         <div className="card" data-testid="count-scheduled"><p className="text-sm text-slate-500">Scheduled</p><p className="text-3xl font-semibold text-slate-900">{scheduled.length}</p></div>
         <div className="card" data-testid="count-published"><p className="text-sm text-slate-500">Published this week</p><p className="text-3xl font-semibold text-slate-900">{sentThisWeek}</p></div>
       </div>
+
+      <PlanMyWeek onApplied={() => setReloadKey((k) => k + 1)} />
+
+      <SuggestionsPanel />
 
       <Card>
         <h2 className="font-serif text-xl font-semibold text-slate-900 mb-3">Share bundles ready</h2>

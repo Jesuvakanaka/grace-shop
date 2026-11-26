@@ -28,6 +28,8 @@ export interface Post {
   externalUrl: string | null;
   error: string | null;
   attempts: number;
+  aiGenerated?: boolean;
+  aiCostCents?: number;
 }
 
 export interface Content {
@@ -61,4 +63,4 @@ export interface PickerProduct {
 }
 
 import type { ChannelDef } from '@/lib/marketing/channels';
-export type ChannelItem = ChannelDef & { channel: { id: number; status: string; name: string; tokenHint: string | null; lastError: string | null } | null; effectiveStatus: string };
+export type ChannelItem = ChannelDef & { channel: { id: number; status: string; name: string; tokenHint: string | null; lastError: string | null; connectedAt: string | null; connectedBy: string | null } | null; effectiveStatus: string };

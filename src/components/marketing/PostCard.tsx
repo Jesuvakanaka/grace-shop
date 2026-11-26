@@ -6,9 +6,10 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { SharePhotos } from '@/components/SharePhotos';
 import { useToast } from '@/components/Toast';
 import { getChannel } from '@/lib/marketing/channels';
-import { availableActions, charCount, fromLocalInput, isEditable, modeLabel, shareCaption, toLocalInput, type ActionButton } from '@/lib/marketing/ui';
+import { attemptsLeft, availableActions, canRewrite, charCount, viewOnlineLabel, fromLocalInput, isEditable, modeLabel, shareCaption, toLocalInput, type ActionButton } from '@/lib/marketing/ui';
 import { imageUrlForKey, isValidImageKey } from '@/lib/storage/keys';
 import { mk, type Post } from './api';
+import { AiTag } from './ai';
 import { PhotoTicker, StatusPill } from './parts';
 
 const btnClass = (tone: ActionButton['tone']) => (tone === 'primary' ? 'btn btn-primary' : tone === 'danger' ? 'btn btn-danger' : 'btn btn-secondary');
@@ -19,6 +20,9 @@ export function PostCard({
   connected,
   onChange,
   title,
+  aiBusy = false,
+  aiWorking = false,
+  onRewrite,
 }: {
   post: Post;
   /** Image keys the owner can pick from (the content's photos). */
@@ -26,6 +30,9 @@ export function PostCard({
   connected: boolean;
   onChange: (p: Post) => void;
   title: string;
+  aiBusy?: boolean;
+  aiWorking?: boolean;
+  onRewrite?: () => void;
 }) {
   const toast = useToast();
   const ch = getChannel(post.channelKind);
@@ -106,6 +113,7 @@ export function PostCard({
         <span className={`text-xs ${connected ? 'text-brand-olive-700' : 'text-slate-500'}`}>
           {ch.mode === 'manual' ? '' : connected ? 'Connected' : 'Not connected yet'}
         </span>
+        {post.aiGenerated ? <AiTag /> : null}
         <span className="ml-auto"><StatusPill status={post.status} /></span>
       </header>
 
@@ -146,8 +154,17 @@ export function PostCard({
       </div>
 
       {post.status === 'SCHEDULED' && post.scheduledFor ? <p className="text-sm text-slate-600">Scheduled for {new Date(post.scheduledFor).toLocaleString()}.</p> : null}
-      {post.error ? <p className="text-sm text-rose-700">Problem: {post.error}</p> : null}
-      {post.externalUrl ? <a className="text-sm text-brand-olive-700 underline" href={post.externalUrl} target="_blank" rel="noopener noreferrer">See it online</a> : null}
+      {post.status === 'PUBLISHED' ? (
+        <p className="text-sm text-slate-600" data-testid={`published-${post.id}`}>
+          Published{post.publishedAt ? ` ${new Date(post.publishedAt).toLocaleString()}` : ''}.{' '}
+          {post.externalUrl ? <a className="text-brand-olive-700 underline" href={post.externalUrl} target="_blank" rel="noopener noreferrer">{viewOnlineLabel(post.channelKind)}</a> : null}
+        </p>
+      ) : post.externalUrl ? <a className="text-sm text-brand-olive-700 underline" href={post.externalUrl} target="_blank" rel="noopener noreferrer">{viewOnlineLabel(post.channelKind)}</a> : null}
+      {post.status === 'FAILED' ? (
+        <p className="text-sm text-rose-700" data-testid={`failed-${post.id}`}>
+          Problem: {post.error ?? 'It did not post.'} {attemptsLeft(post.attempts) > 0 ? `You can try again (${attemptsLeft(post.attempts)} ${attemptsLeft(post.attempts) === 1 ? 'try' : 'tries'} left).` : 'No tries left.'}
+        </p>
+      ) : post.error ? <p className="text-sm text-rose-700">Problem: {post.error}</p> : null}
 
       {bundle ? (
         <div className="rounded-lg border border-brand-olive-200 bg-brand-olive-50 p-4 space-y-3" data-testid={`share-bundle-${post.id}`}>
@@ -171,8 +188,13 @@ export function PostCard({
       {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert" data-testid={`post-error-${post.id}`}>{error}</p> : null}
       {dirty && editable ? <p className="text-xs text-slate-500">Save your changes to see the buttons.</p> : null}
 
-      {actions.length > 0 ? (
+      {actions.length > 0 || (onRewrite && canRewrite(post.status) && !dirty) ? (
         <div className="flex flex-wrap gap-2">
+          {onRewrite && canRewrite(post.status) && !dirty ? (
+            <button type="button" className="btn btn-secondary min-h-12" disabled={busy || aiBusy} onClick={onRewrite} data-testid={`rewrite-${post.id}`}>
+              {aiWorking ? 'Writing…' : 'Rewrite with AI'}
+            </button>
+          ) : null}
           {actions.map((a) => (
             <button
               key={a.action}
