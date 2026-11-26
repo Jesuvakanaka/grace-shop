@@ -436,6 +436,9 @@ export default function CaptureReviewPage() {
             <label className="label" htmlFor="cap-item">Item number (optional)</label>
             <input id="cap-item" className="input w-full sm:w-64" maxLength={60} placeholder={`CAP-${draft.id}`} value={itemNumber} onChange={(e) => setItemNumber(e.target.value)} />
           </div>
+          {!form.categoryId && (
+            <p className="text-sm text-amber-800">Pick a category above to publish. Without one the piece is saved as a draft product.</p>
+          )}
           {approveError && <p className="text-sm text-rose-700">{approveError.error}</p>}
           <div className="flex flex-col sm:flex-row gap-2">
             <button type="button" className="btn btn-primary" onClick={() => approve(true)} disabled={!!approving} data-testid="capture-publish">
