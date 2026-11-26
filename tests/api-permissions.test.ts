@@ -73,6 +73,7 @@ import * as mkPostById from '../src/app/api/marketing/posts/[id]/route';
 import * as mkPostTransition from '../src/app/api/marketing/posts/[id]/transition/route';
 import * as mkConnect from '../src/app/api/marketing/channels/connect/route';
 import * as mkDisconnect from '../src/app/api/marketing/channels/[id]/disconnect/route';
+import * as mkSyncProducts from '../src/app/api/marketing/channels/[id]/sync-products/route';
 import * as mkAudit from '../src/app/api/marketing/audit/route';
 import * as mkDraft from '../src/app/api/marketing/content/[id]/draft/route';
 import * as mkSuggestions from '../src/app/api/marketing/suggestions/route';
@@ -189,6 +190,7 @@ const cases: Case[] = [
   { method: 'GET', path: '/api/marketing/channels', handler: h(mkChannels.GET), policy: 'OWNER' },
   { method: 'POST', path: '/api/marketing/channels/connect', handler: h(mkConnect.POST), policy: 'OWNER' },
   { method: 'POST', path: `/api/marketing/channels/${MISSING_ID}/disconnect`, handler: h(mkDisconnect.POST), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: `/api/marketing/channels/${MISSING_ID}/sync-products`, handler: h(mkSyncProducts.POST), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'GET', path: '/api/marketing/campaigns', handler: h(mkCampaigns.GET), policy: 'OWNER' },
   { method: 'POST', path: '/api/marketing/campaigns', handler: h(mkCampaigns.POST), policy: 'OWNER' },
   { method: 'GET', path: `/api/marketing/campaigns/${MISSING_ID}`, handler: h(mkCampaignById.GET), policy: 'OWNER', params: { id: MISSING_ID } },

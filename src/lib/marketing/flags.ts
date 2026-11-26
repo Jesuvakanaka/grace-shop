@@ -47,3 +47,31 @@ export function assertCanGoLive(input: GoLiveInput): void {
   const check = checkCanGoLive(input)
   if (!check.ok) throw new WebsiteError(409, check.reason, { blocked: 'live' })
 }
+
+export interface SyncInput {
+  settings: { liveEnabled: boolean } | null | undefined
+  channel: { status: string; credentialsEnc?: string | null } | null | undefined
+  /** Who pressed the button. Only an OWNER may start a sync (there is no post to carry an approval). */
+  actor: { role: string } | null | undefined
+  env?: Env
+}
+
+/**
+ * Gate for outward actions that have no post to approve (sending the product catalogue to Google Merchant Center).
+ * Same conditions as checkCanGoLive, except that "the owner approved the post" becomes "an owner pressed the button".
+ */
+export function checkCanSync(input: SyncInput): GoLiveCheck {
+  const base = checkCanGoLive({
+    settings: input.settings, channel: input.channel, env: input.env,
+    // The approval is the owner's action itself; a non-owner actor leaves it empty and is blocked below.
+    post: input.actor?.role === 'OWNER' ? { approvedBy: 'owner-action', approvedAt: new Date() } : null,
+  })
+  if (!base.ok && base.reason === 'The owner has not approved this yet.') return { ok: false, reason: 'Only the owner can send products to a channel.' }
+  return base
+}
+
+/** Throws a 409 WebsiteError with a plain reason unless env live + live setting + connected channel + an owner action all hold. */
+export function assertCanSync(input: SyncInput): void {
+  const check = checkCanSync(input)
+  if (!check.ok) throw new WebsiteError(409, check.reason, { blocked: 'live' })
+}

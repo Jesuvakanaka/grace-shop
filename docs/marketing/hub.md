@@ -7,7 +7,7 @@ Michael has no platform accounts or keys yet, so every connector is built agains
 ## What exists (PR 1: foundation, no screens yet)
 
 - Data model, API, channel registry, post status machine, tracking, encrypted token storage, audit log.
-- Connectors: Facebook Page and Instagram (see below). Every other channel still has `connector: false`. No AI drafting yet. No pages yet.
+- Connectors: Facebook Page and Instagram (see below), plus Threads, Google Business Profile and Google Merchant Center (later section). Every other channel still has `connector: false`. No AI drafting yet. No pages yet.
 
 ## Flags and safety switches
 
@@ -68,7 +68,7 @@ Editing the words, photos or format of an approved or scheduled post sends it ba
 - `GET/POST /api/marketing/content` (POST may include `channels: [...]` to create one draft post per channel), `GET/PATCH/DELETE /api/marketing/content/[id]`
 - `GET /api/marketing/posts?status=&channel=&from=&to=` (from/to match the scheduled or published time), `GET/PATCH /api/marketing/posts/[id]`
 - `POST /api/marketing/posts/[id]/transition` with `{ action, scheduledFor? }`; actions: submit, cancel, approve, reject, schedule, unschedule, publish, retry, share. `publish` and `retry` really send the post through its connector (`publishPost`) and answer with the post as PUBLISHED or FAILED.
-- `POST /api/marketing/channels/connect` with `{ kind: 'FACEBOOK_PAGE' | 'INSTAGRAM', pageId, accessToken }` and `POST /api/marketing/channels/[id]/disconnect` (see below)
+- `POST /api/marketing/channels/connect` with `{ kind, ...fields }`: the fields per kind are `connectFields` in `channels.ts` (Facebook/Instagram `pageId` + `accessToken`; META_ADS; THREADS `accessToken`; GOOGLE_BUSINESS `accountId`, `locationId`, `clientId`, `clientSecret`, `refreshToken`; GOOGLE_MERCHANT `merchantId` + the three Google values). `POST /api/marketing/channels/[id]/disconnect`. `POST /api/marketing/channels/[id]/sync-products` with `{ mode?: 'products' | 'register-feed' }` (Google Merchant only; see below)
 - `GET /api/marketing/audit?limit=&entity=`
 - `POST /api/marketing/content/[id]/draft` with optional `{ channels }`: AI writes the DRAFT/REJECTED posts (see AI below)
 - `GET /api/marketing/suggestions?limit=`: products worth promoting this week
@@ -212,6 +212,49 @@ Errors: a rejected or expired token gives code 401 and is not retried (reconnect
 
 Each registry entry has plain-English `setupSteps` and `apiNotes` (what the official API cannot do). Channels with `mode: 'manual'` (Facebook Groups and Marketplace, WhatsApp Status, Channels and broadcast lists, influencers, resellers, classifieds, print/QR) need no keys: the hub prepares the content and the owner posts it and presses "Mark as shared".
 
+## Threads, Google Business Profile and Google Merchant Center
+
+Code: `connectors/threads.ts`, `google-business.ts`, `google-merchant.ts`, `google-oauth.ts`, `merchant-sync.ts`, `connect.ts` (`connectWithFields`). Every connector file has the official doc URLs and the date they were checked (2026-11-26) at the top. None has been run against a real account: the owner has none yet.
+
+**Connect form:** each registry entry has `connectFields` (name, label, kind `digits` | `text` | `secret`). The Channels page and the connect API both use that list, and `connectFieldsError` checks it (no blanks, no spaces, digits where a number is expected). The connector's own `verify()` makes a read-only call first; the values are then saved AES-256-GCM encrypted. Non-secret values (IDs, client ID) go into `config`; secrets (token, client secret, refresh token) only into `credentialsEnc`. Only "ends ...1234" (last 4 of the last secret field) is returned. Reconnecting keeps other saved `config` keys.
+
+### Threads (`graph.threads.net/v1.0`)
+Text or one-photo posts. Step 1 `POST /{user}/threads` (`media_type=TEXT` with `link_attachment`, or `IMAGE` with `image_url`, the tracked link goes in the words), poll `GET /{container}?fields=status,error_message` until FINISHED, step 2 `POST /{user}/threads_publish` with `creation_id`. 500 characters. The version is the constant `THREADS_API_VERSION` (`v1.0`, the one the docs show); override with env `THREADS_API_VERSION`. Same go-live checks as Facebook (`assertCanGoLive`, checked again inside the connector). Setup steps are in the registry (Threads tester role, `threads_basic` + `threads_content_publish`, long-lived token that lasts 60 days and must be renewed).
+
+### Google Business Profile
+"What's new" local post (`topicType STANDARD`, a photo, a Learn more button carrying the tracked link): `POST https://mybusiness.googleapis.com/v4/accounts/{a}/locations/{l}/localPosts` after exchanging the refresh token at `oauth2.googleapis.com/token`. `verify()` lists the account's locations (`mybusinessbusinessinformation.googleapis.com/v1`) and checks the saved one is there. **API access needs Google's approval of the Cloud project**; until then Google answers 403 and the hub says so. A Call button instead of Learn more can be set by hand in the channel's `config` (`{"callToAction":"CALL"}`); there is no screen for it yet. Credentials Google rejects (revoked refresh token) fail the post and move the channel to ERROR.
+
+### Google Merchant Center (Merchant API, not the Content API that ended on 18 Aug 2026)
+This channel carries the catalogue, not posts: `publish` always answers "carries your product catalogue, not posts" and sends nothing (its registry `publish` capability is off). Two owner actions, `POST /api/marketing/channels/[id]/sync-products`:
+- `register-feed`: creates a scheduled file-fetch data source pointing at `https://<storefront host>/api/public/marketing/feed.xml`.
+- `products` (default): builds the rows with `feed.ts` from the public product DTO (published products only), and inserts each one with `productInputs:insert` into an API data source (created once and saved in `config.apiDataSource`). Products with no price or photo are skipped (Google requires both). At most 500 per run; it stops after 3 refusals in a row or rejected credentials.
+
+**The sync gate (`assertCanSync` in `flags.ts`):** there is no post to approve, so ALL of: `GRACE_MARKETING_LIVE === 'true'`, `settings.liveEnabled`, the channel CONNECTED with credentials, and the caller is an OWNER (STAFF, SYSTEM or no actor are blocked). The route also needs `productFeedEnabled` on. The gate runs in the service before anything is decrypted or loaded and again inside the connector before every request group. A failed sync writes `channel.sync_failed` to the audit log, a good one `channel.sync` with counts only.
+
+### How to switch each one on (plain English)
+
+**Threads**
+1. Check the VYRA Instagram account has a Threads profile.
+2. In Meta for Developers create an app and add the Threads API. Add the VYRA profile as a Threads tester and accept the invitation in the Threads app.
+3. Generate a token with `threads_basic` and `threads_content_publish` and swap it for a long-lived one (60 days).
+4. Channels, Threads, paste the token, Connect. Put a reminder in your diary to renew it before 60 days.
+
+**Google Business Profile**
+1. Claim and verify the VYRA listing on Google.
+2. In Google Cloud make a project and fill in Google's "Business Profile API access" request. Wait for approval (days).
+3. Enable the Business Profile APIs, create an OAuth client ID (Web application), and get a refresh token for the account that manages the listing (scope `business.manage`).
+4. Note the account number and location number (accounts/123/locations/456).
+5. Channels, Google Business Profile, fill in the five boxes, Connect.
+
+**Google Merchant Center**
+1. Create the Merchant Center account, verify and claim the website.
+2. In Google Cloud enable the Merchant API, create an OAuth client ID (Web application), and get a refresh token for a Merchant Center admin (scope `content`). Register the project under Merchant Center, Settings, Developer registration.
+3. Channels, Google Merchant Center, enter the Merchant ID and the three Google values, Connect.
+4. In Settings turn on "Product feed" (and live posting when ready; the server also needs `GRACE_MARKETING_LIVE=true`).
+5. Press "Register my product feed with Google" (Google then fetches the feed daily) or "Send products to Google" (sends them now).
+
+**Not verified against the real services:** the exact `primaryProductDataSource` + `fetchSettings` body (taken from Google's Python sample, not a REST example), `productAttributes` field spellings that Google's insert examples do not show (`brand`, `identifierExists`, `productTypes`, `googleProductCategory`, `additionalImageLinks`), the Merchant `accounts/v1` verify call, the Business Profile `mediaFormat: PHOTO` field, and Threads' current API version.
+
 ## Coming in later PRs
 
-Concrete connectors (Threads, Google, email, SMS, WhatsApp Cloud), contacts with opt-in, partners, daily results and recommendations.
+Google Ads, email, SMS and WhatsApp Cloud connectors, contacts with opt-in, partners, daily results and recommendations.
