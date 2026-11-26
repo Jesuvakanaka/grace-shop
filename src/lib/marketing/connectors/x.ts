@@ -7,9 +7,15 @@
 //     POST https://api.x.com/2/media/upload/{id}/finalize     -> data.id
 //   Post: POST https://api.x.com/2/tweets  JSON { text, media:{ media_ids:[...] } } -> data.id
 //   verify(): GET https://api.x.com/2/users/me
-// Credentials: accessToken (OAuth 2.0 user token, scopes tweet.read tweet.write users.read media.write offline.access).
+// Credentials: accessToken (OAuth 2.0 user token, scopes tweet.read tweet.write users.read media.write offline.access),
+//   refreshToken, clientId and an optional clientSecret.
+// Token refresh (user tokens last about 2 hours): https://docs.x.com/fundamentals/authentication/oauth-2-0/user-access-token (checked 2026-11-26)
+//   POST https://api.x.com/2/oauth2/token, Content-Type application/x-www-form-urlencoded, body grant_type=refresh_token&refresh_token=...
+//   public client: client_id in the body, no Authorization header; confidential client: Authorization: Basic base64(clientId:clientSecret).
+//   The response (access_token, refresh_token, expires_in) is not described on that page: the shape is taken from the OAuth 2.0 standard.
+//   X issues a NEW refresh token each time, so the caller saves both tokens at once.
 // Cost (pay per use): $0.015 per post, $0.20 per post containing a link. Reported in the result message.
-import type { Connector, ConnectorContext, ConnectorPost, PublishResult, VerifyResult, FetchLike } from './types'
+import type { Connector, ConnectorContext, ConnectorPost, PublishResult, RefreshResult, VerifyResult, FetchLike } from './types'
 import { type Obj, download, failure, gateOrThrow, jsonOf, networkFailure, withLink } from './common'
 
 export const X_API = 'https://api.x.com/2'
@@ -58,8 +64,43 @@ async function uploadImage(fetchFn: FetchLike, accessToken: string, url: string)
   return String(fin.data?.id ?? id)
 }
 
+export const X_TOKEN_URL = `${X_API}/oauth2/token`
+
+/** Swap the refresh token for a new access token and refresh token. Nothing here logs or returns a token in an error. */
+export async function refreshXCredentials(credentials: Record<string, string>, fetchFn: FetchLike): Promise<RefreshResult> {
+  const refreshToken = (credentials.refreshToken ?? '').trim()
+  const clientId = (credentials.clientId ?? '').trim()
+  const clientSecret = (credentials.clientSecret ?? '').trim()
+  if (!refreshToken) return { ok: true, refreshed: false, credentials }
+  if (!clientId) return { ok: false, retryable: false, code: 401, error: 'This X channel has a refresh token but no client ID saved: connect it again.' }
+  const headers: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }
+  const form = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken })
+  if (clientSecret) headers.Authorization = `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`
+  else form.set('client_id', clientId)
+  let res: Response
+  try {
+    res = await fetchFn(X_TOKEN_URL, { method: 'POST', headers, body: form.toString() })
+  } catch (e) {
+    return networkFailure('X', e)
+  }
+  const b = await jsonOf(res)
+  const access = typeof b?.access_token === 'string' ? b.access_token.trim() : ''
+  if (!res.ok || !access) {
+    const detail = typeof b?.error_description === 'string' ? b.error_description : typeof b?.error === 'string' ? b.error : errText(b)
+    if (res.status === 400 || res.status === 401) {
+      return { ok: false, retryable: false, code: 401, error: `X no longer accepts the saved refresh token (it was used, expired or revoked): connect the channel again. (X says: ${detail.slice(0, 120)})` }
+    }
+    const f = failure(res.ok ? 502 : res.status, 'X', detail)
+    return { ok: false, retryable: f.retryable, error: f.error, ...(f.code !== undefined ? { code: f.code } : {}) }
+  }
+  const next = typeof b?.refresh_token === 'string' && b.refresh_token.trim() ? b.refresh_token.trim() : refreshToken
+  return { ok: true, refreshed: true, credentials: { ...credentials, accessToken: access, refreshToken: next } }
+}
+
 export const xConnector: Connector = {
   kind: 'X',
+
+  refreshCredentials: refreshXCredentials,
 
   async verify(credentials, fetchFn: FetchLike): Promise<VerifyResult> {
     const t = token(credentials)

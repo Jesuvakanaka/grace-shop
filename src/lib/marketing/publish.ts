@@ -8,6 +8,7 @@ import { primaryStorefrontHost } from '@/lib/storefront/public-url'
 import { WebsiteError } from '@/lib/website/http'
 import { writeAudit, type Db } from './audit'
 import { getChannel } from './channels'
+import { updateCredentials } from './connect'
 import { getConnector } from './connectors'
 import type { Connector, FetchLike } from './connectors/types'
 import { assertCanGoLive, checkCanGoLive } from './flags'
@@ -89,7 +90,16 @@ export async function publishPost(db: Db, postId: number, actorIn: Actor | strin
   }
 
   try {
-    const credentials = decryptJson<Record<string, string>>((channel as MarketingChannel).credentialsEnc as string)
+    let credentials = decryptJson<Record<string, string>>((channel as MarketingChannel).credentialsEnc as string)
+    // Short-lived tokens (X): renew first, and save the new tokens before they are used (a refresh token can be single-use).
+    if (connector.refreshCredentials) {
+      const r = await connector.refreshCredentials(credentials, deps.fetch)
+      if (!r.ok) return await fail(r.error, r.code)
+      if (r.refreshed) {
+        await updateCredentials(db, (channel as MarketingChannel).id, r.credentials, SYSTEM_ACTOR.username)
+        credentials = r.credentials
+      }
+    }
     const keys = Array.isArray(post.imageKeys) ? (post.imageKeys as unknown[]).filter((k): k is string => typeof k === 'string') : []
     const imageUrls = publicImageUrls(keys, publicOrigin(deps), def.limits.imageFormat === 'jpeg')
     const result = await connector.publish(

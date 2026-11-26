@@ -279,6 +279,10 @@ export const AD_STATUS_CLASSES: Record<string, string> = {
   CREATING: STATUS_CLASSES.PUBLISHING, PAUSED_ON_PLATFORM: STATUS_CLASSES.SCHEDULED, ACTIVE: STATUS_CLASSES.PUBLISHED,
   COMPLETED: STATUS_CLASSES.CANCELLED, FAILED: STATUS_CLASSES.FAILED, REJECTED: STATUS_CLASSES.REJECTED, CANCELLED: STATUS_CLASSES.CANCELLED,
 }
+/** The status words with the platform's name ("Made on Google, paused"). Meta is the default. */
+export const adStatusLabel = (status: string, platform = 'Meta'): string => (AD_STATUS_LABELS[status] ?? status).replace('Meta', platform)
+export const AD_PLATFORM_NAMES: Record<string, string> = { META_ADS: 'Meta', GOOGLE_ADS: 'Google' }
+
 export const AD_OBJECTIVE_LABELS: Record<string, string> = {
   TRAFFIC: 'Visits to the website', ENGAGEMENT: 'Likes and comments', CLICK_TO_WHATSAPP: 'Messages on WhatsApp',
 }
@@ -287,14 +291,14 @@ export type AdActionName = 'submit' | 'approve' | 'reject' | 'create_on_platform
 export interface AdButton { action: AdActionName; label: string; tone: 'primary' | 'secondary' | 'danger'; confirm?: string }
 
 /** The buttons an owner sees on an ad in each status (the server decides what is really allowed). */
-export function adButtons(status: string, dailyBudgetCents = 0): AdButton[] {
+export function adButtons(status: string, dailyBudgetCents = 0, platform = 'Meta'): AdButton[] {
   switch (status) {
     case 'DRAFT': return [{ action: 'submit', label: 'Ask for approval', tone: 'primary' }, { action: 'cancel', label: 'Cancel ad', tone: 'danger' }]
     case 'PENDING_APPROVAL': return [{ action: 'approve', label: 'Approve', tone: 'primary' }, { action: 'reject', label: 'Reject', tone: 'danger' }]
-    case 'APPROVED': return [{ action: 'create_on_platform', label: 'Create on Meta (paused)', tone: 'primary' }, { action: 'cancel', label: 'Cancel ad', tone: 'danger' }]
-    case 'FAILED': return [{ action: 'create_on_platform', label: 'Try again on Meta', tone: 'primary' }, { action: 'cancel', label: 'Cancel ad', tone: 'danger' }]
+    case 'APPROVED': return [{ action: 'create_on_platform', label: `Create on ${platform} (paused)`, tone: 'primary' }, { action: 'cancel', label: 'Cancel ad', tone: 'danger' }]
+    case 'FAILED': return [{ action: 'create_on_platform', label: `Try again on ${platform}`, tone: 'primary' }, { action: 'cancel', label: 'Cancel ad', tone: 'danger' }]
     case 'PAUSED_ON_PLATFORM': return [
-      { action: 'start', label: 'Start', tone: 'primary', confirm: `Start this ad? Meta can spend up to ${usd(dailyBudgetCents)} a day until you pause it or it ends.` },
+      { action: 'start', label: 'Start', tone: 'primary', confirm: `Start this ad? ${platform} can spend up to ${usd(dailyBudgetCents)} a day until you pause it or it ends.` },
       { action: 'cancel', label: 'Cancel ad', tone: 'danger' },
     ]
     case 'ACTIVE': return [{ action: 'pause', label: 'Pause', tone: 'secondary' }]

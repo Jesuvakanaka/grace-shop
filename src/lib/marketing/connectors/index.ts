@@ -1,6 +1,7 @@
 // VYRA Marketing hub (ZP-1200): kind -> connector. A channel without an entry cannot be published automatically.
 import type { Connector } from './types'
 import { facebookPageConnector } from './facebook-page'
+import { googleAdsConnector } from './google-ads'
 import { googleBusinessConnector } from './google-business'
 import { googleMerchantConnector } from './google-merchant'
 import { instagramConnector } from './instagram'
@@ -25,6 +26,7 @@ export const CONNECTORS: Readonly<Record<string, Connector>> = {
   THREADS: threadsConnector,
   GOOGLE_BUSINESS: googleBusinessConnector,
   GOOGLE_MERCHANT: googleMerchantConnector,
+  GOOGLE_ADS: googleAdsConnector,
   WHATSAPP_CLOUD: whatsappCloudConnector,
   SMS: smsTwilioConnector,
   EMAIL: emailBrevoConnector,

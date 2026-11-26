@@ -299,7 +299,7 @@ export async function collectFacts(db: Db, now: Date): Promise<Facts> {
   const byPost = new Map(report.perPost.map((p) => [p.postId, p]))
   const settings = await getSettings(db)
   const budget = await budgetSummary(db, settings, now)
-  const connected = await db.marketingChannel.findMany({ where: { status: 'CONNECTED', kind: { not: 'META_ADS' } }, select: { kind: true } })
+  const connected = await db.marketingChannel.findMany({ where: { status: 'CONNECTED', kind: { notIn: ['META_ADS', 'GOOGLE_ADS'] } }, select: { kind: true } })
   const kinds = [...new Set(connected.map((c) => c.kind))]
   const used = new Set(rows.map((r) => r.channelKind))
   return computeFacts({

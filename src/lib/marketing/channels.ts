@@ -13,6 +13,8 @@ export interface ConnectField {
   kind: 'digits' | 'text' | 'secret'
   help?: string
   max?: number
+  /** May be left empty. */
+  optional?: boolean
 }
 
 const PAGE_ID: ConnectField = { name: 'pageId', label: 'Facebook Page ID', kind: 'digits', max: 40 }
@@ -41,6 +43,12 @@ export const CONNECT_FIELDS: Readonly<Record<string, readonly ConnectField[]>> =
     { name: 'merchantId', label: 'Merchant Center ID', kind: 'digits', max: 30 },
     ...GOOGLE_OAUTH,
   ],
+  GOOGLE_ADS: [
+    { name: 'customerId', label: 'Google Ads customer ID', kind: 'digits', max: 20, help: 'The 10 digits at the top right of Google Ads (123-456-7890). Dashes are fine.' },
+    { name: 'loginCustomerId', label: 'Manager (login) customer ID, only if you use a manager account', kind: 'digits', max: 20, optional: true },
+    { name: 'developerToken', label: 'Developer token', kind: 'secret', max: 100, help: 'From Google Ads, Tools, API Center. Google must approve it ("Basic access") before it works on a real account.' },
+    ...GOOGLE_OAUTH,
+  ],
   PINTEREST: [
     { name: 'boardId', label: 'Board ID', kind: 'digits', max: 30, help: 'The board the pins go to (the number in the board link, or from the Pinterest app).' },
     { ...ACCESS_TOKEN, label: 'Pinterest access token', help: 'It is checked with Pinterest, saved encrypted, and never shown again.' },
@@ -49,7 +57,12 @@ export const CONNECT_FIELDS: Readonly<Record<string, readonly ConnectField[]>> =
     { name: 'channel', label: 'Channel (@username or chat ID)', kind: 'text', max: 100, help: 'Add the bot to the channel as an administrator first.' },
     { name: 'botToken', label: 'Bot token (from @BotFather)', kind: 'secret', max: 200 },
   ],
-  X: [{ ...ACCESS_TOKEN, label: 'X user access token', help: 'OAuth 2.0 user token. X tokens expire after about 2 hours, so this needs reconnecting until a refresh is added.' }],
+  X: [
+    { name: 'clientId', label: 'X OAuth 2.0 client ID', kind: 'text', max: 200 },
+    { name: 'clientSecret', label: 'X OAuth 2.0 client secret (only for a confidential app)', kind: 'secret', max: 200, optional: true },
+    { name: 'refreshToken', label: 'X refresh token (needs the offline.access scope)', kind: 'secret', max: 500, help: 'Both tokens are checked with X, saved encrypted, and never shown again. X gives a new refresh token each time, and the hub saves it.' },
+    { ...ACCESS_TOKEN, label: 'X user access token', help: 'OAuth 2.0 user token. It lasts about 2 hours; the hub renews it before each post using the refresh token below.' },
+  ],
   YOUTUBE: [...GOOGLE_OAUTH],
   TIKTOK: [{ ...ACCESS_TOKEN, label: 'TikTok access token', help: 'Posts go to your TikTok inbox as drafts; you finish them in the app.' }],
   WHATSAPP_CLOUD: [
@@ -72,9 +85,10 @@ export const CONNECT_FIELDS: Readonly<Record<string, readonly ConnectField[]>> =
 export function connectFieldsError(fields: readonly ConnectField[], values: Record<string, string | undefined>): string | null {
   for (const f of fields) {
     const v = (values[f.name] ?? '').trim()
+    if (v === '' && f.optional) continue
     if (v === '') return `Fill in: ${f.label}.`
     if (/\s/.test(v)) return `${f.label} must not contain spaces.`
-    if (f.kind === 'digits' && !/^\d{5,30}$/.test(v)) return `${f.label} is a number (digits only).`
+    if (f.kind === 'digits' && !/^\d{5,30}$/.test(v.replace(/-/g, ''))) return `${f.label} is a number (digits only).`
     if (f.max && v.length > f.max) return `${f.label} is too long.`
   }
   return null
@@ -138,7 +152,7 @@ const META_PAGE_STEPS = [
 const MANUAL_NOTE = 'No official API: the hub prepares the words and photos and you post them yourself, then mark it as shared.'
 
 /** Channels with a connector in src/lib/marketing/connectors. */
-const WITH_CONNECTOR = new Set(['FACEBOOK_PAGE', 'INSTAGRAM', 'META_ADS', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK', 'THREADS', 'GOOGLE_BUSINESS', 'GOOGLE_MERCHANT', 'WHATSAPP_CLOUD', 'SMS', 'EMAIL'])
+const WITH_CONNECTOR = new Set(['FACEBOOK_PAGE', 'INSTAGRAM', 'META_ADS', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK', 'THREADS', 'GOOGLE_BUSINESS', 'GOOGLE_MERCHANT', 'GOOGLE_ADS', 'WHATSAPP_CLOUD', 'SMS', 'EMAIL'])
 
 export const CHANNELS: readonly ChannelDef[] = [
   def('FACEBOOK_PAGE', 'Facebook Page', 'meta', 'api', ['POST', 'STORY', 'VIDEO'],
@@ -186,8 +200,8 @@ export const CHANNELS: readonly ChannelDef[] = [
     ['The old Content API ended on 18 August 2026: the hub uses the Merchant API.', 'This channel carries your product catalogue, not posts: it cannot publish a post.', 'Google needs a price on every product; pieces with a hidden price are skipped.', 'Products appear only after Google reviews them, which can take days.']),
   def('GOOGLE_ADS', 'Google Ads', 'google', 'api', ['AD'],
     { publish: true, ads: true, insights: true }, { maxText: 90, maxHashtags: 0, maxImages: 1 },
-    ['Create a Google Ads account with a payment method.', 'Apply for a developer token (Tools, API Center). Google reviews it.', 'Create OAuth credentials and paste the refresh token and customer ID into the Connect box.', 'Set a monthly spend cap in the hub settings.'],
-    ['A basic developer token is needed for real accounts and Google reviews it.', 'Ads are always created paused and need a second approval to switch on.']),
+    ['Create a Google Ads account with a payment method that works from Zimbabwe, set to US dollars. Google Ads charges the card saved on the Google Ads account, not VYRA.', 'In Google Ads open Tools, API Center and apply for a developer token. Google must approve it ("Basic access") before it works on a real account; this can take days. Until then every call is refused.', 'In Google Cloud enable the Google Ads API and create an OAuth client ID (type "Web application") with the https://www.googleapis.com/auth/adwords scope. Sign in as a user with access to the account (OAuth Playground works) and copy the refresh token.', 'Paste the customer ID (10 digits), the developer token and the client ID, client secret and refresh token into the Connect box. Add the manager (login) customer ID only if the account is reached through a manager account.', 'Set a monthly spend cap in the hub settings. Without one, no ad can be created.'],
+    ['The developer token needs Google\'s approval ("Basic access") before it works on a real account, and Google reviews it.', 'Google Ads bills the card on the Google Ads account, not VYRA. The monthly cap here counts the money recorded from both Meta and Google.', 'The hub makes a Search campaign (Google Search only, no Display, no search partners), an ad group and a responsive search ad, all paused. It does not add keywords yet: add them in Google Ads before pressing Start, or the ad will not show.', 'Headlines are 30 characters and descriptions 90; the hub splits your headline and words to fit. Targeting is a radius around the audience\'s place (Harare by default); age, gender and interests are not used.', 'Only "visits to the shop" ads are supported. Ads are always created paused and need a second approval to switch on. Results come from Google\'s reporting, and no reach figure exists for Search.']),
   def('YOUTUBE', 'YouTube', 'video', 'api', ['VIDEO', 'REEL'],
     { publish: true, schedule: true, insights: true }, { maxText: 5000, maxHashtags: 15, maxImages: 1 },
     ['Create a YouTube channel for VYRA.', 'In Google Cloud enable the YouTube Data API and create OAuth credentials.', 'Paste the refresh token into the Connect box.'],
@@ -202,8 +216,8 @@ export const CHANNELS: readonly ChannelDef[] = [
     ['New apps start with trial access, which Pinterest must upgrade before pins are public.', 'Each pin goes to one board, needs a picture, a title up to 100 characters and a description up to 800.']),
   def('X', 'X (Twitter)', 'social', 'api', ['POST'],
     { publish: true, insights: true }, { maxText: 280, maxHashtags: 2, maxImages: 4 },
-    ['Create an X developer account and a project with write access.', 'Add credit to the developer account (pay per use).', 'Paste the keys and tokens into the Connect box.'],
-    ['Costs $0.015 per post, and $0.20 for a post with a link (pay per use, checked 26 Nov 2026). The hub shows the expected cost with each result.', 'Text limit is 280 characters and a link counts as 23.', 'Up to 4 photos per post; no video yet.']),
+    ['Create an X developer account and a project with write access.', 'Add credit to the developer account (pay per use).', 'In the app settings turn on OAuth 2.0 with the scopes tweet.read, tweet.write, users.read, media.write and offline.access, and note the client ID (and the client secret if the app is a confidential one).', 'Sign in as the VYRA account once (authorization code with PKCE) to get an access token and a refresh token.', 'Paste the client ID, the tokens (and the client secret if you have one) into the Connect box.'],
+    ['X access tokens last about 2 hours: the hub renews them with the refresh token before each post and saves the new tokens encrypted. If the refresh token is rejected, connect again.', 'Costs $0.015 per post, and $0.20 for a post with a link (pay per use, checked 26 Nov 2026). The hub shows the expected cost with each result.', 'Text limit is 280 characters and a link counts as 23.', 'Up to 4 photos per post; no video yet.']),
   def('TELEGRAM', 'Telegram channel', 'social', 'api', ['POST'],
     { publish: true, schedule: true }, { maxText: 4096, maxImages: 10 },
     ['Create a Telegram channel for VYRA.', 'Talk to @BotFather to create a bot and copy its token.', 'Add the bot as an administrator of the channel.', 'Paste the token and the channel name into the Connect box.'],

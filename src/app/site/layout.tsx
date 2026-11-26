@@ -8,6 +8,8 @@ import { ShellMenuProvider } from "@/components/storefront/ShellMenu";
 import { getMenuData } from "@/lib/storefront/menu-data";
 import { getShellData } from "@/lib/storefront/shell";
 import { AnalyticsProvider } from "@/lib/analytics/provider";
+import { MetaPixel } from "@/components/storefront/MetaPixel";
+import { getStorefrontPixel } from "@/lib/marketing/pixel-request";
 
 // ZP-487: the VYRA storefront shell. Served at /site/** on the admin/UAT host
 // and at clean paths on a storefront host (src/proxy.ts). It sits outside
@@ -40,8 +42,8 @@ export default async function StorefrontLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const [shell, menu, feedView] = await Promise.all([getShellData(), getMenuData(), getFeedViewMode()]);
-  return (
+  const [shell, menu, feedView, pixel] = await Promise.all([getShellData(), getMenuData(), getFeedViewMode(), getStorefrontPixel()]);
+  const tree = (
     // ZP-543: first, so its inline script sets <html data-feed-view> before the feed is painted.
     <FeedViewProvider mode={feedView}>
       <SiteBaseProvider base={shell.base}>
@@ -65,5 +67,15 @@ export default async function StorefrontLayout({
         </ShellMenuProvider>
       </SiteBaseProvider>
     </FeedViewProvider>
+  );
+  // ZP-1200: the browser Meta Pixel, only when the whole pixel gate passes (live env, live setting, a Pixel ID, a connected
+  // ad account). Otherwise the page is exactly the tree above: no script, no extra markup (tests/marketing-pixel-storefront.test.ts).
+  return pixel ? (
+    <>
+      {tree}
+      <MetaPixel pixelId={pixel.pixelId} />
+    </>
+  ) : (
+    tree
   );
 }
