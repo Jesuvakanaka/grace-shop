@@ -1,6 +1,8 @@
 // VYRA Marketing hub (ZP-1200): the connector contract. Every connector takes an
 // injectable fetch so tests use a fake; nothing here calls a real API by itself.
 
+import type { GoLiveInput } from '../flags'
+
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 
 export interface ConnectorPost {
@@ -19,11 +21,13 @@ export interface ConnectorContext {
   externalId: string | null
   config: Record<string, unknown> | null
   fetch: FetchLike
+  /** What assertCanGoLive needs. Connectors check it again before any request (fail closed when missing). */
+  gate?: GoLiveInput
 }
 
 export type PublishResult =
   | { ok: true; externalId: string; externalUrl: string | null }
-  | { ok: false; error: string; retryable: boolean }
+  | { ok: false; error: string; retryable: boolean; /** Platform error code (Meta: 190 = token no longer valid). */ code?: number }
 
 export interface InsightsResult {
   ok: boolean

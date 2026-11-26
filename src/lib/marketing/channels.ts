@@ -50,24 +50,28 @@ function def(
   }
 }
 
-const META_BASE = [
-  'Make sure you have a Facebook account and that VYRA has a Facebook Page.',
-  'Create a free Meta developer account at developers.facebook.com and add a new app (type "Business").',
-  'Add the product you need to the app and generate a long-lived access token for the Page.',
-  'Paste the token into the Connect box here. It is saved encrypted and never shown again.',
+const META_PAGE_STEPS = [
+  'Open Meta Business Suite, Business settings (business.facebook.com/settings) and add the VYRA Page (and the Instagram account) to your business.',
+  'Go to Users, System users, and add a system user (Admin role). Assign it the Page with full control.',
+  'Press Generate token, choose your app, set the expiry to Never, and tick pages_manage_posts, pages_read_engagement, instagram_basic and instagram_content_publish.',
+  'Copy the token and the Page ID (Page, About, Page transparency) and paste both into the Connect box here. The token is saved encrypted and never shown again.',
+  'Turn on live posting in the settings only when you are ready: nothing goes out until you switch it on and approve each post.',
 ]
 
 const MANUAL_NOTE = 'No official API: the hub prepares the words and photos and you post them yourself, then mark it as shared.'
 
+/** Channels with a connector in src/lib/marketing/connectors. */
+const WITH_CONNECTOR = new Set(['FACEBOOK_PAGE', 'INSTAGRAM'])
+
 export const CHANNELS: readonly ChannelDef[] = [
   def('FACEBOOK_PAGE', 'Facebook Page', 'meta', 'api', ['POST', 'STORY', 'VIDEO'],
     { publish: true, schedule: true, insights: true }, { maxText: 5000, maxHashtags: 10, maxImages: 10 },
-    [...META_BASE, 'Choose the VYRA Page and copy its Page ID into the Connect box.'],
-    ['Posting needs the pages_manage_posts permission, which Meta reviews before it works for the public.', 'Reach and reactions come back; the names of people who reacted do not.']),
+    META_PAGE_STEPS,
+    ['Posting needs the pages_manage_posts permission, which Meta reviews before it works for the public.', 'The hub posts text, a link, or one or more photos. Stories and videos are not published automatically yet.', 'Reach and clicks come back; the names of people who reacted do not.']),
   def('INSTAGRAM', 'Instagram', 'meta', 'api', ['POST', 'STORY', 'REEL', 'CAROUSEL'],
     { publish: true, schedule: true, insights: true }, { maxText: 2200, maxHashtags: 30, needsImage: true, imageFormat: 'jpeg', maxImages: 10 },
-    ['Switch the VYRA Instagram account to a Business or Creator account (Settings, Account type).', 'Link it to the VYRA Facebook Page.', ...META_BASE.slice(1), 'Copy the Instagram account ID into the Connect box.'],
-    ['The Instagram API publishes JPEG photos only.', 'No shopping tags, no filters, no music.', 'At most 50 posts in 24 hours.']),
+    ['Switch the VYRA Instagram account to a Business or Creator account (Settings, Account type).', 'Link it to the VYRA Facebook Page (Page settings, Linked accounts).', ...META_PAGE_STEPS],
+    ['The Instagram API publishes JPEG photos only (the hub converts the photos for you).', 'No shopping tags, no filters, no music. Links in a caption are not clickable.', 'At most 50 posts in 24 hours. Reels need a video and are not published automatically yet.']),
   def('THREADS', 'Threads', 'meta', 'api', ['POST'],
     { publish: true, insights: true }, { maxText: 500, maxHashtags: 1, maxImages: 10 },
     ['Make sure the VYRA Instagram account has a Threads profile.', 'In your Meta developer app add the Threads API and create a token for the profile.', 'Paste the token into the Connect box.'],
@@ -147,7 +151,7 @@ export const CHANNELS: readonly ChannelDef[] = [
   def('PRINT_QR', 'Print and QR codes', 'offline', 'manual', ['POST'],
     {}, { maxText: 300, maxHashtags: 0, maxImages: 1 }, ['Print the QR code and tag line on flyers, bags or the shop window.', 'Each print run has its own tracking link, so scans show up in the results.'],
     ['Scans are counted as visits with the tracking tag; walk-ins cannot be tracked.']),
-]
+].map((c) => (WITH_CONNECTOR.has(c.kind) ? { ...c, connector: true } : c))
 
 const BY_KIND = new Map(CHANNELS.map((c) => [c.kind, c]))
 

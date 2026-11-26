@@ -298,6 +298,21 @@ describe('storefront public data layer (database)', () => {
       productId = p.id
     })
 
+    test('ZP-1200: format=jpeg returns a JPEG (for Instagram), only for public pictures; other values are a 400', async () => {
+      const res = await getSized('format=jpeg')
+      assert.strictEqual(res.status, 200)
+      assert.strictEqual(res.headers.get('content-type'), 'image/jpeg')
+      const bytes = Buffer.from(await res.arrayBuffer())
+      assert.strictEqual((await sharp(bytes).metadata()).format, 'jpeg')
+      const small = await getSized('format=jpeg&w=320')
+      assert.strictEqual((await sharp(Buffer.from(await small.arrayBuffer())).metadata()).width, 320)
+      for (const q of ['format=png', 'format=', 'format=jpeg&format=jpeg', 'format=jpeg&w=800', 'format=jpeg&x=1']) {
+        assert.strictEqual((await getSized(q)).status, 400, q)
+      }
+      assert.strictEqual((await getSized('format=jpeg', `${HEX('4')}.webp`)).status, 404, 'unpublished picture stays hidden')
+      assert.strictEqual((await getSized('')).headers.get('content-type'), 'image/webp', 'default is unchanged')
+    })
+
     test('an invalid width is a 400, for public and private keys alike', async () => {
       for (const q of ['w=800', 'w=abc', 'w=', 'w=640&w=320', 'w=640&q=75', 'foo=1']) {
         const res = await getSized(q)

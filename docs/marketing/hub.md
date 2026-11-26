@@ -7,7 +7,7 @@ Michael has no platform accounts or keys yet, so every connector is built agains
 ## What exists (PR 1: foundation, no screens yet)
 
 - Data model, API, channel registry, post status machine, tracking, encrypted token storage, audit log.
-- No concrete connectors yet (`connector: false` for every channel in the registry). No AI drafting yet. No pages yet.
+- Connectors: Facebook Page and Instagram (see below). Every other channel still has `connector: false`. No AI drafting yet. No pages yet.
 
 ## Flags and safety switches
 
@@ -67,7 +67,8 @@ Editing the words, photos or format of an approved or scheduled post sends it ba
 - `GET/POST /api/marketing/campaigns`, `GET/PATCH/DELETE /api/marketing/campaigns/[id]`
 - `GET/POST /api/marketing/content` (POST may include `channels: [...]` to create one draft post per channel), `GET/PATCH/DELETE /api/marketing/content/[id]`
 - `GET /api/marketing/posts?status=&channel=&from=&to=` (from/to match the scheduled or published time), `GET/PATCH /api/marketing/posts/[id]`
-- `POST /api/marketing/posts/[id]/transition` with `{ action, scheduledFor? }`; actions: submit, cancel, approve, reject, schedule, unschedule, publish, retry, share
+- `POST /api/marketing/posts/[id]/transition` with `{ action, scheduledFor? }`; actions: submit, cancel, approve, reject, schedule, unschedule, publish, retry, share. `publish` and `retry` really send the post through its connector (`publishPost`) and answer with the post as PUBLISHED or FAILED.
+- `POST /api/marketing/channels/connect` with `{ kind: 'FACEBOOK_PAGE' | 'INSTAGRAM', pageId, accessToken }` and `POST /api/marketing/channels/[id]/disconnect` (see below)
 - `GET /api/marketing/audit?limit=&entity=`
 - `POST /api/marketing/content/[id]/draft` with optional `{ channels }`: AI writes the DRAFT/REJECTED posts (see AI below)
 - `GET /api/marketing/suggestions?limit=`: products worth promoting this week
@@ -102,10 +103,41 @@ The model never writes a price, size or stock level. It writes `{price}`, `{size
 
 A draft costs about 1 to 3 cents for a few channels (Claude at about $4 / $20 per million input / output tokens; OpenAI fallback about $8 / $40). The estimate is stored per post in `aiCostCents`. Suggestions and the planner are free.
 
-## Switching a channel on (later)
+## Facebook Page and Instagram (Meta Graph API)
+
+Code: `src/lib/marketing/connectors/` (`meta-graph.ts` client, `facebook-page.ts`, `instagram.ts`, `index.ts` registry), `connect.ts`, `publish.ts`, `scripts/marketing-run.ts`.
+
+### What works
+
+- **Facebook Page:** a text post, a link post, a one-photo post, or a several-photo post (photos are uploaded unpublished, then attached to one feed post). The tracked link (`?src=<tag>`) is added to the words when it is not already there. Stories and videos are not published automatically yet.
+- **Instagram:** a one-photo post, a carousel (2 to 10 photos) or a story (first photo only, Instagram shows no caption on stories). The hub checks the 24-hour quota first, creates the container, waits for Instagram to finish processing it (a few checks a few seconds apart, never more than 5 minutes) and then publishes. Reels are not published automatically yet.
+- **Photos:** platforms download photos from a public link, so the post's photos must belong to a published product and `GRACE_STOREFRONT_HOSTS` must be set (the first host is used). Instagram only accepts JPEG, so the hub asks for `/api/images/public/<key>.webp?format=jpeg`, a JPEG rendition added to the public image route (same visibility rule: only pictures that are already public; `w` still works with it).
+- **Insights:** `fetchInsights` reads reach and clicks for Page posts and reach, likes, comments, shares for Instagram, and tolerates metrics Meta no longer returns.
+- **Scheduling** is done by the hub, not by Meta: `npm run marketing:run` (optionally `-- --max 5`) publishes SCHEDULED posts that are due, but only when every go-live condition holds. Otherwise they stay SCHEDULED and the run prints the reason. At most 10 posts per run by default. Nothing runs it automatically yet: set up a scheduler (Cloud Run job, every 5 minutes) when you go live; no workflow or deploy file was changed.
+- The Graph API version is one constant, `META_GRAPH_VERSION` (`v25.0`) in `meta-graph.ts`; override it with env `META_GRAPH_VERSION`.
+
+### How to connect (the owner)
+
+1. In Meta Business settings, add the VYRA Page and the Instagram account (a Business or Creator account linked to the Page) to your business.
+2. Users, System users: add a system user and assign it the Page.
+3. Generate a token for it with expiry "Never" and the permissions `pages_manage_posts`, `pages_read_engagement`, `instagram_basic`, `instagram_content_publish`.
+4. In the hub, Connect Facebook Page (or Instagram) with the Page ID and the token. The hub checks the token with Meta (`GET /me`, then `GET /{page-id}?fields=id,name,instagram_business_account`), saves the Page and, when one is linked, the Instagram account, both as CONNECTED with the token encrypted. Only "ends ...1234" is ever shown.
+5. Disconnect wipes the saved token and marks the channel NOT_CONNECTED.
+6. Posting still needs `GRACE_MARKETING_LIVE=true` on the server, the live switch on in the settings, and an owner approval on each post.
+
+If Meta rejects a saved token while publishing (error 190), the post is marked FAILED with a plain message and the channel moves to ERROR until you connect it again.
+
+### Limits
+
+- Posting needs Meta app review for `pages_manage_posts` and `instagram_content_publish` before it works for the public; while the app is in development mode only roles on the app can post.
+- Instagram: JPEG only, 50 posts per 24 hours through the API, no shopping tags, no filters, no music, links in captions are not clickable.
+- A failed post can be retried up to 3 attempts in all.
+- The hub does not create ads here (the Meta Ads connector is a later PR).
+
+## Switching a channel on
 
 Each registry entry has plain-English `setupSteps` and `apiNotes` (what the official API cannot do). Channels with `mode: 'manual'` (Facebook Groups and Marketplace, WhatsApp Status, Channels and broadcast lists, influencers, resellers, classifieds, print/QR) need no keys: the hub prepares the content and the owner posts it and presses "Mark as shared".
 
 ## Coming in later PRs
 
-Concrete connectors (Meta Graph API, Google, TikTok drafts, Pinterest, X, Telegram, YouTube, email, SMS, WhatsApp Cloud), the scheduler/runner, ads with budget caps, audiences, contacts with opt-in, partners, daily results and recommendations.
+Concrete connectors (Threads, Meta ads, Google, TikTok drafts, Pinterest, X, Telegram, YouTube, email, SMS, WhatsApp Cloud), ads with budget caps, audiences, contacts with opt-in, partners, daily results and recommendations.
