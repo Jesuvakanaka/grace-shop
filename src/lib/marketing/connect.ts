@@ -12,9 +12,9 @@ import type { FetchLike } from './connectors/types'
 import { encryptJson, tokenHint } from './secrets'
 import { asObject, onlyKeys, oneOf, requiredText } from './validate'
 
-export const CONNECTABLE_KINDS = ['FACEBOOK_PAGE', 'INSTAGRAM', 'META_ADS', 'THREADS', 'GOOGLE_BUSINESS', 'GOOGLE_MERCHANT', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK'] as const
+export const CONNECTABLE_KINDS = ['FACEBOOK_PAGE', 'INSTAGRAM', 'META_ADS', 'THREADS', 'GOOGLE_BUSINESS', 'GOOGLE_MERCHANT', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK', 'WHATSAPP_CLOUD', 'SMS', 'EMAIL'] as const
 /** Kinds connected through the registry's `connectFields` and the connector's own verify(). */
-const FIELD_KINDS: readonly string[] = ['THREADS', 'GOOGLE_BUSINESS', 'GOOGLE_MERCHANT', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK']
+const FIELD_KINDS: readonly string[] = ['THREADS', 'GOOGLE_BUSINESS', 'GOOGLE_MERCHANT', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK', 'WHATSAPP_CLOUD', 'SMS', 'EMAIL']
 
 async function saveRow(
   db: Db, kind: string, name: string, externalId: string, accessToken: string, config: Record<string, string>, actor: string,

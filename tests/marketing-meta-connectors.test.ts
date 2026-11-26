@@ -70,7 +70,7 @@ describe('graph version and registry', () => {
   test('registry maps the Meta kinds and not a channel without a connector', () => {
     assert.strictEqual(getConnector('FACEBOOK_PAGE')?.kind, 'FACEBOOK_PAGE')
     assert.strictEqual(getConnector('INSTAGRAM')?.kind, 'INSTAGRAM')
-    assert.strictEqual(getConnector('WHATSAPP_CLOUD'), undefined)
+    assert.strictEqual(getConnector('GOOGLE_ADS'), undefined)
   })
 })
 

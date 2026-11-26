@@ -97,6 +97,18 @@ import * as mkRecsGenerate from '../src/app/api/marketing/recommendations/genera
 import * as mkRecById from '../src/app/api/marketing/recommendations/[id]/route';
 import * as pubFeedCsv from '../src/app/api/public/marketing/feed.csv/route';
 import * as pubFeedXml from '../src/app/api/public/marketing/feed.xml/route';
+import * as mkContacts from '../src/app/api/marketing/contacts/route';
+import * as mkContactById from '../src/app/api/marketing/contacts/[id]/route';
+import * as mkContactConsent from '../src/app/api/marketing/contacts/[id]/consent/route';
+import * as mkContactsImport from '../src/app/api/marketing/contacts/import/route';
+import * as mkBroadcasts from '../src/app/api/marketing/broadcasts/route';
+import * as mkBroadcastById from '../src/app/api/marketing/broadcasts/[id]/route';
+import * as mkBroadcastTransition from '../src/app/api/marketing/broadcasts/[id]/transition/route';
+import * as mkBroadcastRecipients from '../src/app/api/marketing/broadcasts/[id]/recipients/route';
+import * as mkPartners from '../src/app/api/marketing/partners/route';
+import * as mkPartnerById from '../src/app/api/marketing/partners/[id]/route';
+import * as mkPartnerKit from '../src/app/api/marketing/partners/[id]/kit/route';
+import * as pubUnsubscribe from '../src/app/api/public/marketing/unsubscribe/route';
 
 // PUBLIC: no session needed (sign-in routes). "Allowed" for every caller, including no cookie.
 type Policy = 'PUBLIC' | 'SESSION' | 'OWNER';
@@ -240,6 +252,26 @@ const cases: Case[] = [
   { method: 'PATCH', path: `/api/marketing/recommendations/${MISSING_ID}`, handler: h(mkRecById.PATCH), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'GET', path: '/api/public/marketing/feed.csv', handler: h(pubFeedCsv.GET), policy: 'PUBLIC' },
   { method: 'GET', path: '/api/public/marketing/feed.xml', handler: h(pubFeedXml.GET), policy: 'PUBLIC' },
+  // ZP-1200: contacts, broadcasts and partners are OWNER only; the unsubscribe link is PUBLIC (the signed token is the permission).
+  { method: 'GET', path: '/api/marketing/contacts', handler: h(mkContacts.GET), policy: 'OWNER' },
+  { method: 'POST', path: '/api/marketing/contacts', handler: h(mkContacts.POST), policy: 'OWNER' },
+  { method: 'GET', path: `/api/marketing/contacts/${MISSING_ID}`, handler: h(mkContactById.GET), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'PATCH', path: `/api/marketing/contacts/${MISSING_ID}`, handler: h(mkContactById.PATCH), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: `/api/marketing/contacts/${MISSING_ID}/consent`, handler: h(mkContactConsent.POST), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: '/api/marketing/contacts/import', handler: h(mkContactsImport.POST), policy: 'OWNER' },
+  { method: 'GET', path: '/api/marketing/broadcasts', handler: h(mkBroadcasts.GET), policy: 'OWNER' },
+  { method: 'POST', path: '/api/marketing/broadcasts', handler: h(mkBroadcasts.POST), policy: 'OWNER' },
+  { method: 'GET', path: `/api/marketing/broadcasts/${MISSING_ID}`, handler: h(mkBroadcastById.GET), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'PATCH', path: `/api/marketing/broadcasts/${MISSING_ID}`, handler: h(mkBroadcastById.PATCH), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: `/api/marketing/broadcasts/${MISSING_ID}/transition`, handler: h(mkBroadcastTransition.POST), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'GET', path: `/api/marketing/broadcasts/${MISSING_ID}/recipients`, handler: h(mkBroadcastRecipients.GET), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'GET', path: '/api/marketing/partners', handler: h(mkPartners.GET), policy: 'OWNER' },
+  { method: 'POST', path: '/api/marketing/partners', handler: h(mkPartners.POST), policy: 'OWNER' },
+  { method: 'GET', path: `/api/marketing/partners/${MISSING_ID}`, handler: h(mkPartnerById.GET), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'PATCH', path: `/api/marketing/partners/${MISSING_ID}`, handler: h(mkPartnerById.PATCH), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'GET', path: `/api/marketing/partners/${MISSING_ID}/kit`, handler: h(mkPartnerKit.GET), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'GET', path: '/api/public/marketing/unsubscribe', handler: h(pubUnsubscribe.GET), policy: 'PUBLIC' },
+  { method: 'POST', path: '/api/public/marketing/unsubscribe', handler: h(pubUnsubscribe.POST), policy: 'PUBLIC' },
 
   // ZP-483: admin website tools. Every route is OWNER only, reads included.
   { method: 'GET', path: '/api/website/products', handler: h(websiteProducts.GET), policy: 'OWNER' },

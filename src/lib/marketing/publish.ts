@@ -28,7 +28,7 @@ export const SYSTEM_ACTOR: Actor = { username: 'system', role: 'SYSTEM' }
 
 const asActor = (a: Actor | string): Actor => (typeof a === 'string' ? { username: a, role: 'OWNER' } : a)
 
-function publicOrigin(deps: PublishDeps): string | null {
+export function publicOrigin(deps: PublishDeps): string | null {
   if (deps.baseUrl) return deps.baseUrl.replace(/\/+$/, '')
   const host = primaryStorefrontHost(hostRoutingConfigFromEnv().storefrontHosts)
   return host ? `https://${host}` : null
@@ -62,6 +62,7 @@ export async function publishPost(db: Db, postId: number, actorIn: Actor | strin
   const def = getChannel(post.channelKind)
   const connector = (deps.getConnector ?? getConnector)(post.channelKind)
   if (!def || !connector) throw new WebsiteError(409, `${def?.label ?? 'This channel'} has no automatic posting yet.`)
+  if (connector.messagesOnly) throw new WebsiteError(409, `${def.label} messages go out from the Messages screen, to people who opted in.`)
   const action = post.status === 'APPROVED' ? 'publish' : post.status === 'SCHEDULED' ? 'start' : post.status === 'FAILED' ? 'retry' : null
   if (!action) throw new WebsiteError(409, 'This post cannot be published from its current status.')
 

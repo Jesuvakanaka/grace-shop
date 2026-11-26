@@ -4,7 +4,7 @@ import { writeAudit, type Db } from './audit'
 import { asObject, bool, int, onlyKeys, text } from './validate'
 import { WebsiteError } from '@/lib/website/http'
 
-export const SETTINGS_FIELDS = ['liveEnabled', 'monthlySpendCapCents', 'metaPixelId', 'productFeedEnabled', 'weeklyPostTarget', 'brandVoice'] as const
+export const SETTINGS_FIELDS = ['liveEnabled', 'monthlySpendCapCents', 'metaPixelId', 'productFeedEnabled', 'weeklyPostTarget', 'brandVoice', 'messageDailyCap'] as const
 
 /** The one settings row (id 1), created with the safe defaults when missing. */
 export async function getSettings(db: Db): Promise<MarketingSettings> {
@@ -19,6 +19,7 @@ export async function updateSettings(db: Db, body: unknown, actor: string): Prom
   if ('productFeedEnabled' in o) data.productFeedEnabled = bool(o.productFeedEnabled, 'productFeedEnabled')
   if ('monthlySpendCapCents' in o) data.monthlySpendCapCents = int(o.monthlySpendCapCents, 'monthlySpendCapCents', 0, 100_000_000)
   if ('weeklyPostTarget' in o) data.weeklyPostTarget = int(o.weeklyPostTarget, 'weeklyPostTarget', 0, 100)
+  if ('messageDailyCap' in o) data.messageDailyCap = int(o.messageDailyCap, 'messageDailyCap', 0, 10000)
   if ('brandVoice' in o) data.brandVoice = text(o.brandVoice, 'brandVoice', 1000)
   if ('metaPixelId' in o) {
     const v = text(o.metaPixelId, 'metaPixelId', 32)

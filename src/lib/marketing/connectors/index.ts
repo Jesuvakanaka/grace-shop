@@ -10,6 +10,9 @@ import { xConnector } from './x'
 import { youtubeConnector } from './youtube'
 import { tiktokConnector } from './tiktok'
 import { threadsConnector } from './threads'
+import { whatsappCloudConnector } from './whatsapp-cloud'
+import { smsTwilioConnector } from './sms-twilio'
+import { emailBrevoConnector } from './email-brevo'
 
 export const CONNECTORS: Readonly<Record<string, Connector>> = {
   FACEBOOK_PAGE: facebookPageConnector,
@@ -22,6 +25,9 @@ export const CONNECTORS: Readonly<Record<string, Connector>> = {
   THREADS: threadsConnector,
   GOOGLE_BUSINESS: googleBusinessConnector,
   GOOGLE_MERCHANT: googleMerchantConnector,
+  WHATSAPP_CLOUD: whatsappCloudConnector,
+  SMS: smsTwilioConnector,
+  EMAIL: emailBrevoConnector,
 }
 
 export const getConnector = (kind: string): Connector | undefined => CONNECTORS[kind]

@@ -6,9 +6,11 @@
 //   npm run marketing:run
 //   npm run marketing:run -- --max 5
 //
+// It also sends customer messages (approved broadcasts that are due or already sending), only to opted-in contacts, through the same gate.
 // Needs DATABASE_URL. Prints only counts and plain reasons, never tokens. Exits 1 if a post failed.
 import { PrismaClient } from '@prisma/client'
 import { hubEnabled } from '../src/lib/marketing/flags'
+import { runDueBroadcasts } from '../src/lib/marketing/broadcasts'
 import { runDuePosts } from '../src/lib/marketing/publish'
 
 async function main(): Promise<number> {
@@ -25,7 +27,9 @@ async function main(): Promise<number> {
   const prisma = new PrismaClient()
   try {
     const r = await runDuePosts(prisma, new Date(), { fetch: (u, init) => fetch(u, init) }, { max })
-    console.log(JSON.stringify({ checked: r.checked, published: r.published.length, failed: r.failed.length, blocked: r.blocked.length, reason: r.reason }))
+    // Customer messages: start approved ones whose time has come and carry on with ones being sent (500 a run at most, gently).
+    const m = await runDueBroadcasts(prisma, new Date(), { fetch: (u, init) => fetch(u, init) }, { max: 500 })
+    console.log(JSON.stringify({ checked: r.checked, published: r.published.length, failed: r.failed.length, blocked: r.blocked.length, reason: r.reason, messages: { started: m.started.length, continued: m.continued.length, blocked: m.blocked.length, reason: m.blocked[0]?.reason ?? null } }))
     return r.failed.length > 0 ? 1 : 0
   } finally {
     await prisma.$disconnect()
