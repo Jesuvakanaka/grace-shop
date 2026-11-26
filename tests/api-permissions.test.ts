@@ -47,6 +47,7 @@ import * as stockMovements from '../src/app/api/stock-movements/route';
 import * as upload from '../src/app/api/upload/route';
 import * as imageByKey from '../src/app/api/images/[key]/route';
 import * as captureList from '../src/app/api/capture/route';
+import * as captureHouseModel from '../src/app/api/capture/house-model/route';
 import * as captureById from '../src/app/api/capture/[id]/route';
 import * as captureRun from '../src/app/api/capture/[id]/run/route';
 import * as captureRegenerate from '../src/app/api/capture/[id]/regenerate/route';
@@ -144,6 +145,9 @@ const cases: Case[] = [
   // ZP-1100: AI product capture. Every route is OWNER only, reads included.
   { method: 'GET', path: '/api/capture', handler: h(captureList.GET), policy: 'OWNER' },
   { method: 'POST', path: '/api/capture', handler: h(captureList.POST), policy: 'OWNER' },
+  { method: 'GET', path: '/api/capture/house-model', handler: h(captureHouseModel.GET), policy: 'OWNER' },
+  { method: 'PUT', path: '/api/capture/house-model', handler: h(captureHouseModel.PUT), policy: 'OWNER' },
+  { method: 'DELETE', path: '/api/capture/house-model', handler: h(captureHouseModel.DELETE), policy: 'OWNER' },
   { method: 'GET', path: `/api/capture/${MISSING_ID}`, handler: h(captureById.GET), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'PATCH', path: `/api/capture/${MISSING_ID}`, handler: h(captureById.PATCH), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'DELETE', path: `/api/capture/${MISSING_ID}`, handler: h(captureById.DELETE), policy: 'OWNER', params: { id: MISSING_ID } },

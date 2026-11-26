@@ -22,6 +22,8 @@ type Edits = {
   fabric: string;
   care: string;
   altText: string;
+  /** One detail per line. */
+  details: string;
   listingType: 'IN_STOCK' | 'PRE_ORDER';
   shipFrom: string;
   shipTo: string;
@@ -54,6 +56,7 @@ function toEdits(d: Draft): Edits {
     fabric: l?.fabric ?? '',
     care: l?.care ?? '',
     altText: l?.altText ?? '',
+    details: (l?.details ?? []).join('\n'),
     listingType: d.listingType,
     shipFrom: d.shipFrom ?? '',
     shipTo: d.shipTo ?? '',
@@ -180,7 +183,7 @@ export default function CaptureReviewPage() {
         fabric: form.fabric,
         care: form.care,
         altText: form.altText,
-        details: draft.listing?.details ?? [],
+        details: form.details.split('\n').map((d) => d.trim()).filter(Boolean),
       },
       listingType: form.listingType,
       shipFrom: form.listingType === 'PRE_ORDER' ? form.shipFrom : null,
@@ -382,6 +385,15 @@ export default function CaptureReviewPage() {
             <label className="label" htmlFor="cap-alt">Alt text (describes every photo)</label>
             <input id="cap-alt" className="input w-full" maxLength={200} value={form.altText} onChange={(e) => set('altText', e.target.value)} />
           </div>
+          {draft.imageMode === 'AI' && (
+            <div>
+              <label className="label" htmlFor="cap-details">Details the photos must keep (one per line)</label>
+              <textarea id="cap-details" className="input w-full" rows={8} value={form.details} onChange={(e) => set('details', e.target.value)} />
+              <p className="text-xs text-slate-500">
+                The AI uses this list for every photo. If a photo got something wrong, correct or add the detail here, save, then tap &quot;Make again&quot; on that photo.
+              </p>
+            </div>
+          )}
 
           <div className="grid gap-3 md:grid-cols-2">
             <div>

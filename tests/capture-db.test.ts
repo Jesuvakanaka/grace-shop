@@ -15,6 +15,7 @@ import { LocalImageStorage } from '../src/lib/storage/local'
 import { createDraft, updateDraft } from '../src/lib/capture/drafts'
 import { regenerateSlot, runNextStep, type RunDeps } from '../src/lib/capture/run'
 import { approveDraft } from '../src/lib/capture/approve'
+import { clearHouseModel, getHouseModelKey, setHouseModel } from '../src/lib/capture/house-model'
 
 let dir = ''
 let storage: LocalImageStorage
@@ -42,7 +43,7 @@ function deps(): RunDeps {
   return {
     storage,
     writeListing: async () => {
-      return { listing: listing(), costCents: 3 }
+      return { listing: listing(), costCents: 3, writer: 'claude' as const }
     },
     generateFashionPhoto: async () => {
       photoCalls++
@@ -134,14 +135,54 @@ describe('capture processing', () => {
 
   test('a missing API key fails with a plain message', async () => {
     const d = await make()
-    const saved = process.env.ANTHROPIC_API_KEY
+    const saved = { a: process.env.ANTHROPIC_API_KEY, o: process.env.OPENAI_API_KEY }
     delete process.env.ANTHROPIC_API_KEY
+    delete process.env.OPENAI_API_KEY
     try {
       const s = await runNextStep(prisma, d.id, deps())
       assert.strictEqual(s.status, 'FAILED')
-      assert.strictEqual(s.error, 'Anthropic key not set up')
+      assert.strictEqual(s.error, 'No AI key set up for the listing text')
     } finally {
-      process.env.ANTHROPIC_API_KEY = saved
+      if (saved.a !== undefined) process.env.ANTHROPIC_API_KEY = saved.a
+      if (saved.o !== undefined) process.env.OPENAI_API_KEY = saved.o
+    }
+  })
+
+  test('the house model is sent LAST for women, and not for children', async () => {
+    const before = await prisma.siteSettings.findUnique({ where: { id: 1 }, select: { captureHouseModelKey: true } })
+    await setHouseModel(prisma, await pic(30, 30, 30), storage)
+    const houseKey = (await getHouseModelKey(prisma))!
+    const houseBytes = (await storage.get(houseKey))!
+    const house = Buffer.from(await new Response(houseBytes.stream).arrayBuffer())
+    try {
+      const calls: { refs: Buffer[]; prompt: string }[] = []
+      const spy: RunDeps = {
+        ...deps(),
+        generateFashionPhoto: async ({ references, prompt }) => {
+          calls.push({ refs: references, prompt })
+          return { png: Buffer.from(await pic(calls.length * 40, 90, 160)), costCents: 16 }
+        },
+      }
+      const women = await make({ audience: 'women' })
+      let d = await runNextStep(prisma, women.id, spy)
+      for (let i = 0; i < 5 && d.status === 'GENERATING'; i++) d = await runNextStep(prisma, women.id, spy)
+      assert.strictEqual(calls.length, 3)
+      assert.strictEqual(calls[0].refs.length, 2) // garment, house model
+      assert.strictEqual(calls[1].refs.length, 3) // garment, Image 1, house model
+      for (const c of calls) {
+        assert.ok(c.refs[c.refs.length - 1].equals(house))
+        assert.match(c.prompt, /VYRA house model/)
+      }
+      calls.length = 0
+      const girls = await make({ audience: 'girls 4-8' })
+      d = await runNextStep(prisma, girls.id, spy)
+      for (let i = 0; i < 5 && d.status === 'GENERATING'; i++) d = await runNextStep(prisma, girls.id, spy)
+      assert.strictEqual(calls.length, 3)
+      assert.strictEqual(calls[0].refs.length, 1)
+      assert.doesNotMatch(calls[0].prompt, /house model/)
+    } finally {
+      if (before) await prisma.siteSettings.update({ where: { id: 1 }, data: { captureHouseModelKey: before.captureHouseModelKey } })
+      else await clearHouseModel(prisma)
     }
   })
 

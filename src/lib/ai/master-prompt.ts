@@ -10,30 +10,56 @@ const POSES = [
 
 export type PhotoSlot = 0 | 1 | 2
 
+/**
+ * Whether the stored house model (an adult woman) should wear this garment.
+ * Children's and men's pieces keep the master prompt's own model guidance.
+ */
+export function usesHouseModel(audience?: string | null): boolean {
+  const a = audience?.trim() ?? ''
+  return !/\b(girls?|boys?|kids?|child|children|baby|babies|toddlers?|teens?|men|mens|man|male)\b/i.test(a)
+}
+
+/**
+ * Prompt for one photo. The reference images must be sent in this order:
+ * the garment photo(s), then Image 1 of the set (when `hasFirstPhoto`), then
+ * the house model (when `hasHouseModel`) LAST.
+ */
 export function buildPhotoPrompt(opts: {
   slot: PhotoSlot
   audience?: string | null
   notes?: string | null
   details: string[]
-  hasModelReference: boolean
+  hasFirstPhoto: boolean
+  hasHouseModel: boolean
 }): string {
   const parts: string[] = [MASTER_PROMPT]
-  parts.push(
-    `Make only Image ${opts.slot + 1} (pose: ${POSES[opts.slot]}) now, as one standalone photo. Do not make the other images.`,
-  )
-  const details = opts.details.map((d) => d.trim()).filter(Boolean)
-  if (details.length > 0) {
-    parts.push(`Details that must be kept exactly: ${details.join('; ')}.`)
-  }
-  const audience = opts.audience?.trim()
-  const notes = opts.notes?.trim()
-  if (audience) parts.push(`Intended for: ${audience}.`)
-  if (notes) parts.push(`Owner's note: ${notes}`)
-  if (opts.hasModelReference) {
-    parts.push(
-      'The LAST reference image shows the model from Image 1 (the other images show the garment): use the same person, face, hairstyle and skin tone, and take the garment only from the garment photos.',
+  const refs = ['The FIRST reference image(s) show the garment being sold: take the garment only from these.']
+  if (opts.hasFirstPhoto) {
+    refs.push(
+      'The next reference image is Image 1 of this set, already made: use the same model, hair, styling, environment, lighting and campaign look as in it, and the same garment details.',
     )
   }
-  parts.push('No logos, watermarks, prices or text anywhere in the photo.')
+  if (opts.hasHouseModel) {
+    refs.push(
+      'The LAST reference image shows the VYRA house model. She is the model in this photograph: keep her face, hair, skin tone, body shape and proportions exactly the same, so she is clearly the same person. Use that image only for who the model is; ignore her clothing, pose and background there.',
+    )
+  }
+  parts.push(`About the reference images\n${refs.join('\n')}`)
+
+  const about: string[] = []
+  const audience = opts.audience?.trim()
+  const notes = opts.notes?.trim()
+  if (audience) about.push(`Intended for: ${audience}.`)
+  if (notes) about.push(`Owner's note: ${notes}`)
+  const details = opts.details.map((d) => d.trim()).filter(Boolean)
+  if (details.length > 0) about.push(`Details that must be kept exactly:\n${details.map((d) => `* ${d}`).join('\n')}`)
+  if (about.length > 0) parts.push(`About this garment\n${about.join('\n')}`)
+
+  parts.push(
+    `This photograph\nMake only Image ${opts.slot + 1} (pose: ${POSES[opts.slot]}) now, as one single standalone photograph, not a collage. Do not make the other images.`,
+  )
+  parts.push(
+    'Remove hangers, swing tags, price tickets and their plastic fasteners. Omit any logos, watermarks, prices or text added to the picture, but keep every label, patch or badge that is sewn onto the garment itself.',
+  )
   return parts.join('\n\n')
 }

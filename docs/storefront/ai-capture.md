@@ -1,8 +1,9 @@
 # AI product capture (ZP-1100)
 
 The owner photographs a garment on a phone in the admin (`/capture`). The site
-then writes the listing (Claude) and, in AI mode, makes 3 VYRA model photos
-(OpenAI GPT Image). The owner reviews and approves; approval creates a normal
+then writes the listing (Claude, or OpenAI when Claude is unavailable) and, in
+AI mode, makes 3 VYRA model photos (OpenAI `gpt-6.2-astra` with its image
+generation tool). The owner reviews and approves; approval creates a normal
 Product (with gallery) and can publish it. Two listing types: **in stock**
 (e.g. a container just arrived) and **pre-order** (bought in the market, ships
 in a few months).
@@ -72,8 +73,11 @@ The browser drives the work one step per request:
 
 1. No `listing` yet: Claude reads the reference photo(s) and writes the listing draft.
 2. AI mode, a slot in `generatedKeys` still empty: generate that ONE photo.
-   Slot 0 uses the reference photos; slots 1 and 2 also get slot 0's photo
-   as the model reference, so it is the same model.
+   References, in this order (the prompt names it): the garment photo(s);
+   for slots 1 and 2 also slot 0's photo; and LAST the house model, when one
+   is set and the draft is for women (`usesHouseModel(audience)`: children's
+   and men's pieces keep the master prompt's own model guidance).
+   The listing's `details` checklist goes into the photo prompt.
 3. Nothing left: status `READY`.
 
 Status is `GENERATING` while steps remain. A failed step sets `FAILED` and
@@ -93,18 +97,25 @@ container).
 | `POST /api/capture/[id]/run` | do the next step (above) |
 | `POST /api/capture/[id]/regenerate` | `{ slot }`: clear and remake one AI photo |
 | `POST /api/capture/[id]/approve` | `{ publish, itemNumber? }`: create the Product, gallery, website fields; publish if asked |
+| `GET/PUT/DELETE /api/capture/house-model` | the house model photo (PUT multipart `photo`); stored as `SiteSettings.captureHouseModelKey`, never public |
 
 ## AI services (`src/lib/ai/`)
 
+Chosen from the denim pinafore tests (Nov 2026): `gpt-6.2-astra` was the only
+model that kept every garment detail; medium and high quality looked the same.
+
 | Env var | Default | Use |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | (none: AI photos disabled) | GPT Image |
-| `OPENAI_IMAGE_MODEL` | `gpt-image-1.5` | change without a code change |
-| `OPENAI_IMAGE_QUALITY` | `high` | `low` / `medium` / `high` |
-| `ANTHROPIC_API_KEY` | (none: listing text disabled) | Claude listing text |
+| `OPENAI_API_KEY` | (none: AI photos disabled) | Photos: `gpt-6.2-astra` through the Responses API with the `image_generation` tool, 1024x1536. Also the listing text fallback (`gpt-6.2-astra`, which read garment details far better than `gpt-5.1`). |
+| `OPENAI_IMAGE_QUALITY` | `medium` | `low` / `medium` / `high` |
+| `ANTHROPIC_API_KEY` | (none: OpenAI writes the text) | Claude listing text. If the key is missing or the call fails (for example out of credit), OpenAI writes it instead. |
 | `ANTHROPIC_LISTING_MODEL` | `claude-opus-5-5` | |
 
-The VYRA master prompt lives in `src/lib/ai/master-prompt.ts`.
+Cost: about $0.15 per photo (from the usage OpenAI reports), so about $0.45
+per garment, plus 1 to 2 cents for the text. `aiCostCents` records it.
+
+The VYRA master prompt lives in `src/lib/ai/master-prompt.ts`. The prompt keeps
+sewn-on labels and patches while forbidding added logos and text.
 
 ## Public site: pre-order
 
