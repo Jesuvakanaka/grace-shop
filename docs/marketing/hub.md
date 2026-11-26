@@ -69,12 +69,17 @@ Editing the words, photos or format of an approved or scheduled post sends it ba
 - `GET /api/marketing/posts?status=&channel=&from=&to=` (from/to match the scheduled or published time), `GET/PATCH /api/marketing/posts/[id]`
 - `POST /api/marketing/posts/[id]/transition` with `{ action, scheduledFor? }`; actions: submit, cancel, approve, reject, schedule, unschedule, publish, retry, share
 - `GET /api/marketing/audit?limit=&entity=`
-<<<<<<< HEAD
-=======
 - `POST /api/marketing/content/[id]/draft` with optional `{ channels }`: AI writes the DRAFT/REJECTED posts (see AI below)
 - `GET /api/marketing/suggestions?limit=`: products worth promoting this week
 - `POST /api/marketing/plan` with `{ start }`: proposed times for the approved posts (saves nothing)
 - `POST /api/marketing/plan/apply` with `{ items: [{ postId, scheduledFor }] }`
+- `GET /api/marketing/status`: whether the hub is on and why live posting is off (the nav uses it)
+- `GET /api/marketing/products?q=&ids=`: published products with their photos, for the pickers
+- `POST /api/marketing/content/[id]/posts` with `{ channels }`: add draft posts for more channels
+
+## Screens (`/marketing`, owner only)
+
+Overview (live status, counts, this week, share bundles ready), Campaigns, Content (pick a product and photos, tick channels, edit each channel's words with a live character count, act on each post), Approvals (the queue), Channels (what each channel can and can't do, and how to switch it on), Settings (live switch, spend cap, weekly target, brand voice), Activity (the audit log). Manual channels show a share bundle: photos through the phone's share sheet as JPEG, the caption with its tracking link, Copy caption, and Mark as shared.
 
 ## AI (`src/lib/marketing/ai/`)
 
@@ -96,7 +101,6 @@ The model never writes a price, size or stock level. It writes `{price}`, `{size
 ### Cost
 
 A draft costs about 1 to 3 cents for a few channels (Claude at about $4 / $20 per million input / output tokens; OpenAI fallback about $8 / $40). The estimate is stored per post in `aiCostCents`. Suggestions and the planner are free.
->>>>>>> hub-c
 
 ## Switching a channel on (later)
 
@@ -104,8 +108,4 @@ Each registry entry has plain-English `setupSteps` and `apiNotes` (what the offi
 
 ## Coming in later PRs
 
-<<<<<<< HEAD
-Concrete connectors (Meta Graph API, Google, TikTok drafts, Pinterest, X, Telegram, YouTube, email, SMS, WhatsApp Cloud), AI drafting, screens, the scheduler/runner, ads with budget caps, audiences, contacts with opt-in, partners, daily results and recommendations.
-=======
-Concrete connectors (Meta Graph API, Google, TikTok drafts, Pinterest, X, Telegram, YouTube, email, SMS, WhatsApp Cloud), screens, the scheduler/runner, ads with budget caps, audiences, contacts with opt-in, partners, daily results and recommendations.
->>>>>>> hub-c
+Concrete connectors (Meta Graph API, Google, TikTok drafts, Pinterest, X, Telegram, YouTube, email, SMS, WhatsApp Cloud), the scheduler/runner, ads with budget caps, audiences, contacts with opt-in, partners, daily results and recommendations.

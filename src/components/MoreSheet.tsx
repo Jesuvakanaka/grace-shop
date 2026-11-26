@@ -2,12 +2,13 @@
 
 import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
+import { useMarketingEnabled } from '@/components/useMarketingEnabled';
 import { pendingReviewsLabel, usePendingReviews } from '@/components/usePendingReviews';
 import { Sheet } from '@/components/ui/Sheet';
 import { STOREFRONT_PREFIX } from '@/lib/host-routing';
 import { SITE_ROUTES, sitePath } from '@/lib/storefront/paths';
 
-const moreItems = [
+const moreItems: { label: string; href: string; icon: string; testId: string; ownerOnly?: boolean; marketing?: boolean }[] = [
   { label: 'Daily Log', href: '/daily-log', icon: '📋', testId: 'more-nav-daily-log' },
   { label: 'Sales', href: '/sales', icon: '💰', testId: 'more-nav-sales' },
   { label: 'Stock Ledger', href: '/stock-ledger', icon: '📒', testId: 'more-nav-stock-ledger' },
@@ -16,6 +17,7 @@ const moreItems = [
   { label: 'Add with AI', href: '/capture', icon: '📸', testId: 'more-nav-capture', ownerOnly: true },
   { label: 'Website', href: '/website', icon: '🌐', testId: 'more-nav-website', ownerOnly: true },
   { label: 'Insights', href: '/insights', icon: '📈', testId: 'more-nav-insights', ownerOnly: true },
+  { label: 'Marketing', href: '/marketing', icon: '📣', testId: 'more-nav-marketing', ownerOnly: true, marketing: true },
   { label: 'Import Data', href: '/import', icon: '📥', testId: 'more-nav-import', ownerOnly: true },
   { label: 'Exchange Rate', href: '/settings/exchange-rate', icon: '⚙️', testId: 'more-nav-exchange-rate', ownerOnly: true },
   { label: 'Change Password', href: '/settings/password', icon: '🔑', testId: 'more-nav-change-password' },
@@ -28,7 +30,8 @@ interface MoreSheetProps {
 
 export function MoreSheet({ open, onClose }: MoreSheetProps) {
   const { user } = useAuth();
-  const visible = moreItems.filter((item) => !(item.ownerOnly && user?.role !== 'OWNER'));
+  const marketingOn = useMarketingEnabled();
+  const visible = moreItems.filter((item) => !(item.ownerOnly && user?.role !== 'OWNER') && !(item.marketing && !marketingOn));
   // ZP-508: reviews waiting for the owner, as a badge on "Website".
   const pendingReviews = usePendingReviews();
 
