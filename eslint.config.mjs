@@ -40,6 +40,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Standalone experiments with their own package.json; not part of the app.
+    "experiments/**",
   ]),
 ]);
 
