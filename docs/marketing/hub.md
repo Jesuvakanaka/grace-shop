@@ -69,6 +69,31 @@ Editing the words, photos or format of an approved or scheduled post sends it ba
 - `GET /api/marketing/posts?status=&channel=&from=&to=` (from/to match the scheduled or published time), `GET/PATCH /api/marketing/posts/[id]`
 - `POST /api/marketing/posts/[id]/transition` with `{ action, scheduledFor? }`; actions: submit, cancel, approve, reject, schedule, unschedule, publish, retry, share
 - `GET /api/marketing/audit?limit=&entity=`
+- `POST /api/marketing/content/[id]/draft` with optional `{ channels }`: AI writes the DRAFT/REJECTED posts (see AI below)
+- `GET /api/marketing/suggestions?limit=`: products worth promoting this week
+- `POST /api/marketing/plan` with `{ start }`: proposed times for the approved posts (saves nothing)
+- `POST /api/marketing/plan/apply` with `{ items: [{ postId, scheduledFor }] }`
+
+## AI (`src/lib/marketing/ai/`)
+
+Three helpers. Only the first calls a model.
+
+- **Writer (`writer.ts`, `draft.ts`)**: for each channel of a content idea it writes the words for that channel's rules (length limit, hashtags for Instagram/TikTok/Threads, very short for WhatsApp Status, headline + primary text + description for ads, subject + body for email, 160 characters for SMS). British spelling, the warm VYRA boutique voice, plus the owner's voice notes (`brandVoice`) and the campaign goal. Claude is used when `ANTHROPIC_API_KEY` is set (model `ANTHROPIC_MARKETING_MODEL`, else `ANTHROPIC_LISTING_MODEL`, else the listing default); OpenAI (`OPENAI_LISTING_MODEL` constant) is the fallback when there is no Claude key or the Claude call fails. The result is saved on the draft post with `aiGenerated = true` and the cost added to `aiCostCents`. A rejected post goes back to DRAFT; anything past DRAFT/REJECTED answers 409; with no AI key the API answers 503 in plain words. AI text is never approved by itself: it still goes through submit and owner approval.
+- **Suggestions (`suggest.ts`)**: ranks published products from data already in the database: newly published, in stock (or a pre-order shipping soon), popular (`ProductPopularity`), loved, and lower when already used in marketing content in the last 14 days. Each suggestion has a plain reason. No model call, no cost.
+- **Week planner (`plan.ts`)**: spreads the approved, unscheduled posts across the week using `weeklyPostTarget` and the busiest visit hours of the last 8 weeks (`AnalyticsDailyHour`, Harare time; 12:00 and 19:00 when there is no data). The same channel never gets two posts within 3 hours. It only proposes. Applying schedules API channels through the normal `schedule` action; manual channels (WhatsApp Status and so on) only get a suggested day, nothing is stored.
+
+### The placeholder rule
+
+The model never writes a price, size or stock level. It writes `{price}`, `{sizes}` and `{link}`, and code fills them:
+
+- `{price}` is the product's selling price only when the storefront would show it (`SHOW_PRICE` and a price above 0, via `publicPriceUsd`). Otherwise the sentence holding `{price}` is removed. A model that writes its own amount (`$39`, `USD`) or an unknown placeholder has that channel rejected.
+- `{sizes}` is the product's `sizes` text; with none on file the sentence is removed.
+- The post's own tracking link (`?src=<tag>`) is added by code at the end, once.
+- Text over the channel limit is trimmed at a word boundary (the words, never the link or hashtags); if it still cannot fit, that channel fails and the owner is told, rather than posting something cut off.
+
+### Cost
+
+A draft costs about 1 to 3 cents for a few channels (Claude at about $4 / $20 per million input / output tokens; OpenAI fallback about $8 / $40). The estimate is stored per post in `aiCostCents`. Suggestions and the planner are free.
 
 ## Switching a channel on (later)
 
@@ -76,4 +101,4 @@ Each registry entry has plain-English `setupSteps` and `apiNotes` (what the offi
 
 ## Coming in later PRs
 
-Concrete connectors (Meta Graph API, Google, TikTok drafts, Pinterest, X, Telegram, YouTube, email, SMS, WhatsApp Cloud), AI drafting, screens, the scheduler/runner, ads with budget caps, audiences, contacts with opt-in, partners, daily results and recommendations.
+Concrete connectors (Meta Graph API, Google, TikTok drafts, Pinterest, X, Telegram, YouTube, email, SMS, WhatsApp Cloud), screens, the scheduler/runner, ads with budget caps, audiences, contacts with opt-in, partners, daily results and recommendations.
