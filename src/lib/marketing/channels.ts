@@ -52,6 +52,19 @@ export const CONNECT_FIELDS: Readonly<Record<string, readonly ConnectField[]>> =
   X: [{ ...ACCESS_TOKEN, label: 'X user access token', help: 'OAuth 2.0 user token. X tokens expire after about 2 hours, so this needs reconnecting until a refresh is added.' }],
   YOUTUBE: [...GOOGLE_OAUTH],
   TIKTOK: [{ ...ACCESS_TOKEN, label: 'TikTok access token', help: 'Posts go to your TikTok inbox as drafts; you finish them in the app.' }],
+  WHATSAPP_CLOUD: [
+    { name: 'phoneNumberId', label: 'WhatsApp phone number ID', kind: 'digits', max: 30, help: 'In the Meta developer app: WhatsApp, API Setup. It is not the phone number itself.' },
+    { ...ACCESS_TOKEN, label: 'Permanent access token', help: 'From a system user with whatsapp_business_messaging. It is checked with Meta, saved encrypted, and never shown again.' },
+  ],
+  SMS: [
+    { name: 'accountSid', label: 'Twilio account ID (starts with AC)', kind: 'text', max: 40 },
+    { name: 'from', label: 'Sender (your Twilio number, sender name or Messaging Service ID)', kind: 'text', max: 40, help: 'A number such as +12025550123, a sender name of up to 11 letters (check Zimbabwe allows it), or an ID starting MG.' },
+    { name: 'authToken', label: 'Twilio auth token', kind: 'secret', max: 100, help: 'It is checked with Twilio, saved encrypted, and never shown again.' },
+  ],
+  EMAIL: [
+    { name: 'senderEmail', label: 'Sender email address (verified in Brevo)', kind: 'text', max: 200 },
+    { name: 'apiKey', label: 'Brevo API key', kind: 'secret', max: 300, help: 'It is checked with Brevo, saved encrypted, and never shown again.' },
+  ],
   THREADS: [{ ...ACCESS_TOKEN, label: 'Threads access token', help: 'It is checked with Threads, saved encrypted, and never shown again. The Threads profile ID is read from it.' }],
 }
 
@@ -125,7 +138,7 @@ const META_PAGE_STEPS = [
 const MANUAL_NOTE = 'No official API: the hub prepares the words and photos and you post them yourself, then mark it as shared.'
 
 /** Channels with a connector in src/lib/marketing/connectors. */
-const WITH_CONNECTOR = new Set(['FACEBOOK_PAGE', 'INSTAGRAM', 'META_ADS', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK', 'THREADS', 'GOOGLE_BUSINESS', 'GOOGLE_MERCHANT'])
+const WITH_CONNECTOR = new Set(['FACEBOOK_PAGE', 'INSTAGRAM', 'META_ADS', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK', 'THREADS', 'GOOGLE_BUSINESS', 'GOOGLE_MERCHANT', 'WHATSAPP_CLOUD', 'SMS', 'EMAIL'])
 
 export const CHANNELS: readonly ChannelDef[] = [
   def('FACEBOOK_PAGE', 'Facebook Page', 'meta', 'api', ['POST', 'STORY', 'VIDEO'],
@@ -161,8 +174,8 @@ export const CHANNELS: readonly ChannelDef[] = [
     ['WhatsApp has no API for broadcast lists.', 'Moving the number onto the Cloud API ("coexistence") makes broadcast lists read-only in the app.', MANUAL_NOTE]),
   def('WHATSAPP_CLOUD', 'WhatsApp Business (Cloud API)', 'whatsapp', 'api', ['MESSAGE'],
     { publish: true, messages: true }, { maxText: 1024, maxImages: 1 },
-    ['Create a Meta business and add the WhatsApp product to your developer app.', 'Add a phone number and get the phone number ID and a permanent token.', 'Submit message templates for approval in WhatsApp Manager.', 'Paste the phone number ID and token into the Connect box.'],
-    ['You can only message customers who opted in.', 'Outside the 24-hour reply window only approved templates can be sent, and each conversation is charged by Meta.', 'Using the number here changes how the WhatsApp app behaves on that number (broadcast lists become read-only).']),
+    ['Read the warning in the hub guide first: moving your number onto the Cloud API changes how the WhatsApp Business app works on it.', 'Create a Meta business, add the WhatsApp product to a developer app, and add a phone number (a number that is new to WhatsApp, or your shop number with "coexistence").', 'In WhatsApp Manager write your message template (category Marketing) and wait for Meta to approve it. Note its exact name and language.', 'Make a system user with whatsapp_business_messaging and whatsapp_business_management, and generate a permanent token. Copy the phone number ID from API Setup.', 'Paste the phone number ID and the token into the Connect box. Only people who opted in on WhatsApp are ever messaged, and only after you approve each message.'],
+    ['Customers must have opted in to WhatsApp messages from you; the hub only messages contacts with a recorded WhatsApp opt-in that has not been withdrawn.', 'Marketing messages outside the 24-hour reply window must be approved templates: the hub never sends free text. Meta charges per marketing template message delivered, so check the price list for Zimbabwe numbers before a big send.', 'Coexistence: the shop number can stay in the WhatsApp Business app, but broadcast lists become read-only there, and chats you have in the app keep working. Check Meta\'s current coexistence rules before moving the number.', 'The Cloud API has no Status, Channels or broadcast list posting: those stay manual.', 'Meta may decline to deliver some marketing messages (error 131049) to protect people from too many promotions.']),
   def('GOOGLE_BUSINESS', 'Google Business Profile', 'google', 'api', ['POST'],
     { publish: true }, { maxText: 1500, maxHashtags: 0, imageFormat: 'jpeg', maxImages: 1 },
     ['Claim and verify the VYRA listing at business.google.com.', 'In Google Cloud create a project, then ask Google for access to the Business Profile APIs (the "GBP API access" request form). Google has to approve the project before any call works; this can take days.', 'Once approved, enable the Business Profile APIs, set up the OAuth consent screen, and create an OAuth client ID (type "Web application") with the https://www.googleapis.com/auth/business.manage scope.', 'Use the OAuth Playground (or your own sign-in) to sign in as the account that owns the listing and copy the refresh token. Find the account ID and the location ID (the numbers in accounts/123/locations/456).', 'Paste the account ID, location ID, client ID, client secret and refresh token into the Connect box. The hub checks them by listing the location.'],
@@ -197,12 +210,12 @@ export const CHANNELS: readonly ChannelDef[] = [
     ['The bot API cannot report views for a channel.', 'Photo captions are limited to 1024 characters: a longer text is sent as a message right after the photos.', 'A media group holds 2 to 10 photos.']),
   def('EMAIL', 'Email newsletter', 'messages', 'api', ['EMAIL'],
     { publish: true, messages: true }, { maxText: 20000, maxHashtags: 0, maxImages: 5 },
-    ['Pick an email sending service (for example Resend or Mailgun) and verify the VYRA domain.', 'Paste the API key and the "from" address into the Connect box.', 'Only people who agreed to hear from VYRA may be emailed.'],
-    ['Every email needs an unsubscribe link and a postal address.', 'Sending to a list needs consent that the hub records.']),
+    ['Create a free Brevo account (brevo.com) and verify the email address or domain VYRA sends from (Senders, Domains and dedicated IPs).', 'Create an API key (SMTP and API, API keys) and copy it.', 'Paste the verified sender address and the API key into the Connect box.', 'Only people who opted in to email are ever emailed, and only after you approve each message.'],
+    ['Brevo\'s free plan has a daily sending limit and shows Brevo branding; check the current limits.', 'Every email carries an unsubscribe link and List-Unsubscribe headers. Add your shop address to the words of the email if the law where your customers live asks for it.', 'The sender address must be verified in Brevo or the email is refused.']),
   def('SMS', 'Text messages (SMS)', 'messages', 'api', ['SMS'],
     { publish: true, messages: true }, { maxText: 320, maxHashtags: 0, maxImages: 0 },
-    ['Pick an SMS provider (for example Twilio) and buy a sender number.', 'Paste the account ID, the token and the sender number into the Connect box.'],
-    ['Each message costs money and only people who agreed to be texted may receive one.', 'Some countries need the sender name registered first.']),
+    ['Create a Twilio account (twilio.com) and add credit.', 'Buy a sender number, or set up a sender name, that can text Zimbabwe (see the notes below).', 'Copy the account ID (starts AC) and the auth token from the Twilio console.', 'Paste the account ID, the sender and the token into the Connect box.', 'Only people who opted in to SMS are ever texted, and only after you approve each message.'],
+    ['Each message costs money. Zimbabwe sender IDs and pricing need checking with Twilio before you rely on them: some countries need a registered sender name, and prices per message differ by network.', 'Every text ends with "Reply STOP to opt out.". If Twilio reports a STOP reply the hub records the person as opted out.', 'A text over 160 characters is sent as several parts and costs more.']),
   def('INFLUENCER', 'Influencers', 'partners', 'manual', ['MESSAGE'],
     {}, { maxText: 2000, maxImages: 5 }, ['Agree with the person what they will post and what they get.', 'Send them the prepared brief and the photos, then press "Mark as shared".'],
     ['Nothing is posted by the hub. Use a tracking link or a code per person to see results.', 'Ask them to label paid posts as ads.']),

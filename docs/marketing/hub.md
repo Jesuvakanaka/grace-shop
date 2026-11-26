@@ -283,4 +283,72 @@ This channel carries the catalogue, not posts: `publish` always answers "carries
 
 ## Coming in later PRs
 
-Google Ads, email, SMS and WhatsApp Cloud connectors, contacts with opt-in and partners.
+Google Ads.
+
+## Contacts, messages and partners (ZP-1200)
+
+### The rule that cannot be broken
+
+A message (email, text or WhatsApp) goes to a person only when **all** of these hold:
+
+1. That person has a recorded **opt-in for that exact channel** (WhatsApp consent does not allow SMS or email) and the **latest** consent row is not an opt-out.
+2. `GRACE_MARKETING_LIVE=true` on the server, live sending switched on in Settings, the channel connected with saved credentials, and the **owner approved the exact words** (`assertCanGoLive`, with the broadcast as the item). Editing approved words sends it back to a draft.
+3. The daily limit (Messages screen, default 100 a day, all channels together) is not used up.
+
+The list of people is worked out again at the moment of sending, and each person's consent is checked again right before their message, so an opt-out during a send is honoured. Messages go out about one a second (`GRACE_MARKETING_SEND_PER_SECOND`, default 1, at most 10), at most 500 per run. Each person has one row per message (unique), claimed before the request, so nobody gets it twice. "Try again" only re-sends people it did not reach; a message whose outcome is unknown (a run that died mid-send) is **never** re-sent automatically.
+
+### Contacts and consent
+
+- Tables: `MarketingContact` (phone in E.164, unique per shop; email unique per shop), `MarketingConsent` (one row per change, newest wins, with how it was given and optional proof).
+- Zimbabwe numbers: `077 123 4567`, `0771234567`, `263771234567`, `+263 77 123 4567` all become `+263771234567`. Other countries need `+`.
+- A new contact has **no** consent. Opting in is always an explicit owner action (a "how did they say so" text is required), or a clear yes in an imported file that the owner confirms.
+- **CSV import** (Contacts screen, `POST /api/marketing/contacts/import`): columns `name`, `phone`, `email`, `notes`, and optionally `whatsapp_consent`, `sms_consent`, `email_consent` (yes/no), `consent_method`, `consent_evidence`. The preview writes nothing. Without a consent column nobody is opted in. A yes never overrides an earlier opt-out. Opt-ins need the owner to tick "I confirm". The import is audited (file name and counts).
+- **Add from enquiries: not built.** The website's enquiry (WhatsApp tap) data is anonymous (no phone numbers, see `AnalyticsEvent`), so there is nothing to suggest contacts from. Contacts are added by hand or by import.
+- **Unsubscribe**: `GET/POST /api/public/marketing/unsubscribe?t=<token>` (public). The token is `contactId.CHANNEL.hmac` (HMAC-SHA256, key derived like `secrets.ts` with info `grace-marketing-unsubscribe-v1`); a changed token writes nothing. It only ever records an opt-out, never expires, and works even when `GRACE_MARKETING_HUB=false`. Every email carries the link in the footer and as `List-Unsubscribe` / `List-Unsubscribe-Post` headers; every text ends "Reply STOP to opt out."; if Twilio reports a STOP reply (error 21610) the hub records an opt-out. Replies to WhatsApp are not read: record a WhatsApp opt-out by hand on the contact.
+- No delete for contacts on purpose: deleting would also erase the proof of an opt-out. Ask for a database change if someone must be erased.
+
+### Messages (broadcasts)
+
+`MarketingBroadcast` and `MarketingBroadcastRecipient`. Status machine in `broadcast-state.ts` (pure, tested): DRAFT, PENDING_APPROVAL, APPROVED, SENDING, SENT or FAILED, CANCELLED, REJECTED. Links to your own shop in the words get `?src=<tag>` so visits show up in Results. `{name}` becomes the first name (or "there"). The screen shows how many people would get it, why others are left out, and every reason a send is blocked. Sending runs a small batch per button press ("Send the next batch"); `npm run marketing:run` also starts approved messages whose scheduled time has come and carries on with ones being sent.
+
+API (OWNER only): `/api/marketing/contacts`, `/contacts/[id]`, `/contacts/[id]/consent`, `/contacts/import`, `/broadcasts`, `/broadcasts/[id]` (audience count and blocked reasons), `/broadcasts/[id]/transition` (`submit, approve, reject, send, retry, continue, cancel`), `/broadcasts/[id]/recipients`, `/partners`, `/partners/[id]`, `/partners/[id]/kit`.
+
+### Partners (influencers, resellers, ambassadors)
+
+`MarketingPartner` has a short readable `code` (`[a-z0-9-]`, 3 to 32, checked to survive the analytics tag cleaning). It is the `?src=` tag on their links; **it cannot be changed** once made because links are already out. Results (visits and enquiring visits over the last 30 days) come from `AnalyticsDailySource` where `campaign = code`. The share kit is the tracked link to the shop or one product, fixed words (no prices: nothing is invented), and the product photos for the phone's share sheet. The hub **pays nothing**: commission is a reminder, not a payment.
+
+### Setting each one up (plain English)
+
+**WhatsApp Business Cloud API**
+
+> Read this first. Moving your shop's WhatsApp number onto the Cloud API changes how the WhatsApp Business app works on that number. With Meta's "coexistence" option the app keeps working for normal chats, but **broadcast lists become read-only** in the app, and some features differ. A number that is not yet on WhatsApp is the safest choice. Check Meta's current rules before you move the number you use every day.
+
+1. Create a Meta business (business.facebook.com) and, in Meta for Developers, an app with the WhatsApp product.
+2. Add a phone number to the app and note the **phone number ID** (WhatsApp, API Setup).
+3. In WhatsApp Manager write a **message template** (category Marketing) and wait for Meta to approve it. You will type its exact name and language in the hub.
+4. Make a system user with `whatsapp_business_messaging` and `whatsapp_business_management` and generate a permanent token.
+5. In Marketing, Channels, WhatsApp Business: paste the phone number ID and the token.
+6. Record who agreed to WhatsApp messages (Contacts), write the message (Messages), approve it, then send.
+
+Meta **charges per marketing template message** delivered, and may decline to deliver some marketing messages. Check Meta's price list for Zimbabwe numbers before a big send. Outside the 24-hour reply window only approved templates can be sent: the hub never sends free text. Endpoint used: `POST https://graph.facebook.com/<version>/<phone-number-id>/messages` (docs: developers.facebook.com/docs/whatsapp/cloud-api/reference/messages, checked 26 Nov 2026).
+
+**Twilio (text messages)**
+
+1. Create a Twilio account (twilio.com) and add a little credit.
+2. Get a sender that can text Zimbabwe. **Zimbabwe sender IDs and pricing need checking with Twilio**: some countries need a registered sender name, and prices differ by network. Test with your own number first.
+3. Copy the Account SID (starts `AC`) and the Auth Token from the Twilio console.
+4. In Channels, Text messages: paste the account ID, the sender (a number like `+12025550123`, a sender name, or a Messaging Service ID starting `MG`) and the token.
+
+Endpoint: `POST https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json`, form-encoded, basic auth (docs: twilio.com/docs/sms/api/message-resource, checked 26 Nov 2026). Texts over 160 characters cost several parts.
+
+**Brevo (email)**
+
+1. Create a free Brevo account (brevo.com). The free plan has a daily limit and Brevo branding; check the current limits.
+2. Verify the address or domain you send from (Senders, Domains and dedicated IPs). Unverified senders are refused.
+3. Create an API key (SMTP and API, API keys).
+4. In Channels, Email newsletter: paste the sender address and the API key.
+5. Put your shop address in the words of the email if the law asks for it.
+
+Endpoint: `POST https://api.brevo.com/v3/smtp/email` with the `api-key` header (docs: developers.brevo.com/reference/send-transac-email, checked 26 Nov 2026).
+
+**Not verified against the real services:** all three connectors are tested only with a fake fetch. In particular: that Brevo accepts the `List-Unsubscribe` and `List-Unsubscribe-Post` custom headers on a transactional send (its docs say "standard headers are not supported"), Twilio's error codes beyond 21610, 21211 and 20429, and Meta's error codes for template problems.

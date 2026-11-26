@@ -22,6 +22,9 @@ const TABS = [
   ['/marketing/results', 'Results'],
   ['/marketing/ads', 'Ads'],
   ['/marketing/audiences', 'Audiences'],
+  ['/marketing/contacts', 'Contacts'],
+  ['/marketing/messages', 'Messages'],
+  ['/marketing/partners', 'Partners'],
   ['/marketing/channels', 'Channels'],
   ['/marketing/settings', 'Settings'],
   ['/marketing/activity', 'Activity'],
@@ -56,8 +59,8 @@ export function StatusPill({ status }: { status: string }) {
   );
 }
 
-export function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return <section className={`card ${className}`}>{children}</section>;
+export function Card({ children, className = '', 'data-testid': testId }: { children: React.ReactNode; className?: string; 'data-testid'?: string }) {
+  return <section className={`card ${className}`} data-testid={testId}>{children}</section>;
 }
 
 export function Loading({ what = 'Loading…' }: { what?: string }) {

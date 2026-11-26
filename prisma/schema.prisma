@@ -980,6 +980,8 @@ model MarketingSettings {
   productFeedEnabled   Boolean  @default(false)
   weeklyPostTarget     Int      @default(7)
   brandVoice           String?
+  /// Most customer messages (all broadcasts together) that may be sent in one day.
+  messageDailyCap      Int      @default(100)
   updatedBy            String?
   updatedAt            DateTime @updatedAt
 }
@@ -1202,4 +1204,120 @@ model MarketingRecommendation {
   updatedAt   DateTime @updatedAt
 
   @@index([weekOf, status])
+}
+
+// VYRA Marketing hub, contacts, consent, broadcasts and partners (ZP-1200).
+// A message may go only to a contact whose LATEST consent row for that exact channel is OPTED_IN.
+model MarketingContact {
+  id        Int      @id @default(autoincrement())
+  shopKey   String   @default("vyra")
+  name      String?
+  /// E.164, e.g. +263771234567
+  phone     String?
+  email     String?
+  /// ENQUIRY | MANUAL | IMPORT | STOREFRONT
+  source    String
+  notes     String?
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  consents   MarketingConsent[]
+  recipients MarketingBroadcastRecipient[]
+
+  @@unique([shopKey, phone])
+  @@unique([shopKey, email])
+  @@index([shopKey, name])
+}
+
+/// History: a new row for every change, the latest row (recordedAt, then id) wins.
+model MarketingConsent {
+  id         Int      @id @default(autoincrement())
+  contactId  Int
+  /// WHATSAPP | SMS | EMAIL
+  channel    String
+  /// OPTED_IN | OPTED_OUT
+  status     String
+  /// How it was given, e.g. "said yes on WhatsApp on 26 Nov"
+  method     String
+  evidence   String?
+  recordedBy String
+  recordedAt DateTime @default(now())
+
+  contact MarketingContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId, channel, recordedAt])
+}
+
+model MarketingBroadcast {
+  id               Int       @id @default(autoincrement())
+  shopKey          String    @default("vyra")
+  /// EMAIL | SMS | WHATSAPP_CLOUD
+  channelKind      String
+  name             String
+  subject          String?
+  text             String
+  templateName     String?
+  templateLanguage String    @default("en")
+  templateVars     Json      @default("[]")
+  audienceFilter   Json      @default("{}")
+  trackingTag      String    @unique
+  /// DRAFT | PENDING_APPROVAL | APPROVED | SENDING | SENT | FAILED | CANCELLED | REJECTED
+  status           String    @default("DRAFT")
+  approvedBy       String?
+  approvedAt       DateTime?
+  scheduledFor     DateTime?
+  plannedCount     Int       @default(0)
+  sentCount        Int       @default(0)
+  failedCount      Int       @default(0)
+  skippedCount     Int       @default(0)
+  error            String?
+  createdBy        String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  recipients MarketingBroadcastRecipient[]
+
+  @@index([status, scheduledFor])
+}
+
+model MarketingBroadcastRecipient {
+  id          Int       @id @default(autoincrement())
+  broadcastId Int
+  contactId   Int
+  /// PENDING | SENDING | SENT | FAILED | SKIPPED
+  status      String    @default("PENDING")
+  error       String?
+  externalId  String?
+  sentAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  broadcast MarketingBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  contact   MarketingContact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([broadcastId, contactId])
+  @@index([broadcastId, status])
+  @@index([status, sentAt])
+}
+
+/// An influencer, reseller or ambassador. `code` is the ?src= tag on their links.
+model MarketingPartner {
+  id                Int      @id @default(autoincrement())
+  shopKey           String   @default("vyra")
+  name              String
+  /// INFLUENCER | RESELLER | AMBASSADOR
+  kind              String
+  phone             String?
+  handle            String?
+  code              String   @unique
+  commissionPercent Int?
+  notes             String?
+  /// ACTIVE | PAUSED
+  status            String   @default("ACTIVE")
+  createdBy         String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([shopKey, kind])
 }

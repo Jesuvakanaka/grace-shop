@@ -37,11 +37,35 @@ export interface InsightsResult {
 
 export type VerifyResult = { ok: true; externalId: string | null; name: string | null } | { ok: false; error: string }
 
+/** One customer message. The caller has already checked consent and the go-live gate; the connector checks the gate again. */
+export interface ConnectorMessage {
+  /** E.164 phone number (WhatsApp, SMS) or email address. */
+  to: string
+  /** First name or full name, for greetings. */
+  toName: string | null
+  text: string
+  subject: string | null
+  /** WhatsApp: the approved template (marketing outside the 24-hour window must use one). */
+  templateName: string | null
+  templateLanguage: string
+  templateVars: string[]
+  /** Email: the one-click unsubscribe link (also sent as List-Unsubscribe headers). */
+  unsubscribeUrl: string | null
+}
+
+export type SendResult =
+  | { ok: true; externalId: string }
+  | { ok: false; error: string; retryable: boolean; code?: number; /** The provider says this person has stopped messages (for example Twilio 21610). */ optedOut?: boolean }
+
 export interface Connector {
   kind: string
   /** Check the credentials against the platform (a read-only call). */
   verify(credentials: Record<string, string>, fetch: FetchLike): Promise<VerifyResult>
   /** Publish one approved post. Callers must pass assertCanGoLive first. */
   publish(post: ConnectorPost, ctx: ConnectorContext): Promise<PublishResult>
+  /** Message connectors (WhatsApp Cloud, SMS, email): send ONE message. Callers must pass assertCanGoLive and a consent check first. */
+  send?(message: ConnectorMessage, ctx: ConnectorContext): Promise<SendResult>
+  /** True when the channel only sends customer messages (the Messages screen), never posts. */
+  messagesOnly?: boolean
   fetchInsights?(externalId: string, ctx: ConnectorContext): Promise<InsightsResult>
 }
