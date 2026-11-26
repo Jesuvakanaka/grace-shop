@@ -76,7 +76,7 @@ export async function runRanking(db: PrismaClient, options: { now?: Date } = {})
     // Only pieces the feed shows: public AND with a photo (so exploration slots hold).
     const products = await tx.product.findMany({
       where: { ...PUBLIC_WHERE, images: { some: {} } },
-      select: { id: true, publishedAt: true, currentQuantity: true },
+      select: { id: true, publishedAt: true, currentQuantity: true, listingType: true },
     })
     const ids = products.map((p) => p.id)
     const windowFrom = new Date(`${first}T00:00:00Z`)
@@ -138,7 +138,7 @@ export async function runRanking(db: PrismaClient, options: { now?: Date } = {})
         score: s?.score ?? 100,
         views: s?.views ?? 0,
         publishedAt: p.publishedAt,
-        soldOut: getAvailability(p.currentQuantity, settings?.fewLeftThreshold) === 'SOLD_OUT',
+        soldOut: p.listingType !== 'PRE_ORDER' && getAvailability(p.currentQuantity, settings?.fewLeftThreshold) === 'SOLD_OUT',
         hasPhoto: true,
         newestIndex: i,
       }

@@ -10,6 +10,7 @@
 import { isValidImageKey } from '@/lib/storage/keys'
 import { publicProductRef } from './product-ref'
 import { readSizeChart, type SizeChartRow } from '@/lib/storefront-model/size-chart'
+import { toPreOrderInfo, type PreOrderInfo } from '@/lib/storefront-model/preorder'
 import { isValidPosterKey, isValidVideoKey, publicVideoUrl } from '@/lib/storage/video-keys'
 import { publicImageSrc, publicImageSrcSet } from './image-sizes'
 import {
@@ -59,6 +60,11 @@ export type PublicProduct = {
   colours: string | null
   sizes: string | null
   availability: Availability
+  /**
+   * Pre-order listing (ISO dates, label "Pre-order · ships Feb–Mar 2027"), else null.
+   * Optional in the type so hand-written DTOs need not list it; always set by toPublicProduct.
+   */
+  preOrder?: PreOrderInfo | null
   /** Primary first, then gallery order. */
   images: PublicImage[]
   /**
@@ -131,6 +137,10 @@ export type PublicProductRow = {
   priceDisplay: PriceDisplayValue
   sellingPriceUsd: number
   currentQuantity: number
+  /** Pre-order listing fields (optional so older fixtures need not list them). */
+  listingType?: 'IN_STOCK' | 'PRE_ORDER'
+  preorderShipFrom?: Date | string | null
+  preorderShipTo?: Date | string | null
   /** ZP-507: copied as `loves`. Optional so older fixtures need not list it. */
   loveCount?: number
   /** ZP-513: details card fields (optional so older fixtures need not list them). */
@@ -192,6 +202,7 @@ export function toPublicProduct(row: PublicProductRow, options: ProductDtoOption
     .sort(compareGalleryImages)
     .filter((i) => isValidImageKey(i.imageKey))
     .map((i) => image(i.imageKey, text(i.alt) ?? name))
+  const preOrder = toPreOrderInfo(row)
   const dto: PublicProduct = {
     slug: row.slug ?? '',
     name,
@@ -199,7 +210,9 @@ export function toPublicProduct(row: PublicProductRow, options: ProductDtoOption
     category: { slug: row.category?.slug ?? '', name: row.category?.name ?? '' },
     colours: text(row.colours),
     sizes: text(row.sizes),
-    availability: getAvailability(row.currentQuantity, options.fewLeftThreshold ?? FEW_LEFT_THRESHOLD),
+    // A pre-order is never sold out (its stock is 0 until it arrives).
+    availability: preOrder ? 'IN_STOCK' : getAvailability(row.currentQuantity, options.fewLeftThreshold ?? FEW_LEFT_THRESHOLD),
+    preOrder,
     images,
     video: video(row.video),
     isNew: isNewArrival(row, options.now),

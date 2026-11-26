@@ -65,28 +65,34 @@ model Product {
 
   // ─── Storefront / VYRA website (ZP-482). See docs/storefront/data-model.md.
   // None of these touch stock or cost. Only published products are public.
-  published         Boolean      @default(false)
+  published           Boolean      @default(false)
   // First time the product was published. Kept when it is unpublished, so
   // republishing does not make it a "new arrival" again.
-  publishedAt       DateTime?
-  publicName        String? // falls back to productName
-  slug              String?      @unique
-  publicDescription String?
-  categoryId        Int?
-  priceDisplay      PriceDisplay @default(ASK_FOR_PRICE)
-  featured          Boolean      @default(false)
-  sortOrder         Int          @default(0)
-  colours           String? // free text until real variants exist
-  sizes             String? // free text until real variants exist
+  publishedAt         DateTime?
+  publicName          String? // falls back to productName
+  slug                String?      @unique
+  publicDescription   String?
+  categoryId          Int?
+  priceDisplay        PriceDisplay @default(ASK_FOR_PRICE)
+  featured            Boolean      @default(false)
+  sortOrder           Int          @default(0)
+  colours             String? // free text until real variants exist
+  sizes               String? // free text until real variants exist
   // ZP-513 details card: size & fit, fabric & care (public), and an optional
   // size chart: JSON rows { size, bust, waist, hips } (validated on save).
-  fitNote           String?
-  fabric            String?
-  care              String?
-  sizeChart         Json?
+  fitNote             String?
+  fabric              String?
+  care                String?
+  sizeChart           Json?
   // ZP-507 "Love it" hearts: one per device and piece (ProductLove), never
   // below 0 (CHECK constraint in the migration). Public as `loves`.
-  loveCount         Int          @default(0)
+  loveCount           Int          @default(0)
+  // ZP-1100 AI capture: pre-order listings. Stock stays 0 until the goods
+  // arrive; the ship window and expected quantity are for the storefront only.
+  listingType         ListingType  @default(IN_STOCK)
+  preorderShipFrom    DateTime?    @db.Date
+  preorderShipTo      DateTime?    @db.Date
+  preorderExpectedQty Int?
 
   stockMovements StockMovement[]
   saleItems      SaleItem[]
@@ -100,8 +106,63 @@ model Product {
   loves          ProductLove[]
   // ZP-506: popularity score and today's feed rank (nightly).
   popularity     ProductPopularity?
+  // ZP-1100: the capture draft this product was created from, if any.
+  captureDraft   CaptureDraft?
 
   @@index([categoryId])
+}
+
+// ─── AI product capture (ZP-1100). See docs/storefront/ai-capture.md.
+enum ListingType {
+  IN_STOCK
+  PRE_ORDER
+}
+
+enum CaptureStatus {
+  NEW
+  GENERATING
+  READY
+  APPROVED
+  REJECTED
+  FAILED
+}
+
+enum CaptureImageMode {
+  AI
+  OWN
+}
+
+// One photographed garment on its way to becoming a Product. Storage keys are
+// products/<hash>.webp. generatedKeys index = slot, '' = not made yet.
+model CaptureDraft {
+  id              Int              @id @default(autoincrement())
+  status          CaptureStatus    @default(NEW)
+  imageMode       CaptureImageMode
+  listingType     ListingType      @default(IN_STOCK)
+  referenceKeys   String[]
+  ownKeys         String[]
+  generatedKeys   String[]
+  unitCostRmb     Float?
+  sellingPriceUsd Float?
+  quantity        Int              @default(1)
+  shipFrom        DateTime?        @db.Date
+  shipTo          DateTime?        @db.Date
+  audience        String? // free hint: women, men, girls, boys, unisex
+  notes           String? // owner's note for the AI
+  listing         Json? // listing draft, validated by parseListingDraft
+  error           String? // last failure, owner-facing
+  // Set while one AI step runs (a claim, so two calls never do the same step).
+  busySince       DateTime?
+  aiCostCents     Int              @default(0)
+  // Set on approve; the draft survives if the product is deleted.
+  productId       Int?             @unique
+  createdBy       String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([status])
 }
 
 // ─── Product video (ZP-501). See docs/storefront/videos.md.
@@ -233,14 +294,16 @@ model Category {
 // is the partial unique index ProductImage_one_primary_per_product, which
 // exists only in the migration SQL (Prisma 6 cannot declare partial indexes).
 model ProductImage {
-  id        Int      @id @default(autoincrement())
-  productId Int
-  imageKey  String // storage key, e.g. products/<32 hex>.webp
-  alt       String?
-  sortOrder Int      @default(0)
-  isPrimary Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          Int      @id @default(autoincrement())
+  productId   Int
+  imageKey    String // storage key, e.g. products/<32 hex>.webp
+  alt         String?
+  sortOrder   Int      @default(0)
+  isPrimary   Boolean  @default(false)
+  // ZP-1100: made by the AI photo step, not uploaded by the owner.
+  aiGenerated Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 

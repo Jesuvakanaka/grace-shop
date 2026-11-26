@@ -4,6 +4,7 @@
 // template, src/lib/site-settings/whatsapp.ts). This module adds the product
 // page's inputs (name, absolute URL, chosen colour/size) and the chip rules.
 import { buildWhatsAppLink, type WhatsAppContactSettings } from '@/lib/site-settings/whatsapp'
+import { PREORDER_ENQUIRE_LABEL } from '@/lib/storefront-model/preorder'
 import type { Availability } from '@/lib/storefront-model/rules'
 
 export type ProductEnquiryInput = {
@@ -34,8 +35,9 @@ export const ENQUIRE_LABEL = 'Enquire on WhatsApp'
 export const RESTOCK_LABEL = 'Ask about restock'
 
 /** Button text: sold-out pieces ask about a restock. */
-export function enquiryLabel(availability: Availability): string {
-  return availability === 'SOLD_OUT' ? RESTOCK_LABEL : ENQUIRE_LABEL
+export function enquiryLabel(availability: Availability, preOrder?: unknown): string {
+  if (availability === 'SOLD_OUT') return RESTOCK_LABEL
+  return preOrder ? PREORDER_ENQUIRE_LABEL : ENQUIRE_LABEL
 }
 
 /**

@@ -202,6 +202,8 @@ export type SheetExtras = {
   /** ZP-504: the public enquiry ref ("V-0099"). */
   ref: string | null
   availability: Availability
+  /** Pre-order ship window, or null. */
+  preOrder?: { shipFrom: string | null; shipTo: string | null } | null
   /** The WhatsApp fields of the public site settings (the message names the chosen size). */
   contacts: WhatsAppContactSettings
   /** ZP-512: every approved review of the piece (display order, at most MAX_REVIEWS_PER_PIECE); the sheet shows 2, then more on request. */
@@ -270,6 +272,7 @@ export function buildSheetExtras(
     sizes,
     ref: p.ref ?? null,
     availability: p.availability,
+    ...(p.preOrder ? { preOrder: { shipFrom: p.preOrder.shipFrom, shipTo: p.preOrder.shipTo } } : {}),
     // Copied field by field: the settings object also holds the phone number.
     contacts: {
       whatsappNumber: ctx.contacts.whatsappNumber,

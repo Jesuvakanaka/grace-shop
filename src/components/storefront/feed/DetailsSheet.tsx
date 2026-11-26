@@ -67,6 +67,7 @@ const SHEET_CSS = `
 const badgeTone: Record<FeedBadge["kind"], string> = {
   "sold-out": "bg-brand-ink text-brand-cream-50",
   "few-left": "bg-brand-lime text-brand-ink",
+  "pre-order": "bg-brand-lime text-brand-ink",
   new: "border border-brand-olive-700/50 text-brand-olive-700",
 };
 
@@ -348,6 +349,7 @@ function SheetContent({
       productName={item.name}
       productUrl={item.shareUrl}
       availability={extras?.availability ?? (item.soldOut ? "SOLD_OUT" : "IN_STOCK")}
+      preOrder={extras?.preOrder ?? item.preOrder ?? null}
       productRef={extras?.ref ?? null}
       slug={item.slug}
       // Review: a piece's only colour goes into the WhatsApp message (no picker for one colour).

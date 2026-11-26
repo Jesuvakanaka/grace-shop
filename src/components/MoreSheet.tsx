@@ -11,6 +11,7 @@ const moreItems = [
   { label: 'Stock Ledger', href: '/stock-ledger', icon: '📒', testId: 'more-nav-stock-ledger' },
   { label: 'Day Closing', href: '/closing', icon: '🔒', testId: 'more-nav-closing' },
   { label: 'Reports', href: '/reports', icon: '📊', testId: 'more-nav-reports' },
+  { label: 'Add with AI', href: '/capture', icon: '📸', testId: 'more-nav-capture', ownerOnly: true },
   { label: 'Website', href: '/website', icon: '🌐', testId: 'more-nav-website', ownerOnly: true },
   { label: 'Insights', href: '/insights', icon: '📈', testId: 'more-nav-insights', ownerOnly: true },
   { label: 'Import Data', href: '/import', icon: '📥', testId: 'more-nav-import', ownerOnly: true },

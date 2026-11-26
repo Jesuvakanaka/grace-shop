@@ -39,6 +39,7 @@ const SLIDE_SIZES = "(min-width: 768px) 57vh, 100vw";
 const badgeTone: Record<FeedBadge["kind"], string> = {
   "sold-out": "bg-brand-cream-50 text-brand-ink",
   "few-left": "bg-brand-lime text-brand-ink",
+  "pre-order": "bg-brand-lime text-brand-ink",
   new: "border border-brand-cream-50/70 bg-brand-cream-50/20 text-brand-cream-50",
 };
 
@@ -73,6 +74,7 @@ const infoTagTone: Record<InfoAvailability["kind"], string> = {
   "in-stock": "border border-brand-cream-50/70 text-brand-cream-50",
   "few-left": "bg-brand-lime text-brand-ink",
   "sold-out": "bg-brand-cream-50 text-brand-ink",
+  "pre-order": "bg-brand-lime text-brand-ink",
 };
 /** The round Share / Call buttons above the panel: 44px on every screen (touch target). */
 const infoRound = "flex h-11 w-11 items-center justify-center rounded-full";

@@ -46,6 +46,11 @@ import * as stockAdjust from '../src/app/api/stock-movements/adjust/route';
 import * as stockMovements from '../src/app/api/stock-movements/route';
 import * as upload from '../src/app/api/upload/route';
 import * as imageByKey from '../src/app/api/images/[key]/route';
+import * as captureList from '../src/app/api/capture/route';
+import * as captureById from '../src/app/api/capture/[id]/route';
+import * as captureRun from '../src/app/api/capture/[id]/run/route';
+import * as captureRegenerate from '../src/app/api/capture/[id]/regenerate/route';
+import * as captureApprove from '../src/app/api/capture/[id]/approve/route';
 import * as websiteSettings from '../src/app/api/website/settings/route';
 import * as websiteProducts from '../src/app/api/website/products/route';
 import * as websiteProductById from '../src/app/api/website/products/[id]/route';
@@ -135,6 +140,16 @@ const cases: Case[] = [
   // ZP-486: website site settings. OWNER-only for reading too (the public site uses getPublicSiteSettings()).
   { method: 'GET', path: '/api/website/settings', handler: h(websiteSettings.GET), policy: 'OWNER' },
   { method: 'PUT', path: '/api/website/settings', handler: h(websiteSettings.PUT), policy: 'OWNER' },
+
+  // ZP-1100: AI product capture. Every route is OWNER only, reads included.
+  { method: 'GET', path: '/api/capture', handler: h(captureList.GET), policy: 'OWNER' },
+  { method: 'POST', path: '/api/capture', handler: h(captureList.POST), policy: 'OWNER' },
+  { method: 'GET', path: `/api/capture/${MISSING_ID}`, handler: h(captureById.GET), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'PATCH', path: `/api/capture/${MISSING_ID}`, handler: h(captureById.PATCH), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'DELETE', path: `/api/capture/${MISSING_ID}`, handler: h(captureById.DELETE), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: `/api/capture/${MISSING_ID}/run`, handler: h(captureRun.POST), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: `/api/capture/${MISSING_ID}/regenerate`, handler: h(captureRegenerate.POST), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: `/api/capture/${MISSING_ID}/approve`, handler: h(captureApprove.POST), policy: 'OWNER', params: { id: MISSING_ID } },
 
   // ZP-483: admin website tools. Every route is OWNER only, reads included.
   { method: 'GET', path: '/api/website/products', handler: h(websiteProducts.GET), policy: 'OWNER' },

@@ -37,6 +37,7 @@ export const STOREFRONT_PREFIX = '/site';
  * fails if a new admin section is added without listing it here.
  */
 export const ADMIN_PAGE_SECTIONS: readonly string[] = [
+  'capture',
   'cash',
   'closing',
   'creditors',

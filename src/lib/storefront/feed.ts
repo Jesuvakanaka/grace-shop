@@ -10,6 +10,7 @@ import { feedRatingText, ratingLabel, type RatingSummary } from '@/lib/reviews/a
 import { buildWhatsAppLink, type WhatsAppContactSettings } from '@/lib/site-settings/whatsapp'
 import { orderFeedByRanking, type FeedRanking } from '@/lib/ranking/feed-order'
 import { isValidSlug } from '@/lib/storefront-model/slug'
+import { preOrderTemplate } from '@/lib/storefront-model/preorder'
 import type { PublicCategory, PublicProduct, PublicVideo } from './dto'
 import { pickVideo } from './feed-media'
 import { SITE_ROUTES, sitePath, type SiteBase } from './paths'
@@ -197,11 +198,12 @@ export function slideIndexAt(scrollTop: number, slideHeight: number, count: numb
 
 // ------------------------------------------------------------------ slide
 
-export type FeedBadge = { kind: 'sold-out' | 'few-left' | 'new'; label: string }
+export type FeedBadge = { kind: 'sold-out' | 'few-left' | 'new' | 'pre-order'; label: string }
 
-/** Sold out, else Few left, else New, else no tag. */
-export function feedBadge(p: Pick<PublicProduct, 'availability' | 'isNew'>): FeedBadge | null {
+/** Sold out, else the pre-order label, else Few left, else New, else no tag. */
+export function feedBadge(p: Pick<PublicProduct, 'availability' | 'isNew'> & { preOrder?: PublicProduct['preOrder'] }): FeedBadge | null {
   if (p.availability === 'SOLD_OUT') return { kind: 'sold-out', label: 'Sold out' }
+  if (p.preOrder) return { kind: 'pre-order', label: p.preOrder.label }
   if (p.availability === 'FEW_LEFT') return { kind: 'few-left', label: 'Few left' }
   if (p.isNew) return { kind: 'new', label: 'New' }
   return null
@@ -219,6 +221,8 @@ export type FeedItem = {
   price: string
   badge: FeedBadge | null
   soldOut: boolean
+  /** Pre-order listing (label and ship window), or absent/null. */
+  preOrder?: { shipFrom: string | null; shipTo: string | null; label: string } | null
   /** Primary photo first. */
   images: FeedImage[]
   /**
@@ -256,7 +260,9 @@ export function toFeedItem(p: PublicProduct, ctx: FeedItemContext): FeedItem {
   const url = ctx.productUrl(p.slug)
   const enquireHref = soldOut
     ? buildWhatsAppLink({ contacts: { ...ctx.contacts, enquiryTemplate: RESTOCK_TEMPLATE } }, { product: p.name, url, ref: p.ref })
-    : productEnquiryHref({ contacts: ctx.contacts }, { name: p.name, url, ref: p.ref })
+    : p.preOrder
+      ? buildWhatsAppLink({ contacts: { ...ctx.contacts, enquiryTemplate: preOrderTemplate(p.preOrder) } }, { product: p.name, url, ref: p.ref })
+      : productEnquiryHref({ contacts: ctx.contacts }, { name: p.name, url, ref: p.ref })
   return {
     slug: p.slug,
     name: p.name,
@@ -264,6 +270,7 @@ export function toFeedItem(p: PublicProduct, ctx: FeedItemContext): FeedItem {
     price: formatPriceUsd(p.priceUsd) ?? ASK_FOR_PRICE,
     badge: feedBadge(p),
     soldOut,
+    ...(p.preOrder ? { preOrder: p.preOrder } : {}),
     images: p.images.map((i) => ({ src: i.url, srcSet: i.srcSet, alt: i.alt })),
     video: pickVideo(p.video),
     href: sitePath(ctx.base, SITE_ROUTES.product(p.slug)),

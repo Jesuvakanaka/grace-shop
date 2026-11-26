@@ -37,6 +37,7 @@ export function ProductEnquiryProvider({
   productName,
   productUrl,
   availability,
+  preOrder = null,
   productRef,
   slug = null,
   defaultColour = null,
@@ -48,6 +49,8 @@ export function ProductEnquiryProvider({
   /** Absolute public URL (never a preview URL), or null. */
   productUrl: string | null;
   availability: Availability;
+  /** Pre-order ship window (message and button label), or null. */
+  preOrder?: { shipFrom: string | null; shipTo: string | null } | null;
   /** ZP-504: the public ref ("V-0099"), never the item number. */
   productRef?: string | null;
   /** ZP-493: the piece's slug, for the size / colour / enquiry analytics events. */
@@ -65,12 +68,12 @@ export function ProductEnquiryProvider({
       setColour,
       setSize,
       // ZP-503: sold-out pieces send the restock message; ZP-504: the public ref goes along.
-      href: productPageEnquiryHref(contacts, availability, { name: productName, url: productUrl, colour: colour ?? defaultColour, size, ref: productRef }),
-      label: enquiryLabel(availability),
+      href: productPageEnquiryHref(contacts, availability, { name: productName, url: productUrl, colour: colour ?? defaultColour, size, ref: productRef }, preOrder),
+      label: enquiryLabel(availability, preOrder),
       slug,
       soldOut: availability === "SOLD_OUT",
     }),
-    [colour, defaultColour, size, contacts, productName, productUrl, availability, productRef, slug],
+    [colour, defaultColour, size, contacts, productName, productUrl, availability, preOrder, productRef, slug],
   );
   return <EnquiryContext.Provider value={value}>{children}</EnquiryContext.Provider>;
 }

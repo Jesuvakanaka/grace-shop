@@ -47,6 +47,10 @@ interface WebsiteProduct {
   fabric: string | null;
   care: string | null;
   sizeChart: unknown;
+  listingType: 'IN_STOCK' | 'PRE_ORDER';
+  preorderShipFrom: string | null;
+  preorderShipTo: string | null;
+  preorderExpectedQty: number | null;
   published: boolean;
   publishedAt: string | null;
   sellingPriceUsd: number;
@@ -82,7 +86,14 @@ type Fields = {
   care: string;
   /** One row per line: "size | bust | waist | hips". */
   sizeChart: string;
+  listingType: 'IN_STOCK' | 'PRE_ORDER';
+  /** "YYYY-MM" (month input). */
+  shipFrom: string;
+  shipTo: string;
+  expectedQty: string;
 };
+
+const monthValue = (iso: string | null) => (iso ? iso.slice(0, 7) : '');
 
 const DAY_MS = 86_400_000;
 const NEW_ARRIVAL_DAYS = 30;
@@ -113,6 +124,10 @@ function fieldsFrom(p: WebsiteProduct): Fields {
     fabric: p.fabric ?? '',
     care: p.care ?? '',
     sizeChart: sizeChartToText(readSizeChart(p.sizeChart)),
+    listingType: p.listingType ?? 'IN_STOCK',
+    shipFrom: monthValue(p.preorderShipFrom),
+    shipTo: monthValue(p.preorderShipTo),
+    expectedQty: p.preorderExpectedQty == null ? '' : String(p.preorderExpectedQty),
   };
 }
 
@@ -200,9 +215,20 @@ export function WebsiteSection({
     // ZP-513 review: the chart text is checked here first (line-by-line message).
     const chart = fields.sizeChart.trim() ? sizeChartFromText(fields.sizeChart) : ({ ok: true, rows: null } as const);
     if (!chart.ok) return setError({ error: chart.error, field: 'sizeChart' });
+    if (fields.shipFrom && fields.shipTo && fields.shipTo < fields.shipFrom) {
+      return setError({ error: 'Ship to cannot be before ship from.', field: 'preorderShipTo' });
+    }
+    const qty = fields.expectedQty.trim() === '' ? null : Number(fields.expectedQty);
+    if (qty !== null && (!Number.isInteger(qty) || qty < 0 || qty > 100000)) {
+      return setError({ error: 'Expected quantity must be a whole number from 0 to 100000.', field: 'preorderExpectedQty' });
+    }
     setSaving(true);
     setError(null);
     const body: Record<string, unknown> = {
+      listingType: fields.listingType,
+      preorderShipFrom: fields.shipFrom || null,
+      preorderShipTo: fields.shipTo || null,
+      preorderExpectedQty: qty,
       publicName: fields.publicName || null,
       publicDescription: fields.publicDescription || null,
       categoryId: fields.categoryId ? Number(fields.categoryId) : null,
@@ -225,6 +251,17 @@ export function WebsiteSection({
     apply(r.data, true);
     onStatusChange();
     toast.success('Website details saved');
+  };
+
+  const markArrived = async () => {
+    setSaving(true);
+    setError(null);
+    const r = await send(`/api/website/products/${productId}`, 'PATCH', { listingType: 'IN_STOCK' });
+    setSaving(false);
+    if (!r.ok) return setError(r.data);
+    apply(r.data, true);
+    onStatusChange();
+    toast.success('Marked as arrived. Enter the stock with the stock tools.');
   };
 
   const togglePublish = async () => {
@@ -562,6 +599,38 @@ export function WebsiteSection({
           <label className="label" htmlFor="website-care">Care</label>
           <input id="website-care" className="input w-full" maxLength={CARE_MAX} placeholder="e.g. Hand wash cold, dry flat" value={fields.care} onChange={(e) => set('care', e.target.value)} data-testid="website-care" />
         </div>
+      </div>
+      {/* Pre-order listing: never "Sold out" while it is a pre-order. */}
+      <div className="space-y-2" data-testid="website-listing">
+        <div>
+          <label className="label" htmlFor="website-listing-type">Listing type</label>
+          <select id="website-listing-type" className="input w-full" value={fields.listingType} onChange={(e) => set('listingType', e.target.value as Fields['listingType'])} data-testid="website-listing-type">
+            <option value="IN_STOCK">In stock</option>
+            <option value="PRE_ORDER">Pre-order</option>
+          </select>
+        </div>
+        {fields.listingType === 'PRE_ORDER' && (
+          <>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="label" htmlFor="website-ship-from">Ship from</label>
+                <input id="website-ship-from" type="month" className="input w-full" value={fields.shipFrom} onChange={(e) => set('shipFrom', e.target.value)} data-testid="website-ship-from" />
+              </div>
+              <div>
+                <label className="label" htmlFor="website-ship-to">Ship to</label>
+                <input id="website-ship-to" type="month" className="input w-full" min={fields.shipFrom || undefined} value={fields.shipTo} onChange={(e) => set('shipTo', e.target.value)} data-testid="website-ship-to" />
+              </div>
+              <div>
+                <label className="label" htmlFor="website-expected-qty">Expected quantity</label>
+                <input id="website-expected-qty" type="number" min={0} max={100000} step={1} className="input w-full" value={fields.expectedQty} onChange={(e) => set('expectedQty', e.target.value)} data-testid="website-expected-qty" />
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <button type="button" className="btn btn-sm btn-secondary" onClick={markArrived} disabled={saving} data-testid="website-mark-arrived">Mark as arrived</button>
+              <p className="text-xs text-slate-500">Switches the piece to In stock. Enter its stock with the existing stock tools afterwards.</p>
+            </div>
+          </>
+        )}
       </div>
       <div>
         <label className="label" htmlFor="website-size-chart">Size chart (optional)</label>

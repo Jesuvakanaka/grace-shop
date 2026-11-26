@@ -81,6 +81,24 @@ export type ProductWebsitePatch = {
   fabric?: string | null
   care?: string | null
   sizeChart?: SizeChartRow[] | null
+  // Pre-order listing (ship months are stored as the first day of the month, UTC).
+  listingType?: 'IN_STOCK' | 'PRE_ORDER'
+  preorderShipFrom?: Date | null
+  preorderShipTo?: Date | null
+  preorderExpectedQty?: number | null
+}
+
+export const PREORDER_QTY_MAX = 100_000
+
+/** "2027-02" or "2027-02-17" -> 2027-02-01 (UTC); anything else -> null. */
+export function parseShipMonth(v: unknown): Date | null {
+  if (typeof v !== 'string') return null
+  const m = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(v.trim())
+  if (!m) return null
+  const year = Number(m[1])
+  const month = Number(m[2])
+  if (year < 2000 || year > 2100 || month < 1 || month > 12) return null
+  return new Date(Date.UTC(year, month - 1, 1))
 }
 
 /** ZP-513 limits (characters, after trimming). */
@@ -101,6 +119,10 @@ const PRODUCT_FIELDS = [
   'fabric',
   'care',
   'sizeChart',
+  'listingType',
+  'preorderShipFrom',
+  'preorderShipTo',
+  'preorderExpectedQty',
 ] as const
 
 export function parseProductWebsitePatch(body: unknown): Parsed<ProductWebsitePatch> {
@@ -158,6 +180,38 @@ export function parseProductWebsitePatch(body: unknown): Parsed<ProductWebsitePa
   if (body.featured !== undefined) {
     if (typeof body.featured !== 'boolean') return fail('Featured must be true or false.', 'featured')
     data.featured = body.featured
+  }
+
+  if (body.listingType !== undefined) {
+    if (body.listingType !== 'IN_STOCK' && body.listingType !== 'PRE_ORDER') {
+      return fail('Listing type must be "In stock" or "Pre-order".', 'listingType')
+    }
+    data.listingType = body.listingType
+  }
+
+  for (const [key, label] of [
+    ['preorderShipFrom', 'Ship from'],
+    ['preorderShipTo', 'Ship to'],
+  ] as const) {
+    if (body[key] === undefined) continue
+    if (body[key] === null || body[key] === '') {
+      data[key] = null
+      continue
+    }
+    const d = parseShipMonth(body[key])
+    if (!d) return fail(`${label} must be a month (YYYY-MM).`, key)
+    data[key] = d
+  }
+  if (data.preorderShipFrom && data.preorderShipTo && data.preorderShipTo < data.preorderShipFrom) {
+    return fail('Ship to cannot be before ship from.', 'preorderShipTo')
+  }
+
+  if (body.preorderExpectedQty !== undefined) {
+    const q = body.preorderExpectedQty
+    if (q === null) data.preorderExpectedQty = null
+    else if (typeof q !== 'number' || !Number.isInteger(q) || q < 0 || q > PREORDER_QTY_MAX) {
+      return fail(`Expected quantity must be a whole number from 0 to ${PREORDER_QTY_MAX}.`, 'preorderExpectedQty')
+    } else data.preorderExpectedQty = q
   }
 
   return { ok: true, data }

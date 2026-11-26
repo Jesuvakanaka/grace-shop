@@ -52,6 +52,9 @@ export const PRODUCT_SELECT = {
   priceDisplay: true,
   sellingPriceUsd: true,
   currentQuantity: true,
+  listingType: true,
+  preorderShipFrom: true,
+  preorderShipTo: true,
   // ZP-507: public as `loves` (cached with the catalogue, never per tap).
   loveCount: true,
   // ZP-513: details card fields.

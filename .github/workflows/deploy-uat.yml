@@ -249,6 +249,10 @@ jobs:
           GRACE_QUICK_LOGIN: ${{ vars.GRACE_QUICK_LOGIN || 'false' }}
           GRACE_STOREFRONT_HOSTS: ${{ vars.GRACE_STOREFRONT_HOSTS || '' }}
           GRACE_ADMIN_HOSTS: ${{ vars.GRACE_ADMIN_HOSTS || '' }}
+          # ZP-1100: AI product capture. 'true' only after the Secret Manager
+          # secrets grace-shop-uat-openai-api-key and grace-shop-uat-anthropic-api-key
+          # exist and the runtime SA can read them; a missing secret fails the deploy.
+          GRACE_AI_CAPTURE: ${{ vars.GRACE_AI_CAPTURE || 'false' }}
         run: |
           set -euo pipefail
           # Validate every repository variable that goes into --set-env-vars, so
@@ -263,6 +267,14 @@ jobs:
               exit 1
             fi
           done
+          if [[ ! "${GRACE_AI_CAPTURE}" =~ ^(true|false)?$ ]]; then
+            echo "::error::GRACE_AI_CAPTURE must be 'true', 'false' or empty" >&2
+            exit 1
+          fi
+          WEB_SECRETS="${DB_SECRETS},JWT_SECRET=grace-shop-uat-jwt-secret:latest,LOVES_HASH_SECRET=grace-shop-uat-loves-hash-secret:latest"
+          if [[ "${GRACE_AI_CAPTURE}" == "true" ]]; then
+            WEB_SECRETS="${WEB_SECRETS},OPENAI_API_KEY=grace-shop-uat-openai-api-key:latest,ANTHROPIC_API_KEY=grace-shop-uat-anthropic-api-key:latest"
+          fi
           # --memory=1Gi (ZP-501, was 512Mi): product videos are transcoded in
           # the request with ffmpeg (~150 MB with 2 threads), and /tmp on Cloud
           # Run is in memory (upload <= 60 MB + output <= ~8 MB while processing).
@@ -272,7 +284,7 @@ jobs:
             --image="${IMAGE_REF}"
             --service-account="${RUNTIME_SERVICE_ACCOUNT}"
             --set-cloudsql-instances="${CLOUD_SQL_CONNECTION}"
-            --set-secrets="${DB_SECRETS},JWT_SECRET=grace-shop-uat-jwt-secret:latest,LOVES_HASH_SECRET=grace-shop-uat-loves-hash-secret:latest"
+            --set-secrets="${WEB_SECRETS}"
             --set-env-vars="^@^NODE_ENV=production@GRACE_IMAGE_STORAGE=gcs@GRACE_IMAGE_BUCKET=${IMAGES_BUCKET}@GRACE_QUICK_LOGIN=${GRACE_QUICK_LOGIN}@GRACE_STOREFRONT_HOSTS=${GRACE_STOREFRONT_HOSTS}@GRACE_ADMIN_HOSTS=${GRACE_ADMIN_HOSTS}"
             --port=8080
             --startup-probe=httpGet.path=/api/health,httpGet.port=8080,periodSeconds=5,timeoutSeconds=3,failureThreshold=24

@@ -6,6 +6,7 @@
 // Tested in tests/storefront-menu-product.test.ts.
 import { buildWhatsAppLink, type WhatsAppContactSettings } from '@/lib/site-settings/whatsapp'
 import type { Availability } from '@/lib/storefront-model/rules'
+import { preOrderTemplate } from '@/lib/storefront-model/preorder'
 import { RESTOCK_TEMPLATE } from './feed'
 import { productEnquiryHref, type ProductEnquiryInput } from './product-enquiry'
 
@@ -13,7 +14,12 @@ export function productPageEnquiryHref(
   contacts: WhatsAppContactSettings,
   availability: Availability,
   input: ProductEnquiryInput,
+  preOrder?: { shipFrom: string | null; shipTo: string | null } | null,
 ): string | null {
+  if (availability !== 'SOLD_OUT' && preOrder) {
+    const enquiry = { product: input.name, url: input.url, colour: input.colour ?? null, size: input.size ?? null, ref: input.ref ?? null }
+    return buildWhatsAppLink({ contacts: { ...contacts, enquiryTemplate: preOrderTemplate(preOrder) } }, enquiry)
+  }
   if (availability !== 'SOLD_OUT') return productEnquiryHref({ contacts }, input)
   // Same as the feed: the restock template through the one link builder.
   const enquiry = { product: input.name, url: input.url, colour: input.colour ?? null, size: input.size ?? null, ref: input.ref ?? null }
