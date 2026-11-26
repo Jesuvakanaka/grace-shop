@@ -3,6 +3,8 @@ import { headers } from "next/headers";
 import { notFound, permanentRedirect } from "next/navigation";
 import { cache } from "react";
 import { FlipFeed } from "@/components/storefront/feed/FlipFeed";
+import { PixelViewContent } from "@/components/storefront/PixelViewContent";
+import { getStorefrontPixel } from "@/lib/marketing/pixel-request";
 import { ASK_FOR_PRICE, formatPriceUsd } from "@/components/storefront/product";
 import { hostRoutingConfigFromEnv } from "@/lib/host-routing";
 import { jsonLdScript, productReviewsJsonLd } from "@/lib/reviews/structured-data";
@@ -159,8 +161,10 @@ export default async function ProductPage(props: Props) {
         reviews: pieceReviews?.reviews ?? [],
       });
   const price = formatPriceUsd(product.priceUsd) ?? ASK_FOR_PRICE;
+  // ZP-1200: the Pixel's ViewContent, only for a public piece and only when the pixel gate passes (the layout loads the Pixel itself).
+  const pixel = preview ? null : await getStorefrontPixel();
 
-  return (
+  const page = (
     <>
       {jsonLd ? <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(jsonLd) }} /> : null}
       {/* The piece in the HTML (crawlers, link previews, no JS); the sheet shows the same once hydrated. */}
@@ -193,5 +197,13 @@ export default async function ProductPage(props: Props) {
         landing={{ slug: product.slug, mode: preview ? "preview" : "product", extras: previewExtras }}
       />
     </>
+  );
+  return pixel ? (
+    <>
+      {page}
+      <PixelViewContent contentId={product.itemNumber ?? product.ref ?? product.slug} name={product.name} />
+    </>
+  ) : (
+    page
   );
 }

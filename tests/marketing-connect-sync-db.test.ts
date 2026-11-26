@@ -122,7 +122,7 @@ describe('connect: Threads, Google Business, Google Merchant', () => {
     await rejects(() => connectMeta(prisma, { ...ok, pageId: '12345' }, owner.username, deps), 400, /Unknown field/)
     await rejects(() => connectMeta(prisma, { kind: 'THREADS' }, owner.username, deps), 400, /Threads access token/)
     await rejects(() => connectMeta(prisma, { kind: 'THREADS', accessToken: 'a b' }, owner.username, deps), 400, /spaces/)
-    await rejects(() => connectMeta(prisma, { kind: 'GOOGLE_ADS', accessToken: 'x' }, owner.username, deps), 400, /kind must be one of/)
+    await rejects(() => connectMeta(prisma, { kind: 'INFLUENCER', accessToken: 'x' }, owner.username, deps), 400, /kind must be one of/)
     await rejects(() => connectMeta(prisma, { kind: 'GOOGLE_MERCHANT', merchantId: MERCHANT }, owner.username, deps), 400)
     assert.strictEqual(f.calls.length, 0)
     assert.strictEqual(await prisma.marketingChannel.count(), before)

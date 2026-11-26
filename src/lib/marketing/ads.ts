@@ -1,4 +1,4 @@
-// VYRA Marketing hub (ZP-1200): Meta ads (create, approve, create paused on Meta, start, pause, sync). Server only.
+// VYRA Marketing hub (ZP-1200): ads on Meta and Google (create, approve, create paused on the platform, start, pause, sync). Server only.
 // Rule 1: assertCanGoLive runs before every outward call. Rule 2: the spend cap is checked (under a lock) when
 // an ad is approved, created on Meta, changed and started; ads are created PAUSED and started by a separate action.
 import type { MarketingAd, MarketingChannel, Prisma, PrismaClient } from '@prisma/client'
@@ -14,6 +14,9 @@ import {
   activateAd, createPausedAd, fetchAdInsights, pauseAd, updateAdSchedule,
   type AdsContext, type MetaAdSpec,
 } from './connectors/meta-ads'
+import {
+  activateGoogleAd, createPausedGoogleAd, fetchGoogleInsights, pauseGoogleAd, updateGoogleSchedule, type GoogleAdsContext,
+} from './connectors/google-ads'
 import type { FetchLike } from './connectors/types'
 import { publicImageUrls } from './publish'
 import { decryptJson } from './secrets'
@@ -21,6 +24,12 @@ import { getSettings } from './settings'
 import type { Actor } from './state'
 import { buildTrackedLink, generateTrackingTag } from './tracking'
 import { asObject, date, imageKeys, int, onlyKeys, oneOf, requiredText, text } from './validate'
+
+export const AD_PLATFORMS = ['META_ADS', 'GOOGLE_ADS'] as const
+export type AdPlatformKind = (typeof AD_PLATFORMS)[number]
+const PLATFORM_LABEL: Record<AdPlatformKind, string> = { META_ADS: 'Meta', GOOGLE_ADS: 'Google' }
+const platformKind = (a: { channelKind: string }): AdPlatformKind => (a.channelKind === 'GOOGLE_ADS' ? 'GOOGLE_ADS' : 'META_ADS')
+const labelOf = (a: { channelKind: string }) => PLATFORM_LABEL[platformKind(a)]
 
 export type AdDto = Omit<MarketingAd, 'imageKeys'> & { imageKeys: string[] }
 
@@ -106,12 +115,14 @@ async function linkFor(db: Db, contentId: number | null, objective: string, trac
   return buildTrackedLink({ slug: content?.product?.slug ?? null, trackingTag, storefrontHosts: hostRoutingConfigFromEnv().storefrontHosts, host })
 }
 
-const AD_CREATE_KEYS = ['contentId', 'campaignId', 'audienceId', 'objective', 'headline', 'primaryText', 'description', 'imageKeys', 'dailyBudgetCents', 'startsAt', 'endsAt'] as const
+const AD_CREATE_KEYS = ['channelKind', 'contentId', 'campaignId', 'audienceId', 'objective', 'headline', 'primaryText', 'description', 'imageKeys', 'dailyBudgetCents', 'startsAt', 'endsAt'] as const
 
 export async function createAd(db: Db, body: unknown, actor: string, opts: { host?: string | null; aiGenerated?: boolean } = {}): Promise<AdDto> {
   const o = asObject(body)
   onlyKeys(o, AD_CREATE_KEYS)
+  const channelKind = 'channelKind' in o ? oneOf(o.channelKind, 'channelKind', AD_PLATFORMS) : 'META_ADS'
   const objective = 'objective' in o ? oneOf(o.objective, 'objective', AD_OBJECTIVES) : 'TRAFFIC'
+  if (channelKind === 'GOOGLE_ADS' && objective !== 'TRAFFIC') throw new WebsiteError(400, 'Google search ads send people to the shop: choose "visits to the shop".', { field: 'objective' })
   const headline = requiredText(o.headline, 'headline', COPY.headline)
   const primaryText = requiredText(o.primaryText, 'primaryText', COPY.primaryText)
   checkCopy({ headline })
@@ -132,14 +143,14 @@ export async function createAd(db: Db, body: unknown, actor: string, opts: { hos
   const trackingTag = generateTrackingTag()
   const ad = await db.marketingAd.create({
     data: {
-      campaignId, contentId, audienceId, objective, headline, primaryText,
+      channelKind, campaignId, contentId, audienceId, objective, headline, primaryText,
       description: text(o.description, 'description', COPY.description),
       imageKeys: keys, trackingTag, dailyBudgetCents, startsAt, endsAt,
       link: await linkFor(db, contentId, objective, trackingTag, opts.host),
       aiGenerated: opts.aiGenerated ?? false, createdBy: actor,
     },
   })
-  await writeAudit(db, { actor, action: 'ad.create', entity: 'ad', entityId: ad.id, detail: { objective, dailyBudgetCents } })
+  await writeAudit(db, { actor, action: 'ad.create', entity: 'ad', entityId: ad.id, detail: { channelKind, objective, dailyBudgetCents } })
   return toAdDto(ad)
 }
 
@@ -164,7 +175,7 @@ export async function updateAd(db: Db, id: number, body: unknown, actorIn: Actor
     }
     if (live) {
       for (const k of Object.keys(o)) {
-        if (!(LIVE_EDITABLE_FIELDS as readonly string[]).includes(k)) throw new WebsiteError(409, 'This ad is already on Meta: only the daily budget and the end date can change. Cancel it and make a new ad for anything else.', { field: k })
+        if (!(LIVE_EDITABLE_FIELDS as readonly string[]).includes(k)) throw new WebsiteError(409, `This ad is already on ${labelOf(ad)}: only the daily budget and the end date can change. Cancel it and make a new ad for anything else.`, { field: k })
       }
     }
     const budget = 'dailyBudgetCents' in o ? int(o.dailyBudgetCents, 'dailyBudgetCents', MIN_DAILY_BUDGET_CENTS, 10_000_000) : ad.dailyBudgetCents
@@ -213,7 +224,7 @@ export async function updateAd(db: Db, id: number, body: unknown, actorIn: Actor
 export async function deleteAd(db: Db, id: number, actor: string): Promise<void> {
   const ad = await mustGet(db, id)
   if (!['DRAFT', 'REJECTED', 'CANCELLED', 'FAILED'].includes(ad.status) || ad.externalCampaignId || ad.externalAdId) {
-    throw new WebsiteError(409, 'This ad has been approved or created on Meta, so it cannot be deleted. Cancel it instead.')
+    throw new WebsiteError(409, `This ad has been approved or created on ${labelOf(ad)}, so it cannot be deleted. Cancel it instead.`)
   }
   await db.marketingAd.delete({ where: { id } })
   await writeAudit(db, { actor, action: 'ad.delete', entity: 'ad', entityId: id, detail: { status: ad.status } })
@@ -221,12 +232,47 @@ export async function deleteAd(db: Db, id: number, actor: string): Promise<void>
 
 // ───────────────────────── platform ─────────────────────────
 
-async function adsChannel(db: Db): Promise<MarketingChannel | null> {
-  return db.marketingChannel.findFirst({ where: { kind: 'META_ADS', status: 'CONNECTED' }, orderBy: { id: 'asc' } })
+/** What a platform's connector must do. Meta and Google run through exactly the same steps in this file. */
+type Ctx = AdsContext | GoogleAdsContext
+type Ids = { campaignId: string | null; adSetId: string | null; creativeId: string | null; adId: string | null }
+interface PlatformOps {
+  label: string
+  /** Value of AdminError `blocked` for the owner screen. */
+  blocked: string
+  createPaused(ctx: Ctx, spec: MetaAdSpec, now: Date): ReturnType<typeof createPausedAd>
+  updateSchedule(ctx: Ctx, ids: Ids, change: { dailyBudgetCents: number; endsAt: Date | null }): ReturnType<typeof updateAdSchedule>
+  activate(ctx: Ctx, ids: Ids): ReturnType<typeof activateAd>
+  pause(ctx: Ctx, ids: Ids): ReturnType<typeof pauseAd>
+  insights(ctx: Ctx, adId: string): ReturnType<typeof fetchAdInsights>
 }
 
-function adsContext(db: Db, ad: MarketingAd, settings: Awaited<ReturnType<typeof getSettings>>, channel: MarketingChannel | null, deps: AdDeps, now: Date): AdsContext {
-  const credentials = channel?.credentialsEnc ? decryptJson<AdsContext['credentials']>(channel.credentialsEnc) : {}
+const OPS: Record<AdPlatformKind, PlatformOps> = {
+  META_ADS: {
+    label: 'Meta', blocked: 'meta',
+    createPaused: (c, spec) => createPausedAd(c as AdsContext, spec),
+    updateSchedule: (c, ids, ch) => updateAdSchedule(c as AdsContext, ids.adSetId ?? '', ch),
+    activate: (c, ids) => activateAd(c as AdsContext, ids),
+    pause: (c, ids) => pauseAd(c as AdsContext, ids),
+    insights: (c, adId) => fetchAdInsights(c as AdsContext, adId),
+  },
+  GOOGLE_ADS: {
+    label: 'Google', blocked: 'google',
+    createPaused: (c, spec, now) => createPausedGoogleAd(c as GoogleAdsContext, spec, now),
+    updateSchedule: (c, ids, ch) => updateGoogleSchedule(c as GoogleAdsContext, ids, ch),
+    activate: (c, ids) => activateGoogleAd(c as GoogleAdsContext, ids),
+    pause: (c, ids) => pauseGoogleAd(c as GoogleAdsContext, ids),
+    insights: (c, adId) => fetchGoogleInsights(c as GoogleAdsContext, adId),
+  },
+}
+const opsOf = (ad: { channelKind: string }) => OPS[platformKind(ad)]
+const idsOf = (ad: MarketingAd): Ids => ({ campaignId: ad.externalCampaignId, adSetId: ad.externalAdSetId, creativeId: ad.externalCreativeId, adId: ad.externalAdId })
+
+async function adsChannel(db: Db, kind: string): Promise<MarketingChannel | null> {
+  return db.marketingChannel.findFirst({ where: { kind, status: 'CONNECTED' }, orderBy: { id: 'asc' } })
+}
+
+function adsContext(db: Db, ad: MarketingAd, settings: Awaited<ReturnType<typeof getSettings>>, channel: MarketingChannel | null, deps: AdDeps, now: Date): Ctx {
+  const credentials = channel?.credentialsEnc ? decryptJson<Record<string, string>>(channel.credentialsEnc) : {}
   const cfg = (channel?.config ?? {}) as Record<string, unknown>
   return {
     credentials,
@@ -246,7 +292,8 @@ function origin(deps: AdDeps): string | null {
 async function specFor(db: Db, ad: MarketingAd, deps: AdDeps): Promise<MetaAdSpec> {
   const keys = (Array.isArray(ad.imageKeys) ? ad.imageKeys : []).filter((k): k is string => typeof k === 'string')
   const audience = ad.audienceId ? await db.marketingAudience.findUnique({ where: { id: ad.audienceId } }) : null
-  const imageUrl = keys.length ? publicImageUrls(keys.slice(0, 1), origin(deps), true)[0] : null
+  // Google search ads have no picture.
+  const imageUrl = keys.length && platformKind(ad) === 'META_ADS' ? publicImageUrls(keys.slice(0, 1), origin(deps), true)[0] : null
   return {
     id: ad.id, trackingTag: ad.trackingTag, objective: ad.objective as MetaAdSpec['objective'], headline: ad.headline,
     primaryText: ad.primaryText, description: ad.description, link: ad.link, imageUrl,
@@ -264,7 +311,7 @@ async function cas(db: Db, ad: MarketingAd, result: AdTransitionResult, extra: P
 /** The ad is complete enough to ask for approval. */
 function checkComplete(ad: MarketingAd) {
   const keys = Array.isArray(ad.imageKeys) ? ad.imageKeys : []
-  if (keys.length === 0) throw new WebsiteError(409, 'Add a photo to this ad first.')
+  if (keys.length === 0 && platformKind(ad) === 'META_ADS') throw new WebsiteError(409, 'Add a photo to this ad first.')
   if (ad.objective === 'TRAFFIC' && !ad.link) throw new WebsiteError(409, 'A traffic ad needs a link to the shop: the public site address is not set (GRACE_STOREFRONT_HOSTS).')
   if (ad.dailyBudgetCents < MIN_DAILY_BUDGET_CENTS) throw new WebsiteError(409, 'The daily budget must be at least $1.00.')
 }
@@ -272,7 +319,7 @@ function checkComplete(ad: MarketingAd) {
 export const AD_API_ACTIONS = ['submit', 'approve', 'reject', 'create_on_platform', 'start', 'pause', 'cancel'] as const
 export type AdApiAction = (typeof AD_API_ACTIONS)[number]
 
-/** Move an ad along the machine. create_on_platform, start and pause make real calls to Meta (gated). */
+/** Move an ad along the machine. create_on_platform, start and pause make real calls to Meta or Google (gated). */
 export async function transitionAdAction(db: Db, id: number, action: AdApiAction, actorIn: Actor | string, deps: AdDeps): Promise<AdDto> {
   const actor = asActor(actorIn)
   const now = deps.now ?? new Date()
@@ -312,8 +359,9 @@ export async function transitionAdAction(db: Db, id: number, action: AdApiAction
 async function createOnPlatform(db: Db, id: number, actor: Actor, deps: AdDeps, now: Date): Promise<AdDto> {
   const before = await mustGet(db, id)
   transitionAd(before, 'create_on_platform', actor) // throws when not allowed
+  const ops = opsOf(before)
   const settings = await getSettings(db)
-  const channel = await adsChannel(db)
+  const channel = await adsChannel(db, platformKind(before))
   assertCanGoLive({ settings, channel, post: before }) // before anything changes or any request is made
   // Cap check and the move to CREATING (which counts as committed) happen together under the lock.
   const ad = await withBudgetLock(db, async (tx) => {
@@ -335,14 +383,14 @@ async function createOnPlatform(db: Db, id: number, actor: Actor, deps: AdDeps, 
     return toAdDto(await mustGet(db, id))
   }
   try {
-    const result = await createPausedAd(adsContext(db, creating, settings, channel, deps, now), await specFor(db, ad, deps))
+    const result = await ops.createPaused(adsContext(db, creating, settings, channel, deps, now), await specFor(db, ad, deps), now)
     if (!result.ok) return await fail(result.error, result.ids)
     const done = transitionAd(creating, 'created', { username: 'system', role: 'SYSTEM' })
     await cas(db, creating, done, {
       externalCampaignId: result.ids.campaignId, externalAdSetId: result.ids.adSetId,
       externalCreativeId: result.ids.creativeId, externalAdId: result.ids.adId,
     })
-    await writeAudit(db, { actor: 'system', action: 'ad.created', entity: 'ad', entityId: id, detail: { adId: result.ids.adId, paused: true } })
+    await writeAudit(db, { actor: 'system', action: 'ad.created', entity: 'ad', entityId: id, detail: { adId: result.ids.adId, paused: true, platform: ops.label } })
     return toAdDto(await mustGet(db, id))
   } catch (e) {
     return fail(e instanceof Error ? e.message : 'Creating the ad failed.', {})
@@ -352,16 +400,17 @@ async function createOnPlatform(db: Db, id: number, actor: Actor, deps: AdDeps, 
 async function startAd(db: Db, id: number, actor: Actor, deps: AdDeps, now: Date): Promise<AdDto> {
   const ad = await mustGet(db, id)
   const t = transitionAd(ad, 'start', actor, { now })
+  const ops = opsOf(ad)
   const settings = await getSettings(db)
-  const channel = await adsChannel(db)
+  const channel = await adsChannel(db, platformKind(ad))
   assertCanGoLive({ settings, channel, post: ad })
   await withBudgetLock(db, (tx) => checkAdCap(tx, settings, { id, dailyBudgetCents: ad.dailyBudgetCents, startsAt: ad.startsAt, endsAt: ad.endsAt }, now))
   const ctx = adsContext(db, ad, settings, channel, deps, now)
-  const fail = (error: string): never => { throw new WebsiteError(502, error, { blocked: 'meta' }) }
-  // Make Meta match the approved budget and end date, then switch on.
-  const sched = await updateAdSchedule(ctx, ad.externalAdSetId ?? '', { dailyBudgetCents: ad.dailyBudgetCents, endsAt: ad.endsAt })
+  const fail = (error: string): never => { throw new WebsiteError(502, error, { blocked: ops.blocked }) }
+  // Make the platform match the approved budget and end date, then switch on.
+  const sched = await ops.updateSchedule(ctx, idsOf(ad), { dailyBudgetCents: ad.dailyBudgetCents, endsAt: ad.endsAt })
   if (!sched.ok) fail(sched.error)
-  const act = await activateAd(ctx, { campaignId: ad.externalCampaignId, adSetId: ad.externalAdSetId, adId: ad.externalAdId })
+  const act = await ops.activate(ctx, idsOf(ad))
   if (!act.ok) {
     await db.marketingAd.updateMany({ where: { id }, data: { error: act.error.slice(0, 500) } })
     fail(act.error)
@@ -374,12 +423,13 @@ async function startAd(db: Db, id: number, actor: Actor, deps: AdDeps, now: Date
 async function pauseOnPlatform(db: Db, id: number, actor: Actor, deps: AdDeps): Promise<AdDto> {
   const ad = await mustGet(db, id)
   const t = transitionAd(ad, 'pause', actor)
+  const ops = opsOf(ad)
   // Pausing stops spend, so it needs only saved credentials (no live switch): it must work when switches are turned off.
-  const channel = await adsChannel(db)
-  if (!channel?.credentialsEnc) throw new WebsiteError(409, 'The ad account is not connected, so the ad cannot be paused from here. Pause it in Meta Ads Manager.')
-  const ctx: AdsContext = { credentials: decryptJson(channel.credentialsEnc), fetch: deps.fetch }
-  const r = await pauseAd(ctx, { campaignId: ad.externalCampaignId, adSetId: ad.externalAdSetId, adId: ad.externalAdId })
-  if (!r.ok) throw new WebsiteError(502, `${r.error} The ad may still be running: pause it in Meta Ads Manager.`, { blocked: 'meta' })
+  const channel = await adsChannel(db, platformKind(ad))
+  if (!channel?.credentialsEnc) throw new WebsiteError(409, ops.label === 'Meta' ? 'The ad account is not connected, so the ad cannot be paused from here. Pause it in Meta Ads Manager.' : 'The Google Ads account is not connected, so the ad cannot be paused from here. Pause it in Google Ads.')
+  const ctx: Ctx = { credentials: decryptJson(channel.credentialsEnc), fetch: deps.fetch }
+  const r = await ops.pause(ctx, idsOf(ad))
+  if (!r.ok) throw new WebsiteError(502, `${r.error} The ad may still be running: pause it in ${ops.label === 'Meta' ? 'Meta Ads Manager' : 'Google Ads'}.`, { blocked: ops.blocked })
   await cas(db, ad, t)
   await writeAudit(db, { actor: actor.username, action: 'ad.pause', entity: 'ad', entityId: id, detail: { from: ad.status, to: t.status } })
   return toAdDto(await mustGet(db, id))
@@ -391,19 +441,20 @@ const dayDate = (ymd: string) => new Date(`${ymd}T00:00:00.000Z`)
 
 /**
  * Pull the last 7 days of insights into MarketingMetric (entity AD), add visits and enquiries from the
- * analytics rolled up under the ad's tracking tag, and refresh spendCents. Read-only on Meta.
+ * analytics rolled up under the ad's tracking tag, and refresh spendCents. Read-only on the platform.
  * Safety net: an ACTIVE ad is paused when the month's recorded spend has reached the cap.
  */
 export async function syncAd(db: Db, id: number, actorIn: Actor | string, deps: AdDeps): Promise<AdDto> {
   const actor = asActor(actorIn)
   const now = deps.now ?? new Date()
   const ad = await mustGet(db, id)
-  if (!ad.externalAdId) throw new WebsiteError(409, 'This ad is not on Meta yet, so there are no results to pull.')
-  const channel = await db.marketingChannel.findFirst({ where: { kind: 'META_ADS' }, orderBy: { id: 'asc' } })
+  const ops = opsOf(ad)
+  if (!ad.externalAdId) throw new WebsiteError(409, `This ad is not on ${ops.label} yet, so there are no results to pull.`)
+  const channel = await db.marketingChannel.findFirst({ where: { kind: platformKind(ad) }, orderBy: { id: 'asc' } })
   if (!channel?.credentialsEnc) throw new WebsiteError(409, 'The ad account is not connected.')
-  const ctx: AdsContext = { credentials: decryptJson(channel.credentialsEnc), fetch: deps.fetch }
-  const ins = await fetchAdInsights(ctx, ad.externalAdId)
-  if (!ins.ok) throw new WebsiteError(502, ins.error, { blocked: 'meta' })
+  const ctx: Ctx = { credentials: decryptJson(channel.credentialsEnc), fetch: deps.fetch }
+  const ins = await ops.insights(ctx, ad.externalAdId)
+  if (!ins.ok) throw new WebsiteError(502, ins.error, { blocked: ops.blocked })
 
   const since = new Date(now.getTime() - 9 * 86_400_000)
   const analytics = await db.analyticsDailySource.findMany({ where: { campaign: ad.trackingTag, day: { gte: dayDate(since.toISOString().slice(0, 10)) } } })
@@ -421,7 +472,7 @@ export async function syncAd(db: Db, id: number, actorIn: Actor | string, deps: 
     const a = perDay.get(d.day) ?? { visits: 0, enquiries: 0 }
     const key = { entity_entityId_day: { entity: 'AD', entityId: id, day: dayDate(d.day) } }
     if (d.spendCents < 0) {
-      // Analytics only (no Meta row for that day): keep any spend we already have.
+      // Analytics only (no platform row for that day): keep any spend we already have.
       const existing = await db.marketingMetric.findUnique({ where: key })
       await db.marketingMetric.upsert({
         where: key,
@@ -450,7 +501,7 @@ export async function syncAd(db: Db, id: number, actorIn: Actor | string, deps: 
     const { start, end } = monthDateBounds(now)
     const month = await db.marketingMetric.aggregate({ where: { entity: 'AD', day: { gte: start, lt: end } }, _sum: { spendCents: true } })
     if ((month._sum.spendCents ?? 0) >= Math.max(0, settings.monthlySpendCapCents)) {
-      const r = await pauseAd(ctx, { campaignId: current.externalCampaignId, adSetId: current.externalAdSetId, adId: current.externalAdId })
+      const r = await ops.pause(ctx, idsOf(current))
       if (r.ok) {
         await cas(db, current, transitionAd(current, 'pause', { username: 'system', role: 'SYSTEM' }))
         await writeAudit(db, { actor: 'system', action: 'ad.cap_pause', entity: 'ad', entityId: id, detail: { capCents: settings.monthlySpendCapCents } })

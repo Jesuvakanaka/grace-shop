@@ -255,7 +255,7 @@ describe('channel registry', () => {
       assert.ok(c.setupSteps.length >= 2 && c.setupSteps.every((s) => s.length > 10), `${c.kind} steps`)
       assert.ok(c.apiNotes.length >= 1, `${c.kind} notes`)
       assert.ok(c.limits.maxText > 0 && c.limits.maxImages >= 0)
-      assert.strictEqual(c.connector, ['FACEBOOK_PAGE', 'INSTAGRAM', 'META_ADS', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK', 'THREADS', 'GOOGLE_BUSINESS', 'GOOGLE_MERCHANT', 'WHATSAPP_CLOUD', 'SMS', 'EMAIL'].includes(c.kind), `${c.kind} connector flag`)
+      assert.strictEqual(c.connector, ['FACEBOOK_PAGE', 'INSTAGRAM', 'META_ADS', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK', 'THREADS', 'GOOGLE_BUSINESS', 'GOOGLE_MERCHANT', 'GOOGLE_ADS', 'WHATSAPP_CLOUD', 'SMS', 'EMAIL'].includes(c.kind), `${c.kind} connector flag`)
     }
   })
   test('manual channels cannot publish, schedule, run ads or message', () => {

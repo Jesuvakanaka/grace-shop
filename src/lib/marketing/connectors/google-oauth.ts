@@ -51,9 +51,9 @@ function fail(status: number, message: string): never {
 
 /** A JSON call to a Google API with a Bearer token. Throws GoogleApiError with Google's own message kept short. */
 export async function googleJson<T = Record<string, unknown>>(
-  fetchFn: FetchLike, method: 'GET' | 'POST', url: string, accessToken: string, body?: unknown, hints: { approval?: boolean } = {},
+  fetchFn: FetchLike, method: 'GET' | 'POST', url: string, accessToken: string, body?: unknown, hints: { approval?: boolean; adsToken?: boolean; headers?: Record<string, string> } = {},
 ): Promise<T> {
-  const init: RequestInit = { method, headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) } }
+  const init: RequestInit = { method, headers: { ...(hints.headers ?? {}), Authorization: `Bearer ${accessToken}`, Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) } }
   if (body !== undefined) init.body = JSON.stringify(body)
   let res: Response
   try {
@@ -73,6 +73,9 @@ export async function googleJson<T = Record<string, unknown>>(
   if (res.status === 401) throw new GoogleApiError(`Google rejected the saved credentials. Connect the channel again.${detail}`, 401, false, true)
   if (res.status === 403 && hints.approval) {
     throw new GoogleApiError(`Google refused access. The Business Profile API needs Google to approve your Cloud project first (see the setup steps), and the signed-in account must manage the listing.${detail}`, 403, false)
+  }
+  if (res.status === 403 && hints.adsToken) {
+    throw new GoogleApiError(`Google refused access. The Google Ads developer token needs Google's approval ("Basic access") before it works on a real account, and the signed-in user must have access to this customer (add the manager ID as the login customer ID if it is reached through a manager account).${detail}`, 403, false)
   }
   if (res.status === 403) throw new GoogleApiError(`Google refused access: the account or project is not allowed to do this.${detail}`, 403, false)
   if (res.status === 429) throw new GoogleApiError(`Google is limiting how often VYRA can call it right now. It will work again later.${detail}`, 429, true)

@@ -1,13 +1,21 @@
 # VYRA Marketing hub
 
-An owner-only section of the VYRA admin to plan campaigns, prepare content for every channel, approve it, publish it through each platform's official API (or hand it over as a "share bundle" for channels with no API), and later run ads within a budget cap and see results.
+An owner-only section of the VYRA admin to plan campaigns, prepare content for every channel, approve it, publish it through each platform's official API (or hand it over as a "share bundle" for channels with no API), run ads within a budget cap, message customers who opted in, and see results.
 
 Michael has no platform accounts or keys yet, so every connector is built against the official API and stays off until credentials exist.
 
-## What exists (PR 1: foundation, no screens yet)
+## What exists
 
-- Data model, API, channel registry, post status machine, tracking, encrypted token storage, audit log.
-- Connectors: Facebook Page and Instagram (see below), plus Threads, Google Business Profile and Google Merchant Center (later section). Every other channel still has `connector: false`. No AI drafting yet. No pages yet.
+The whole hub is built. Everything is owner-only, additive, and off until the owner switches it on.
+
+- **Foundation:** data model, API, channel registry, post status machine, tracking links, AES-256-GCM token storage, audit log, the one go-live gate and the kill switch.
+- **Screens** (`/marketing`): Overview, Campaigns, Content, Approvals, Channels, Ads, Audiences, Results, Contacts, Messages, Partners, Settings, Activity (see Screens below).
+- **AI** that drafts words per channel, ad copy, product suggestions, a week plan and weekly advice (never prices, sizes or stock: code inserts those).
+- **Connectors** (all built against the official APIs, none run against a real account yet): Facebook Page, Instagram, Threads, Pinterest, Telegram, X (with automatic token refresh), YouTube, TikTok (drafts to the inbox), Google Business Profile, Google Merchant Center (catalogue), Meta ads, Google Ads, WhatsApp Cloud API, Twilio SMS and Brevo email. Manual channels (Facebook Groups and Marketplace, WhatsApp Status, Channels and broadcast lists, influencers, resellers, classifieds, print and QR) get a share bundle instead.
+- **Ads** on Meta and on Google Search, with a monthly spend cap, created paused and started by a separate approved action. Audiences, results sync and a product feed (Meta and Google Merchant).
+- **Meta Pixel**: server-side events and the browser Pixel on the storefront, both behind the pixel gate (off by default).
+- **Customer messages**: contacts with recorded consent, broadcasts, unsubscribe, partners with codes.
+- **Background jobs**: `npm run marketing:run` and `npm run marketing:results` (see Running the background jobs). Nothing schedules them yet.
 
 ## Flags and safety switches
 
@@ -68,7 +76,7 @@ Editing the words, photos or format of an approved or scheduled post sends it ba
 - `GET/POST /api/marketing/content` (POST may include `channels: [...]` to create one draft post per channel), `GET/PATCH/DELETE /api/marketing/content/[id]`
 - `GET /api/marketing/posts?status=&channel=&from=&to=` (from/to match the scheduled or published time), `GET/PATCH /api/marketing/posts/[id]`
 - `POST /api/marketing/posts/[id]/transition` with `{ action, scheduledFor? }`; actions: submit, cancel, approve, reject, schedule, unschedule, publish, retry, share. `publish` and `retry` really send the post through its connector (`publishPost`) and answer with the post as PUBLISHED or FAILED.
-- `POST /api/marketing/channels/connect` with `{ kind, ...fields }`: the fields per kind are `connectFields` in `channels.ts` (Facebook/Instagram `pageId` + `accessToken`; META_ADS; THREADS `accessToken`; GOOGLE_BUSINESS `accountId`, `locationId`, `clientId`, `clientSecret`, `refreshToken`; GOOGLE_MERCHANT `merchantId` + the three Google values). `POST /api/marketing/channels/[id]/disconnect`. `POST /api/marketing/channels/[id]/sync-products` with `{ mode?: 'products' | 'register-feed' }` (Google Merchant only; see below)
+- `POST /api/marketing/channels/connect` with `{ kind, ...fields }`: the fields per kind are `connectFields` in `channels.ts` (Facebook/Instagram `pageId` + `accessToken`; META_ADS; THREADS `accessToken`; GOOGLE_BUSINESS `accountId`, `locationId`, `clientId`, `clientSecret`, `refreshToken`; GOOGLE_MERCHANT `merchantId` + the three Google values; GOOGLE_ADS `customerId`, optional `loginCustomerId`, `developerToken` + the three Google values; X `clientId`, optional `clientSecret`, `refreshToken`, `accessToken`). `POST /api/marketing/channels/[id]/disconnect`. `POST /api/marketing/channels/[id]/sync-products` with `{ mode?: 'products' | 'register-feed' }` (Google Merchant only; see below)
 - `GET /api/marketing/audit?limit=&entity=`
 - `POST /api/marketing/content/[id]/draft` with optional `{ channels }`: AI writes the DRAFT/REJECTED posts (see AI below)
 - `GET /api/marketing/suggestions?limit=`: products worth promoting this week
@@ -80,7 +88,7 @@ Editing the words, photos or format of an approved or scheduled post sends it ba
 
 ## Screens (`/marketing`, owner only)
 
-Overview (live status, counts, this week, share bundles ready), Campaigns, Content (pick a product and photos, tick channels, edit each channel's words with a live character count, act on each post), Approvals (the queue), Channels (what each channel can and can't do, and how to switch it on), Settings (live switch, spend cap, weekly target, brand voice), Activity (the audit log). Manual channels show a share bundle: photos through the phone's share sheet as JPEG, the caption with its tracking link, Copy caption, and Mark as shared.
+Overview (live status, counts, this week, share bundles ready), Campaigns, Content (pick a product and photos, tick channels, edit each channel's words with a live character count, act on each post), Approvals (the queue), Channels (what each channel can and can't do, and how to switch it on), Ads (Meta or Google, the monthly budget, one card per ad), Audiences (who sees an ad), Results (visits, enquiries, spend per channel, post, product, campaign and ad, plus weekly advice), Contacts (people and their consent), Messages (customer broadcasts), Partners (influencers and resellers with codes), Settings (live switch, spend cap, weekly target, brand voice, Pixel ID), Activity (the audit log). Manual channels show a share bundle: photos through the phone's share sheet as JPEG, the caption with its tracking link, Copy caption, and Mark as shared.
 
 ## AI (`src/lib/marketing/ai/`)
 
@@ -134,7 +142,7 @@ If Meta rejects a saved token while publishing (error 190), the post is marked F
 - A failed post can be retried up to 3 attempts in all.
 - Ads, the Pixel and the product feed are in the sections below.
 
-## Ads (Meta: Facebook and Instagram), Pixel and product feed
+## Ads (Meta and Google), Pixel and product feed
 
 Code: `ads.ts`, `ad-state.ts`, `budget.ts`, `audiences.ts`, `connectors/meta-ads.ts`, `connectors/meta-pixel.ts`, `pixel.ts`, `feed.ts`, `feed-route.ts`, `ai/ad-copy.ts` in `src/lib/marketing/`.
 
@@ -163,13 +171,20 @@ Editing before the ad is on Meta sends it back to DRAFT and clears the approval.
 
 **Connect the ad account:** `POST /api/marketing/channels/connect` with `{ kind: 'META_ADS', adAccountId, pageId, accessToken }`. The hub checks `GET /act_{id}?fields=id,name,currency,account_status` (must be active), stores the channel CONNECTED with the three values encrypted. How: in Business Settings add the ad account, add a payment method that works from Zimbabwe, test with a $1 a day ad first, create a system user with `ads_management` and `ads_read` (expiry Never; standard access is enough for your own ad account).
 
-**API (OWNER only):** `GET/POST /api/marketing/audiences`, `GET/PATCH/DELETE /audiences/[id]`; `GET/POST /api/marketing/ads`, `GET/PATCH/DELETE /ads/[id]`; `POST /ads/[id]/transition` `{ action: submit | approve | reject | create_on_platform | start | pause | cancel }`; `POST /ads/[id]/sync` (pulls insights into `MarketingMetric`, adds visits and enquiries from the analytics rows whose campaign is the ad's tracking tag, refreshes `spendCents`); `POST /ads/[id]/draft` (AI copy); `GET /api/marketing/budget` (cap, committed, remaining and recorded spend this month). Each ad has its own tracking tag and `?src=` link.
+**API (OWNER only):** `GET/POST /api/marketing/audiences`, `GET/PATCH/DELETE /audiences/[id]`; `GET/POST /api/marketing/ads`, `GET/PATCH/DELETE /ads/[id]`; `POST /ads/[id]/transition` `{ action: submit | approve | reject | create_on_platform | start | pause | cancel }`; `POST /ads/[id]/sync` (pulls insights into `MarketingMetric`, adds visits and enquiries from the analytics rows whose campaign is the ad's tracking tag, refreshes `spendCents`); `POST /ads/[id]/draft` (AI copy; the Ads screen's "Write with AI" button saves a draft from the chosen content idea and then calls it); `GET /api/marketing/budget` (cap, committed, remaining and recorded spend this month). Each ad has its own tracking tag and `?src=` link.
 
 **AI ad copy** (`ai/ad-copy.ts`): headline, text and description for a DRAFT ad, from the product name, description, category and the brand voice only. The model never sees price, sizes or stock, and copy that contains a digit, `$` or `%` is refused. It never approves anything. It is a small standalone writer; point it at the shared channel writer when that lands.
 
-### Meta Pixel (Conversions API)
+### Meta Pixel (browser and Conversions API)
 
-`connectors/meta-pixel.ts`: `sendEvent` posts `PageView`, `ViewContent` or `Contact` (the WhatsApp enquiry) to `POST /{pixel_id}/events` with `action_source: website`, the page URL, optional product ids and `user_data` (IP and user agent as sent, email and phone SHA-256 hashed). It runs only when the live env is on, the live setting is on, a Pixel ID is saved in the settings and a META_ADS channel is connected; otherwise it throws 409 and sends nothing. `pixel.ts` exports `pixelConfigForStorefront()` (returns `null` unless all those gates pass). **The storefront is NOT wired up yet:** loading the browser Pixel and the visitor privacy notice wording are a later step, and must be done together.
+**Server side** (`connectors/meta-pixel.ts`): `sendEvent` posts `PageView`, `ViewContent` or `Contact` (the WhatsApp enquiry) to `POST /{pixel_id}/events` with `action_source: website`, the page URL, optional product ids and `user_data` (IP and user agent as sent, email and phone SHA-256 hashed). It runs only when the live env is on, the live setting is on, a Pixel ID is saved in the settings and a META_ADS channel is connected; otherwise it throws 409 and sends nothing.
+
+**Browser** (`pixel.ts`, `components/storefront/MetaPixel.tsx`, `PixelViewContent.tsx`): the public storefront layout (`src/app/site/layout.tsx`) loads Meta's base code with `next/script` (`afterInteractive`, one inline script with the Pixel ID, which sends `PageView`), and the product page (`/p/<slug>`) adds a `ViewContent` event with the piece's item number (the same id the product feed uses). **Both appear only when the pixel gate passes**: `GRACE_MARKETING_LIVE=true`, the live setting on, a Pixel ID (digits only) saved in Settings, and a connected Meta ad account. When the gate does not pass (the default) the layout and the product page return exactly their old trees: no script, no extra markup, and with the live env off not even a database read (`tests/marketing-pixel-storefront.test.ts`). An owner preview never sends `ViewContent`.
+
+Before you turn it on:
+- **Update the privacy page** (`/privacy`) to say visitors' visits are shared with Meta for ads. The Pixel sets Meta cookies and sends page visits to Meta; check whether the law where your visitors live asks for consent first. The hub does not show a consent banner.
+- Only first page loads send `PageView`; moving between pages inside the app without a reload does not send another. That is a known limit.
+- Check Events Manager, Test events, with a real Pixel: it has never been run against one.
 
 ### Product feed
 
@@ -194,8 +209,9 @@ Errors: a rejected or expired token gives code 401 and is not retried (reconnect
 ### X
 - **What it does:** creates a post with `POST /2/tweets`, with up to 4 photos uploaded first through the v2 media upload (`/2/media/upload/initialize`, `append`, `finalize`).
 - **Cost (pay per use):** $0.015 per post, $0.20 for a post with a link. Every tracked post has a link, so expect $0.20 each. The result and the server log show the expected cost.
-- **Set up:** sign up at developer.x.com, create a project and app with "Read and write", turn on OAuth 2.0, add credit. Generate an OAuth 2.0 user token with scopes tweet.read, tweet.write, users.read, media.write, offline.access and paste it in the Connect box.
-- **Can't do:** 280 characters (a link counts 23); the hub refuses longer text before calling X. User tokens expire after 2 hours unless refreshed, so a stored token will need re-entering until automatic refresh is added.
+- **Set up:** sign up at developer.x.com, create a project and app with "Read and write", turn on OAuth 2.0, add credit. Sign in as the VYRA account once (authorization code with PKCE, scopes tweet.read, tweet.write, users.read, media.write and **offline.access**) to get an access token and a refresh token. Paste the client ID, the client secret (only if the app is a confidential one), the refresh token and the access token in the Connect box. All are saved encrypted; only the client ID (not secret) is kept in `config`.
+- **Token refresh** (`refreshXCredentials` in `connectors/x.ts`, called by `publishPost` through the connector's `refreshCredentials`): after the go-live gate and before the post, `POST https://api.x.com/2/oauth2/token` with `grant_type=refresh_token` (form-encoded; a public app sends `client_id` in the body, a confidential app sends `Authorization: Basic` with client ID and secret). X answers with a new access token and a new refresh token (refresh tokens are single use), and both are saved straight away with `updateCredentials` in `connect.ts` (encrypted, one audit row `channel.credentials_refreshed`, no token in it). If X rejects the refresh token the post fails with "connect the channel again" and the channel moves to ERROR. Channels saved before this (access token only) still post until their token expires. Two posts published at the very same moment could both try to refresh; the second would fail and can be retried. Nothing logs a token. Verified against the docs only (https://docs.x.com/fundamentals/authentication/oauth-2-0/user-access-token, checked 2026-11-26), never against the real service.
+- **Can't do:** 280 characters (a link counts 23); the hub refuses longer text before calling X. User tokens last about 2 hours, so the hub renews them before every post (see Token refresh below).
 
 ### YouTube
 - **What it does:** uploads a video with `videos.insert` (resumable upload). Title is the first line of the post, description the rest plus the tracked link. Visibility is `unlisted` unless the channel config sets `privacy` to `private` or `public`.
@@ -281,9 +297,42 @@ This channel carries the catalogue, not posts: `publish` always answers "carries
 
 **Not verified against the real services:** the exact `primaryProductDataSource` + `fetchSettings` body (taken from Google's Python sample, not a REST example), `productAttributes` field spellings that Google's insert examples do not show (`brand`, `identifierExists`, `productTypes`, `googleProductCategory`, `additionalImageLinks`), the Merchant `accounts/v1` verify call, the Business Profile `mediaFormat: PHOTO` field, and Threads' current API version.
 
-## Coming in later PRs
+## Google Ads (Search)
 
-Google Ads.
+Code: `connectors/google-ads.ts`, wired into `ads.ts` next to Meta (the ad's `channelKind` is `META_ADS` or `GOOGLE_ADS`). API version `v26` (v26.2 released 11 Nov 2026; checked on developers.google.com/google-ads/api/docs/release-notes on 2026-11-26; each version is sunset about a year after release, so bump `GOOGLE_ADS_VERSION` in time). **Written from Google's documented REST shapes and never run against a real account.**
+
+**Same steps as Meta:** submit, approve (cap check), create on Google (paused), start (a separate action), pause, sync. Every call that creates, changes or starts anything runs `assertCanGoLive` and the spend-cap check under the same budget lock before any request (the Google sign-in request counts as a request). Pausing and reading results need only saved credentials.
+
+**What is made (all PAUSED):** a campaign budget (`amountMicros` = daily budget in cents x 10,000), a Search campaign (Google Search only: no search partners, no Display; "Maximize clicks" so no bid is invented; start and end date in Harare time; "people in the place" targeting), a radius around Harare (or the audience's place) **only when the ad has an audience**, one ad group, and one responsive search ad whose final URL is the tracked link. The headline, words and description are split into Google's limits (3 to 15 headlines of 30 characters, 2 to 4 descriptions of 90) from the ad's own words; only when there are too few pieces are short generic VYRA lines added; "!" is dropped from headlines. Ids are kept on the ad row: campaign id in `externalCampaignId`, ad group in `externalAdSetId`, campaign budget in `externalCreativeId`, ad in `externalAdId`. A failed create keeps the ids and a retry resumes.
+
+**Results:** a GAQL search (`POST .../googleAds:search`) on `metrics.cost_micros`, `metrics.impressions` and `metrics.clicks` for the ad, last 7 days (cost micros / 10,000 = US cents). The monthly cap counts spend from both platforms.
+
+**Connect:** customer ID (dashes fine), optional manager (login) customer ID, developer token, and the Google OAuth client ID, client secret and refresh token (scope `https://www.googleapis.com/auth/adwords`). The hub checks the customer with a read-only GAQL query (must be enabled; the currency is saved and only USD is accepted). Requests carry the `developer-token` header and `login-customer-id` when given.
+
+**Things to know:**
+- The developer token needs Google's approval ("Basic access", Google Ads, Tools, API Center) before it works on a real account. Until then Google refuses every call and the hub says so.
+- Google Ads bills the card saved on the **Google Ads account**, not VYRA. The monthly cap here is VYRA's own guard on top.
+- **Keywords are not added.** A Search ad group with no keywords does not show. Add keywords in Google Ads before you press Start.
+- Only "visits to the shop" ads (objective TRAFFIC); no photo is used; age, gender and interests are not sent.
+- The Google Ads account time zone is assumed to be Harare.
+
+**Switching it on (plain English):** open a Google Ads account in US dollars with a card; ask for a developer token and wait for Basic access; create a Google Cloud OAuth client and get a refresh token for a user with access to the account; Channels, Google Ads, fill in the boxes, Connect; set the monthly cap in Settings; on the Ads screen choose "Google search" (it shows when Meta and Google are both connected; Meta is the default); make the ad, ask for approval, approve, create on Google, add keywords in Google Ads, press Start.
+
+## Running the background jobs
+
+Two scripts do the work that cannot happen inside a page request. Both need `DATABASE_URL`, print only counts and plain reasons (never tokens), and do nothing when the hub is off (`GRACE_MARKETING_HUB=false`).
+
+| Script | How often | What it does |
+| --- | --- | --- |
+| `npm run marketing:run` | every 5 minutes | Publishes SCHEDULED posts that are due and sends approved customer broadcasts that are due (or carries on with ones being sent). Posts and messages go out only when the whole go-live gate passes; otherwise they stay as they are. `-- --max 5` limits the posts per run (default 10). Exits 1 if a post failed. |
+| `npm run marketing:results` | once a day | Pulls the last days of results (post reach and clicks, ad spend and clicks from Meta and Google) into the results tables. Read only on the platforms, so it needs no go-live gate. Safe to run any time. It also pauses a running ad once the month's recorded spend has reached the cap. |
+
+Run them by hand from the server or a developer machine at any time. **Nothing runs them automatically yet**, and no scheduler or workflow was created or changed (`.github/workflows` is untouched).
+
+**Setting them up later on Cloud Run** (when the owner goes live; either way keep `GRACE_MARKETING_LIVE` and the database settings the same as the web service):
+- **Cloud Run job + Cloud Scheduler (recommended):** make two Cloud Run jobs from the same container image as the web app, with the command `npm run marketing:run` and `npm run marketing:results`, and the same environment variables and Cloud SQL connection as the service. Then create two Cloud Scheduler jobs that run them: `*/5 * * * *` (time zone Africa/Harare) and `0 5 * * *`. The scheduler calls the Cloud Run Admin API `jobs.run` with a service account that has the "Cloud Run Invoker" role on those jobs.
+- **Protected route instead:** add an owner-less route such as `POST /api/marketing/cron/run` that checks a long random secret in an `Authorization: Bearer` header (kept in Secret Manager, compared in constant time) and then calls the same functions the scripts call (`runDuePosts`, `runDueBroadcasts`, `syncAllResults`). Cloud Scheduler then calls it over HTTPS with that header every 5 minutes and daily. Do not expose it without the secret. This route does not exist yet.
+- A run that overlaps the next one is fine for posts and messages (each is claimed before it is sent), but keep the schedule at 5 minutes or more.
 
 ## Contacts, messages and partners (ZP-1200)
 

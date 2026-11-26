@@ -35,7 +35,11 @@ export interface InsightsResult {
   metrics: { impressions?: number; reach?: number; clicks?: number; likes?: number; comments?: number; shares?: number; spendCents?: number }
 }
 
-export type VerifyResult = { ok: true; externalId: string | null; name: string | null } | { ok: false; error: string }
+export type RefreshResult =
+  | { ok: true; refreshed: boolean; credentials: Record<string, string> }
+  | { ok: false; error: string; retryable: boolean; code?: number }
+
+export type VerifyResult = { ok: true; externalId: string | null; name: string | null; /** Non-secret facts found while verifying (for example the account currency); saved in the channel's config. */ extraConfig?: Record<string, string> } | { ok: false; error: string }
 
 /** One customer message. The caller has already checked consent and the go-live gate; the connector checks the gate again. */
 export interface ConnectorMessage {
@@ -67,5 +71,11 @@ export interface Connector {
   send?(message: ConnectorMessage, ctx: ConnectorContext): Promise<SendResult>
   /** True when the channel only sends customer messages (the Messages screen), never posts. */
   messagesOnly?: boolean
+  /**
+   * Channels whose access token is short-lived (X: about 2 hours): swap the saved refresh token for fresh tokens BEFORE a publish.
+   * The caller (publishPost) runs it after the go-live gate and saves the returned credentials encrypted straight away
+   * (refresh tokens can be single-use). `refreshed: false` = nothing to do (no refresh token saved).
+   */
+  refreshCredentials?(credentials: Record<string, string>, fetch: FetchLike): Promise<RefreshResult>
   fetchInsights?(externalId: string, ctx: ConnectorContext): Promise<InsightsResult>
 }

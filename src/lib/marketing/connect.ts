@@ -12,9 +12,9 @@ import type { FetchLike } from './connectors/types'
 import { encryptJson, tokenHint } from './secrets'
 import { asObject, onlyKeys, oneOf, requiredText } from './validate'
 
-export const CONNECTABLE_KINDS = ['FACEBOOK_PAGE', 'INSTAGRAM', 'META_ADS', 'THREADS', 'GOOGLE_BUSINESS', 'GOOGLE_MERCHANT', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK', 'WHATSAPP_CLOUD', 'SMS', 'EMAIL'] as const
+export const CONNECTABLE_KINDS = ['FACEBOOK_PAGE', 'INSTAGRAM', 'META_ADS', 'THREADS', 'GOOGLE_BUSINESS', 'GOOGLE_MERCHANT', 'GOOGLE_ADS', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK', 'WHATSAPP_CLOUD', 'SMS', 'EMAIL'] as const
 /** Kinds connected through the registry's `connectFields` and the connector's own verify(). */
-const FIELD_KINDS: readonly string[] = ['THREADS', 'GOOGLE_BUSINESS', 'GOOGLE_MERCHANT', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK', 'WHATSAPP_CLOUD', 'SMS', 'EMAIL']
+const FIELD_KINDS: readonly string[] = ['THREADS', 'GOOGLE_BUSINESS', 'GOOGLE_MERCHANT', 'GOOGLE_ADS', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK', 'WHATSAPP_CLOUD', 'SMS', 'EMAIL']
 
 async function saveRow(
   db: Db, kind: string, name: string, externalId: string, accessToken: string, config: Record<string, string>, actor: string,
@@ -78,6 +78,20 @@ export async function connectMeta(
   return { channels: channels.map(toChannelRowDto), instagramLinked: Boolean(page.instagramId) }
 }
 
+/**
+ * Replace the saved credentials of a channel (a refreshed token). Encrypted, never returned or logged; the audit row says
+ * only that they were renewed. `tokenHint` follows the access token when there is one.
+ */
+export async function updateCredentials(db: Db, channelId: number, credentials: Record<string, string>, actor: string): Promise<void> {
+  const row = await db.marketingChannel.findUnique({ where: { id: channelId }, select: { kind: true } })
+  if (!row) throw new WebsiteError(404, 'Channel not found')
+  await db.marketingChannel.update({
+    where: { id: channelId },
+    data: { credentialsEnc: encryptJson(credentials), ...(credentials.accessToken ? { tokenHint: tokenHint(credentials.accessToken) } : {}) },
+  })
+  await writeAudit(db, { actor, action: 'channel.credentials_refreshed', entity: 'channel', entityId: channelId, detail: { kind: row.kind } })
+}
+
 /** Wipe the saved token and mark the channel NOT_CONNECTED. */
 export async function disconnectChannel(db: Db, id: number, actor: string): Promise<ChannelRowDto> {
   const row = await db.marketingChannel.findUnique({ where: { id } })
@@ -132,7 +146,8 @@ export async function connectWithFields(
   for (const f of def.connectFields) {
     const v = o[f.name]
     if (v !== undefined && typeof v !== 'string') throw new WebsiteError(400, `${f.label} must be text.`, { field: f.name })
-    values[f.name] = (v ?? '').trim()
+    // Numbers are often copied with dashes (Google Ads customer IDs: 123-456-7890).
+    values[f.name] = f.kind === 'digits' ? (v ?? '').trim().replace(/-/g, '') : (v ?? '').trim()
   }
   const bad = connectFieldsError(def.connectFields, values)
   if (bad) {
@@ -145,6 +160,7 @@ export async function connectWithFields(
   const hintSource = values[secrets[secrets.length - 1].name]
   const config: Record<string, string> = {}
   for (const f of def.connectFields) if (f.kind !== 'secret') config[f.name] = values[f.name]
+  if (v.extraConfig) Object.assign(config, v.extraConfig)
   // Keep settings the hub saved later (for example the Merchant data source) when the owner reconnects.
   const existing = await db.marketingChannel.findFirst({ where: { kind }, orderBy: { id: 'asc' } })
   const kept = existing?.config && typeof existing.config === 'object' && !Array.isArray(existing.config) ? (existing.config as Record<string, string>) : {}
