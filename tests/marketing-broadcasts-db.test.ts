@@ -314,7 +314,10 @@ describe('sending', () => {
     const p = fakeProvider('SMS')
     await broadcastAction(prisma, b.id, 'send', owner, depsFor(p.connector), { max: 1 })
     const pending = (await recipients(b.id)).find((r) => r.status === 'PENDING')!
-    await prisma.marketingBroadcastRecipient.update({ where: { id: pending.id }, data: { status: 'SENDING' } }) // a run died after claiming
+    await prisma.marketingBroadcastRecipient.update({ where: { id: pending.id }, data: { status: 'SENDING' } }) // another run is sending it right now
+    const busy = await continueSending(prisma, b.id, owner, depsFor(p.connector))
+    assert.strictEqual(busy.broadcast.status, 'SENDING', 'a message another run is sending is not called failed')
+    await prisma.marketingBroadcastRecipient.update({ where: { id: pending.id }, data: { updatedAt: new Date(Date.now() - 20 * 60 * 1000) } }) // that run died
     const r = await continueSending(prisma, b.id, owner, depsFor(p.connector))
     assert.strictEqual(p.sent.length, 1)
     assert.strictEqual(r.broadcast.status, 'FAILED')

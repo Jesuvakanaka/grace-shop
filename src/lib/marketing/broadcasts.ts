@@ -25,6 +25,8 @@ export const MAX_PER_RUN = 500
 export const DEFAULT_PER_SECOND = 1
 /** Text limits: SMS leaves room for the "Reply STOP" line. */
 export const BROADCAST_TEXT_MAX: Record<string, number> = { SMS: 290, WHATSAPP_CLOUD: 1024, EMAIL: 20000 }
+/** A recipient still "being sent" after this long belongs to a run that crashed. */
+const STUCK_AFTER_MS = 10 * 60 * 1000
 const UNSURE = 'Not sure whether this was sent. Check your provider before sending it again.'
 
 export interface AudienceFilter { sources?: string[]; contactIds?: number[] }
@@ -431,7 +433,9 @@ export async function continueSending(db: Db, id: number, actor: BroadcastActor,
   }
 
   const c = await syncCounts(db, id)
-  if (!run.stoppedBecause && c.pending === 0) {
+  // A row another run is sending right now must not be called "not sure": only rows stuck for a while (a crashed run).
+  const inFlight = await db.marketingBroadcastRecipient.count({ where: { broadcastId: id, status: 'SENDING', updatedAt: { gte: new Date(now().getTime() - STUCK_AFTER_MS) } } })
+  if (!run.stoppedBecause && c.pending === 0 && inFlight === 0) {
     // Done. Anything left "being sent" from a crashed run is NOT retried: we cannot tell if it went.
     await db.marketingBroadcastRecipient.updateMany({ where: { broadcastId: id, status: 'SENDING' }, data: { status: 'FAILED', error: UNSURE } })
     const c2 = await syncCounts(db, id)
