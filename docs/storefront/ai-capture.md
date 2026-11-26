@@ -42,6 +42,7 @@ The reference photo is always kept and added as the LAST gallery image
   - `notes String?` owner's note for the AI (e.g. "girls 4-8 years, pink")
   - `listing Json?` the listing draft (see below), editable by the owner
   - `error String?` last failure, owner-facing
+  - `busySince DateTime?` set while one AI step runs (claim; stale after 6 minutes)
   - `aiCostCents Int @default(0)` estimated AI spend
   - `productId Int? @unique` + relation to `Product` (set on approve, `onDelete: SetNull`)
   - `createdBy String?`, `createdAt`, `updatedAt`
@@ -112,3 +113,13 @@ stock is 0 until it arrives). It shows a "Pre-order" badge with the ship
 window ("Pre-order · ships Feb–Mar 2027"), the WhatsApp button reads
 "Pre-order on WhatsApp" and the message names the pre-order and ship window.
 "Mark as arrived" in the product editor switches it to `IN_STOCK`.
+
+## Turning it on (UAT)
+
+1. Create the Secret Manager secrets `grace-shop-uat-openai-api-key` and
+   `grace-shop-uat-anthropic-api-key`, and give the runtime service account
+   `roles/secretmanager.secretAccessor` on both.
+2. Set the repository variable `GRACE_AI_CAPTURE=true`. The next deploy adds
+   `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` to the web service. While it is
+   `false` (the default) nothing changes and AI steps fail with "key not set up".
+3. Put a monthly spending cap on both AI accounts.
