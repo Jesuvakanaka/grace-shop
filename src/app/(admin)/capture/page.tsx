@@ -177,6 +177,92 @@ function PhotoPicker({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+// ─── House model ──────────────────────────────────────────────────────────────
+
+function HouseModelCard() {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    fetch('/api/capture/house-model')
+      .then(readJson)
+      .then((body) => setUrl(typeof body.url === 'string' ? body.url : null))
+      .catch(() => {})
+      .finally(() => setLoaded(true));
+  }, []);
+
+  const choose = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setBusy(true);
+    try {
+      const resized = await downscale(file);
+      const form = new FormData();
+      form.append('photo', resized);
+      const res = await fetch('/api/capture/house-model', { method: 'PUT', body: form });
+      const body = await readJson(res);
+      if (!res.ok) throw new Error(body.error || 'The photo could not be saved.');
+      setUrl(typeof body.url === 'string' ? body.url : null);
+      toast.success('House model saved.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'The photo could not be saved.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch('/api/capture/house-model', { method: 'DELETE' });
+      if (!res.ok) throw new Error((await readJson(res)).error || 'The photo could not be removed.');
+      setUrl(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'The photo could not be removed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card p-4 mb-4" data-testid="house-model">
+      <button type="button" className="w-full flex items-center justify-between min-h-10 text-left" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <span className="font-semibold">House model</span>
+        <span className="text-sm text-slate-500">{open ? 'Hide' : url ? 'Set' : 'Not set'}</span>
+      </button>
+      {open && (
+        <div className="mt-3 space-y-3">
+          <p className="text-xs text-slate-500">This lady wears every women&apos;s piece, so all photos show the same model. Children&apos;s and men&apos;s pieces don&apos;t use her.</p>
+          <div className="flex items-center gap-3">
+            {url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={url} alt="House model" className="w-24 h-24 rounded-lg object-cover border border-slate-200" />
+            ) : (
+              <span className="text-sm text-slate-500">{loaded ? 'No house model yet' : 'Loading...'}</span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button type="button" className="btn btn-secondary min-h-12 px-5" disabled={busy} onClick={() => inputRef.current?.click()}>
+              {busy ? 'Saving…' : 'Choose photo'}
+            </button>
+            {url && (
+              <button type="button" className="btn btn-secondary min-h-12 px-5" disabled={busy} onClick={remove}>
+                Remove
+              </button>
+            )}
+            <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={choose} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CapturePage() {
   const { isOwner, loading: authLoading } = useAuth();
   const toast = useToast();
@@ -373,6 +459,8 @@ export default function CapturePage() {
     <div className="p-4 md:p-6 max-w-2xl pb-24">
       <h1 className="text-2xl font-bold mb-1">Add with AI</h1>
       <p className="text-sm text-slate-500 mb-4">Photograph a piece. We write the listing, you check it.</p>
+
+      <HouseModelCard />
 
       <form onSubmit={submit} className="card p-4 mb-6 space-y-5" data-testid="capture-form">
         <PhotoPicker

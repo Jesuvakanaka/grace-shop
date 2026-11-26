@@ -6,10 +6,11 @@ import { aiStatus } from '@/lib/ai/config'
 import { generateFashionPhoto } from '@/lib/ai/openai-images'
 import { writeListing } from '@/lib/ai/listing-text'
 import { parseListingDraft } from '@/lib/ai/listing'
-import { buildPhotoPrompt, type PhotoSlot } from '@/lib/ai/master-prompt'
+import { buildPhotoPrompt, usesHouseModel, type PhotoSlot } from '@/lib/ai/master-prompt'
 import { getImageStorage, saveProductImage, type ImageStorage } from '@/lib/storage/images'
 import { WebsiteError } from '@/lib/website/http'
 import { SLOT_COUNT, getDraft, isBusy, toDraftDto, type CaptureDraftDto } from './drafts'
+import { getHouseModelKey } from './house-model'
 
 export type RunDeps = {
   writeListing: typeof writeListing
@@ -19,7 +20,7 @@ export type RunDeps = {
 
 export const defaultDeps = (): RunDeps => ({ writeListing, generateFashionPhoto, storage: getImageStorage() })
 
-const MISSING_TEXT_KEY = 'Anthropic key not set up'
+const MISSING_TEXT_KEY = 'No AI key set up for the listing text'
 const MISSING_PHOTO_KEY = 'OpenAI key not set up'
 
 type Step = { kind: 'listing' } | { kind: 'photo'; slot: PhotoSlot } | { kind: 'done' }
@@ -94,8 +95,11 @@ export async function runNextStep(db: PrismaClient, id: number, deps: RunDeps = 
       if (!aiStatus().photos) throw new Error(MISSING_PHOTO_KEY)
       const listing = parseListingDraft(row.listing, [])
       const references = await Promise.all(row.referenceKeys.map((k) => readBytes(deps.storage, k)))
-      const hasModelReference = step.slot > 0 && Boolean(generatedKeys[0])
-      if (hasModelReference) references.push(await readBytes(deps.storage, generatedKeys[0]))
+      // Order matters, the prompt names it: garment, then Image 1, then the house model LAST.
+      const hasFirstPhoto = step.slot > 0 && Boolean(generatedKeys[0])
+      if (hasFirstPhoto) references.push(await readBytes(deps.storage, generatedKeys[0]))
+      const houseKey = usesHouseModel(row.audience) ? await getHouseModelKey(db) : null
+      if (houseKey) references.push(await readBytes(deps.storage, houseKey))
       const result = await deps.generateFashionPhoto({
         references,
         prompt: buildPhotoPrompt({
@@ -103,7 +107,8 @@ export async function runNextStep(db: PrismaClient, id: number, deps: RunDeps = 
           audience: row.audience,
           notes: row.notes,
           details: listing.details,
-          hasModelReference,
+          hasFirstPhoto,
+          hasHouseModel: Boolean(houseKey),
         }),
       })
       const saved = await saveProductImage(result.png, deps.storage)

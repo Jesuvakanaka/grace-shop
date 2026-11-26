@@ -617,6 +617,9 @@ model SiteSettings {
   paymentMethods   String?
   defaultSizeChart Json?
 
+  // AI capture: the house model photo (storage key). Server only; never in the public DTO or the editable fields.
+  captureHouseModelKey String?
+
   updatedBy String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
