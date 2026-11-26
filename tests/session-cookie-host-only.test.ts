@@ -30,7 +30,7 @@ describe('auth-token cookie is host-only', () => {
     }
   });
 
-  test('sign-in cookie (login + quick-login) has no Domain attribute', async () => {
+  test('sign-in cookie has no Domain attribute', async () => {
     env.JWT_SECRET = TEST_SECRET;
     const cookie = authCookieHeader(await signedInResponse(user));
     assert.doesNotMatch(cookie, /;\s*domain=/i, cookie);

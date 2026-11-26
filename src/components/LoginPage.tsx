@@ -5,14 +5,6 @@ import { useAuth } from '@/components/AuthProvider';
 import { STOREFRONT_PREFIX } from '@/lib/host-routing';
 import { SITE_ROUTES, sitePath } from '@/lib/storefront/paths';
 
-interface QuickLoginUser {
-  role: 'OWNER' | 'STAFF';
-  username: string;
-  fullName: string;
-}
-
-const ROLE_LABELS: Record<QuickLoginUser['role'], string> = { OWNER: 'Owner', STAFF: 'Staff' };
-
 export function LoginPage() {
   const { login } = useAuth();
   const [username, setUsername] = useState('');
@@ -21,18 +13,15 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [isSetup, setIsSetup] = useState(false);
   const [fullName, setFullName] = useState('');
-  // UAT quick sign-in buttons (GRACE_QUICK_LOGIN) and whether first-time setup is allowed.
-  const [quickUsers, setQuickUsers] = useState<QuickLoginUser[]>([]);
+  // Whether first-time setup is allowed on this server.
   const [setupAllowed, setSetupAllowed] = useState<boolean | null>(null);
-  const [quickRole, setQuickRole] = useState<QuickLoginUser['role'] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/auth/quick-login')
+    fetch('/api/auth/setup')
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`status ${res.status}`))))
-      .then((data: { enabled?: boolean; setupAllowed?: boolean; users?: QuickLoginUser[] }) => {
+      .then((data: { setupAllowed?: boolean }) => {
         if (cancelled) return;
-        setQuickUsers(data.enabled && Array.isArray(data.users) ? data.users : []);
         setSetupAllowed(data.setupAllowed !== false);
       })
       .catch(() => {
@@ -44,8 +33,6 @@ export function LoginPage() {
     };
   }, []);
 
-  const busy = loading || quickRole !== null;
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -56,28 +43,6 @@ export function LoginPage() {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleQuickLogin = async (role: QuickLoginUser['role']) => {
-    setError('');
-    setQuickRole(role);
-    try {
-      const res = await fetch('/api/auth/quick-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Quick sign-in failed');
-      }
-      // The session cookie is now set. Reload so AuthProvider reads the session and
-      // renders the app for the current path, as it does after a normal sign-in.
-      window.location.reload();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Quick sign-in failed');
-      setQuickRole(null);
     }
   };
 
@@ -120,31 +85,6 @@ export function LoginPage() {
         </div>
 
         <div className="card">
-          {!isSetup && quickUsers.length > 0 && (
-            <div className="mb-6 pb-6 border-b border-slate-200" data-testid="quick-login">
-              <h2 className="text-2xl text-slate-900 mb-3">UAT quick sign-in</h2>
-              <div className="space-y-2">
-                {quickUsers.map((u) => (
-                  <button
-                    key={u.role}
-                    type="button"
-                    onClick={() => handleQuickLogin(u.role)}
-                    disabled={busy}
-                    className="w-full min-h-[44px] flex items-center gap-2 px-4 py-2.5 rounded-lg text-[0.9375rem] font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-lime focus-visible:ring-offset-2 bg-brand-cream-50 text-slate-900 border shadow-[inset_3px_0_0_var(--color-brand-lime)] hover:enabled:bg-brand-olive-50"
-                    data-testid={`quick-login-${u.role.toLowerCase()}`}
-                  >
-                    <span className="truncate">
-                      {quickRole === u.role ? 'Signing in...' : `${u.fullName} — ${ROLE_LABELS[u.role]}`}
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <p className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs">
-                UAT only – quick sign-in is switched on for testing.
-              </p>
-            </div>
-          )}
-
           <h2 className="text-3xl text-slate-900 mb-6">
             {isSetup ? 'First Time Setup' : 'Sign In'}
           </h2>
@@ -199,7 +139,7 @@ export function LoginPage() {
 
             <button
               type="submit"
-              disabled={busy}
+              disabled={loading}
               className="btn btn-primary w-full"
               data-testid="login-submit"
             >

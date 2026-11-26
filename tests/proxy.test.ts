@@ -11,7 +11,6 @@ const env = process.env as Record<string, string | undefined>;
 const saved = {
   GRACE_STOREFRONT_HOSTS: env.GRACE_STOREFRONT_HOSTS,
   GRACE_ADMIN_HOSTS: env.GRACE_ADMIN_HOSTS,
-  GRACE_QUICK_LOGIN: env.GRACE_QUICK_LOGIN,
 };
 
 describe('proxy (src/proxy.ts)', () => {
@@ -22,10 +21,9 @@ describe('proxy (src/proxy.ts)', () => {
     }
   });
 
-  test('storefront host: POST /api/auth/quick-login is 404 even with GRACE_QUICK_LOGIN=true', async () => {
+  test('storefront host: POST /api/auth/login is 404', async () => {
     env.GRACE_STOREFRONT_HOSTS = 'shop.localhost';
-    env.GRACE_QUICK_LOGIN = 'true';
-    const res = proxy(new NextRequest('http://shop.localhost/api/auth/quick-login', { method: 'POST' }));
+    const res = proxy(new NextRequest('http://shop.localhost/api/auth/login', { method: 'POST' }));
     assert.strictEqual(res.status, 404);
     assert.strictEqual(res.headers.get('x-middleware-rewrite'), null);
     assert.strictEqual(res.headers.get('x-middleware-next'), null);
@@ -52,7 +50,7 @@ describe('proxy (src/proxy.ts)', () => {
   test('no env: passes through with X-Robots-Tag noindex', () => {
     delete env.GRACE_STOREFRONT_HOSTS;
     delete env.GRACE_ADMIN_HOSTS;
-    const res = proxy(new NextRequest('http://shop.localhost/api/auth/quick-login', { method: 'POST' }));
+    const res = proxy(new NextRequest('http://shop.localhost/api/auth/login', { method: 'POST' }));
     assert.strictEqual(res.headers.get('x-middleware-next'), '1');
     assert.strictEqual(res.headers.get('x-robots-tag'), 'noindex, nofollow');
   });

@@ -19,7 +19,7 @@ import { createToken } from '../src/lib/auth';
 
 import * as changePassword from '../src/app/api/auth/change-password/route';
 import * as login from '../src/app/api/auth/login/route';
-import * as quickLogin from '../src/app/api/auth/quick-login/route';
+import * as setup from '../src/app/api/auth/setup/route';
 import * as cash from '../src/app/api/cash/route';
 import * as closing from '../src/app/api/closing/route';
 import * as closingClose from '../src/app/api/closing/[id]/close/route';
@@ -81,9 +81,8 @@ const MISSING_ID = '987654321';
 
 const cases: Case[] = [
   { method: 'POST', path: '/api/auth/login', handler: h(login.POST), policy: 'PUBLIC' },
-  // GRACE_QUICK_LOGIN is unset in tests: GET -> { enabled: false }, POST -> 404. Never 401/403.
-  { method: 'GET', path: '/api/auth/quick-login', handler: h(quickLogin.GET), policy: 'PUBLIC' },
-  { method: 'POST', path: '/api/auth/quick-login', handler: h(quickLogin.POST), policy: 'PUBLIC' },
+  // Tells the login page whether to show the first-time setup link.
+  { method: 'GET', path: '/api/auth/setup', handler: h(setup.GET), policy: 'PUBLIC' },
 
   { method: 'POST', path: '/api/auth/change-password', handler: h(changePassword.POST), policy: 'SESSION' },
 

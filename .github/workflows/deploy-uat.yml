@@ -234,8 +234,6 @@ jobs:
 
       # --set-env-vars / --set-secrets replace the whole set on every deploy,
       # so nothing (e.g. ALLOW_SETUP) can linger from a manual change.
-      # GRACE_QUICK_LOGIN: UAT quick sign-in (no password). Repository variable,
-      # default 'false'. MUST be false before real data / go-live. See the runbook.
       # GRACE_STOREFRONT_HOSTS / GRACE_ADMIN_HOSTS (ZP-485): host-based routing,
       # comma-separated hostnames. Repository variables, default empty = admin
       # behaviour on every host (no change until a storefront domain exists).
@@ -246,7 +244,6 @@ jobs:
         env:
           IMAGE_REF: ${{ steps.image.outputs.image_ref }}
           SERVICE_EXISTS: ${{ steps.service.outputs.exists }}
-          GRACE_QUICK_LOGIN: ${{ vars.GRACE_QUICK_LOGIN || 'false' }}
           GRACE_STOREFRONT_HOSTS: ${{ vars.GRACE_STOREFRONT_HOSTS || '' }}
           GRACE_ADMIN_HOSTS: ${{ vars.GRACE_ADMIN_HOSTS || '' }}
           # ZP-1100: AI product capture. 'true' only after the Secret Manager
@@ -257,10 +254,6 @@ jobs:
           set -euo pipefail
           # Validate every repository variable that goes into --set-env-vars, so
           # none can smuggle in the ^@^ delimiter (i.e. extra env vars).
-          if [[ ! "${GRACE_QUICK_LOGIN}" =~ ^(true|false)?$ ]]; then
-            echo "::error::GRACE_QUICK_LOGIN must be 'true', 'false' or empty" >&2
-            exit 1
-          fi
           for NAME in GRACE_STOREFRONT_HOSTS GRACE_ADMIN_HOSTS; do
             if [[ ! "${!NAME}" =~ ^[A-Za-z0-9.,:\ -]*$ ]]; then
               echo "::error::${NAME} must be a comma-separated list of hostnames" >&2
@@ -285,7 +278,7 @@ jobs:
             --service-account="${RUNTIME_SERVICE_ACCOUNT}"
             --set-cloudsql-instances="${CLOUD_SQL_CONNECTION}"
             --set-secrets="${WEB_SECRETS}"
-            --set-env-vars="^@^NODE_ENV=production@GRACE_IMAGE_STORAGE=gcs@GRACE_IMAGE_BUCKET=${IMAGES_BUCKET}@GRACE_QUICK_LOGIN=${GRACE_QUICK_LOGIN}@GRACE_STOREFRONT_HOSTS=${GRACE_STOREFRONT_HOSTS}@GRACE_ADMIN_HOSTS=${GRACE_ADMIN_HOSTS}"
+            --set-env-vars="^@^NODE_ENV=production@GRACE_IMAGE_STORAGE=gcs@GRACE_IMAGE_BUCKET=${IMAGES_BUCKET}@GRACE_STOREFRONT_HOSTS=${GRACE_STOREFRONT_HOSTS}@GRACE_ADMIN_HOSTS=${GRACE_ADMIN_HOSTS}"
             --port=8080
             --startup-probe=httpGet.path=/api/health,httpGet.port=8080,periodSeconds=5,timeoutSeconds=3,failureThreshold=24
             --min-instances=0
