@@ -3,6 +3,14 @@ import prisma from '@/lib/db';
 import { hashPassword, createToken, getJwtSecret } from '@/lib/auth';
 import { isSetupAllowed } from '@/lib/setup-guard';
 
+// ALLOW_SETUP is read at request time (Cloud Run env), never at build.
+export const dynamic = 'force-dynamic';
+
+/** Public. Tells the login page whether to show the first-time setup link. */
+export function GET() {
+  return NextResponse.json({ setupAllowed: isSetupAllowed() });
+}
+
 export async function POST(request: Request) {
   if (!isSetupAllowed()) {
     return NextResponse.json({ error: 'First-time setup is disabled on this server' }, { status: 403 });

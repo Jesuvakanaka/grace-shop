@@ -12,7 +12,7 @@ interface SignedInUser {
 }
 
 /**
- * The sign-in response shared by POST /api/auth/login and POST /api/auth/quick-login:
+ * The sign-in response for POST /api/auth/login:
  * body `{ user: { id, username, fullName, role } }` plus the HttpOnly session cookie.
  * Throws if the JWT secret is misconfigured; callers turn that into a generic 500.
  */
