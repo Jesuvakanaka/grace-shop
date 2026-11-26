@@ -188,7 +188,7 @@ export default function AdsPage() {
               {busy === 'ai' ? 'Writing…' : 'Write with AI'}
             </button>
             {note ? <p className="mt-2 text-sm text-emerald-700" role="status" data-testid="ad-ai-note">{note}</p> : null}
-            <p className="mt-2 text-xs text-slate-500">{google ? 'Google search ads are text only: your headline and words are cut to fit Google\'s limits (30 and 90 characters). ' : ''}"Write with AI" saves a draft with the words written for you. It never writes prices or sizes.</p>
+            <p className="mt-2 text-xs text-slate-500">{google ? 'Google search ads are text only: your headline and words are cut to fit Google\'s limits (30 and 90 characters). ' : ''}&ldquo;Write with AI&rdquo; saves a draft with the words written for you. It never writes prices or sizes.</p>
           </div>
         </form>
       </Card>
