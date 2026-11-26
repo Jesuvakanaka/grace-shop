@@ -106,7 +106,7 @@ model that kept every garment detail; medium and high quality looked the same.
 
 | Env var | Default | Use |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | (none: AI photos disabled) | Photos: `gpt-6.2-astra` through the Responses API with the `image_generation` tool, 1024x1536. Also the listing text fallback (`gpt-5.1`). |
+| `OPENAI_API_KEY` | (none: AI photos disabled) | Photos: `gpt-6.2-astra` through the Responses API with the `image_generation` tool, 1024x1536. Also the listing text fallback (`gpt-6.2-astra`, which read garment details far better than `gpt-5.1`). |
 | `OPENAI_IMAGE_QUALITY` | `medium` | `low` / `medium` / `high` |
 | `ANTHROPIC_API_KEY` | (none: OpenAI writes the text) | Claude listing text. If the key is missing or the call fails (for example out of credit), OpenAI writes it instead. |
 | `ANTHROPIC_LISTING_MODEL` | `claude-opus-5-5` | |

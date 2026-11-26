@@ -7,6 +7,8 @@ import {
 } from '@/lib/website/labels'
 
 export const DETAILS_MAX = 12
+/** One checklist line for the photo editor. */
+export const DETAIL_ITEM_MAX = 300
 
 export type ListingDraft = {
   publicName: string
@@ -32,7 +34,7 @@ export function parseListingDraft(value: unknown, categoryIds: number[]): Listin
   const o = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>
   const cat = typeof o.categoryId === 'number' && categoryIds.includes(o.categoryId) ? o.categoryId : null
   const details = (Array.isArray(o.details) ? o.details : [])
-    .map((d) => str(d, SHORT_TEXT_MAX))
+    .map((d) => str(d, DETAIL_ITEM_MAX))
     .filter(Boolean)
     .slice(0, DETAILS_MAX)
   return {

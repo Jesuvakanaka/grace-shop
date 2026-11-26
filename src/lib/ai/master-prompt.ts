@@ -59,7 +59,7 @@ export function buildPhotoPrompt(opts: {
     `This photograph\nMake only Image ${opts.slot + 1} (pose: ${POSES[opts.slot]}) now, as one single standalone photograph, not a collage. Do not make the other images.`,
   )
   parts.push(
-    'Omit any logos, watermarks, prices or text added to the picture, but keep every label, patch or badge that is sewn onto the garment itself.',
+    'Remove hangers, swing tags, price tickets and their plastic fasteners. Omit any logos, watermarks, prices or text added to the picture, but keep every label, patch or badge that is sewn onto the garment itself.',
   )
   return parts.join('\n\n')
 }

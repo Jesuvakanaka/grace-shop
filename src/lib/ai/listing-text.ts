@@ -7,19 +7,23 @@ import { parseListingDraft, type ListingDraft } from './listing'
 
 // Estimated pricing in cents per token. Claude: $4 / $20 per million input / output.
 const CLAUDE = { input: 400 / 1_000_000, output: 2000 / 1_000_000 }
-// OpenAI fallback (developers.openai.com/api/docs/pricing, 2026-11-26): $1.25 / $10 per million.
-export const OPENAI_LISTING_MODEL = 'gpt-5.1'
-const GPT = { input: 125 / 1_000_000, output: 1000 / 1_000_000 }
+// OpenAI fallback: gpt-6.2-astra read the pinafore's details far better than
+// gpt-5.1 in the Nov 2026 test, for about 1 cent a listing.
+// Pricing (developers.openai.com/api/docs/pricing, 2026-11-26): $8 / $40 per million.
+export const OPENAI_LISTING_MODEL = 'gpt-6.2-astra'
+const GPT = { input: 800 / 1_000_000, output: 4000 / 1_000_000 }
 
 const SYSTEM = `You are the copywriter for VYRA, a luxury boutique. Write warm, elegant product listings in British spelling.
 Look at the garment photos and describe only what you can see.
 Never invent fabric content you cannot see: use hedges such as "soft woven fabric" instead of naming a fibre.
 Never mention price.
-"details" is the checklist a photo editor uses to reproduce the garment exactly on a model. Up to 12 items, each one clear sentence:
+"details" is the checklist (up to 300 characters per item) a photo editor uses to reproduce the garment exactly on a model. Up to 12 items, each one clear sentence:
 - First: the length and how it is worn (for example "Knee-length: the hem falls at the knee, worn over a plain black T-shirt as in the photo"). If the photo is lying flat or turned sideways, say so.
 - Then every distinctive detail with where it sits: pockets, flaps, buttons, clasps, straps, seams, contrast stitching, bows, embroidery, prints, trims, sewn-on labels or patches.
 - When similar parts differ (for example two different pockets), say they are different and describe each one.
-- Last: what is NOT there that an editor might wrongly add (for example "No chest pocket and no waist seam").
+- Name hardware exactly as it looks (for example "gold chain-link clasp: two interlocking links", not just "buckle"), and count buttons, bows and pockets.
+- Last: what is NOT there that an editor might wrongly add (for example "No chest pocket and no waist seam"). Only say something is absent when you can clearly see that part of the garment.
+- Never list shop items that will be removed from the photos: swing tags, price tickets, hangers, plastic fasteners, packaging. Sewn-on labels and patches are part of the garment, so do list them.
 Choose categoryId only from the categories given, or null if none fits.`
 
 const SCHEMA = {
