@@ -9,6 +9,8 @@ const navItems = [
   { label: 'Dashboard', href: '/', icon: '📊', testId: 'sidebar-dashboard' },
   { label: 'Daily Log', href: '/daily-log', icon: '📋', testId: 'sidebar-daily-log' },
   { label: 'Products', href: '/products', icon: '📦', testId: 'sidebar-products' },
+  // ZP-1100: photograph a piece, AI writes the listing.
+  { label: 'Add with AI', href: '/capture', icon: '📸', testId: 'sidebar-capture', ownerOnly: true },
   { label: 'Sales', href: '/sales', icon: '💰', testId: 'sidebar-sales' },
   { label: 'Expenses', href: '/expenses', icon: '💸', testId: 'sidebar-expenses' },
   { label: 'Cash Position', href: '/cash', icon: '🏦', testId: 'sidebar-cash' },
