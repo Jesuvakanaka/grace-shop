@@ -68,7 +68,7 @@ describe('registry and connect fields', () => {
       assert.ok(getChannel(k)!.connectFields.length > 0, k)
     }
     assert.deepStrictEqual(getChannel('FACEBOOK_PAGE')!.connectFields.map((f) => f.name), ['pageId', 'accessToken'])
-    assert.deepStrictEqual(getChannel('TIKTOK')!.connectFields, [])
+    assert.deepStrictEqual(getChannel('WHATSAPP_CLOUD')!.connectFields, [])
     assert.match(getChannel('GOOGLE_BUSINESS')!.apiNotes.join(' '), /approval of the project/)
   })
   test('connectFieldsError', () => {
