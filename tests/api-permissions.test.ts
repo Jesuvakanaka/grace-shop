@@ -62,6 +62,16 @@ import * as websiteProductImage from '../src/app/api/website/products/[id]/image
 import * as websiteProductsBulk from '../src/app/api/website/products/bulk/route';
 import * as websiteCategories from '../src/app/api/website/categories/route';
 import * as websiteCategoryById from '../src/app/api/website/categories/[id]/route';
+import * as mkSettings from '../src/app/api/marketing/settings/route';
+import * as mkChannels from '../src/app/api/marketing/channels/route';
+import * as mkCampaigns from '../src/app/api/marketing/campaigns/route';
+import * as mkCampaignById from '../src/app/api/marketing/campaigns/[id]/route';
+import * as mkContent from '../src/app/api/marketing/content/route';
+import * as mkContentById from '../src/app/api/marketing/content/[id]/route';
+import * as mkPosts from '../src/app/api/marketing/posts/route';
+import * as mkPostById from '../src/app/api/marketing/posts/[id]/route';
+import * as mkPostTransition from '../src/app/api/marketing/posts/[id]/transition/route';
+import * as mkAudit from '../src/app/api/marketing/audit/route';
 
 // PUBLIC: no session needed (sign-in routes). "Allowed" for every caller, including no cookie.
 type Policy = 'PUBLIC' | 'SESSION' | 'OWNER';
@@ -153,6 +163,26 @@ const cases: Case[] = [
   { method: 'POST', path: `/api/capture/${MISSING_ID}/run`, handler: h(captureRun.POST), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'POST', path: `/api/capture/${MISSING_ID}/regenerate`, handler: h(captureRegenerate.POST), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'POST', path: `/api/capture/${MISSING_ID}/approve`, handler: h(captureApprove.POST), policy: 'OWNER', params: { id: MISSING_ID } },
+
+  // ZP-1200: marketing hub. Every route is OWNER only, reads included.
+  { method: 'GET', path: '/api/marketing/settings', handler: h(mkSettings.GET), policy: 'OWNER' },
+  { method: 'PUT', path: '/api/marketing/settings', handler: h(mkSettings.PUT), policy: 'OWNER' },
+  { method: 'GET', path: '/api/marketing/channels', handler: h(mkChannels.GET), policy: 'OWNER' },
+  { method: 'GET', path: '/api/marketing/campaigns', handler: h(mkCampaigns.GET), policy: 'OWNER' },
+  { method: 'POST', path: '/api/marketing/campaigns', handler: h(mkCampaigns.POST), policy: 'OWNER' },
+  { method: 'GET', path: `/api/marketing/campaigns/${MISSING_ID}`, handler: h(mkCampaignById.GET), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'PATCH', path: `/api/marketing/campaigns/${MISSING_ID}`, handler: h(mkCampaignById.PATCH), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'DELETE', path: `/api/marketing/campaigns/${MISSING_ID}`, handler: h(mkCampaignById.DELETE), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'GET', path: '/api/marketing/content', handler: h(mkContent.GET), policy: 'OWNER' },
+  { method: 'POST', path: '/api/marketing/content', handler: h(mkContent.POST), policy: 'OWNER' },
+  { method: 'GET', path: `/api/marketing/content/${MISSING_ID}`, handler: h(mkContentById.GET), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'PATCH', path: `/api/marketing/content/${MISSING_ID}`, handler: h(mkContentById.PATCH), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'DELETE', path: `/api/marketing/content/${MISSING_ID}`, handler: h(mkContentById.DELETE), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'GET', path: '/api/marketing/posts', handler: h(mkPosts.GET), policy: 'OWNER' },
+  { method: 'GET', path: `/api/marketing/posts/${MISSING_ID}`, handler: h(mkPostById.GET), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'PATCH', path: `/api/marketing/posts/${MISSING_ID}`, handler: h(mkPostById.PATCH), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: `/api/marketing/posts/${MISSING_ID}/transition`, handler: h(mkPostTransition.POST), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'GET', path: '/api/marketing/audit', handler: h(mkAudit.GET), policy: 'OWNER' },
 
   // ZP-483: admin website tools. Every route is OWNER only, reads included.
   { method: 'GET', path: '/api/website/products', handler: h(websiteProducts.GET), policy: 'OWNER' },

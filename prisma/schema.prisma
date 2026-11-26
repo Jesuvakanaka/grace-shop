@@ -94,20 +94,22 @@ model Product {
   preorderShipTo      DateTime?    @db.Date
   preorderExpectedQty Int?
 
-  stockMovements StockMovement[]
-  saleItems      SaleItem[]
-  category       Category?             @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  images         ProductImage[]
-  slugRedirects  ProductSlugRedirect[]
-  video          ProductVideo?
+  stockMovements     StockMovement[]
+  saleItems          SaleItem[]
+  category           Category?                  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  images             ProductImage[]
+  marketingCampaigns MarketingCampaignProduct[]
+  marketingContent   MarketingContent[]
+  slugRedirects      ProductSlugRedirect[]
+  video              ProductVideo?
   // ZP-508: verified customer reviews (owner-moderated) and their one-time links.
-  reviews        Review[]
-  reviewInvites  ReviewInvite[]
-  loves          ProductLove[]
+  reviews            Review[]
+  reviewInvites      ReviewInvite[]
+  loves              ProductLove[]
   // ZP-506: popularity score and today's feed rank (nightly).
-  popularity     ProductPopularity?
+  popularity         ProductPopularity?
   // ZP-1100: the capture draft this product was created from, if any.
-  captureDraft   CaptureDraft?
+  captureDraft       CaptureDraft?
 
   @@index([categoryId])
 }
@@ -965,4 +967,138 @@ model AnalyticsDailyOption {
 
   @@id([day, productId, kind, value])
   @@index([productId, day])
+}
+
+// VYRA Marketing hub (ZP-1200). Kinds and statuses are strings validated in
+// src/lib/marketing/, so a new channel needs no migration.
+model MarketingSettings {
+  id                   Int      @id @default(1)
+  shopKey              String   @default("vyra")
+  liveEnabled          Boolean  @default(false)
+  monthlySpendCapCents Int      @default(0)
+  metaPixelId          String?
+  productFeedEnabled   Boolean  @default(false)
+  weeklyPostTarget     Int      @default(7)
+  brandVoice           String?
+  updatedBy            String?
+  updatedAt            DateTime @updatedAt
+}
+
+model MarketingChannel {
+  id             Int       @id @default(autoincrement())
+  shopKey        String    @default("vyra")
+  kind           String
+  name           String
+  status         String    @default("NOT_CONNECTED")
+  externalId     String?
+  credentialsEnc String? // AES-256-GCM, never returned by any API
+  tokenHint      String?
+  config         Json?
+  lastError      String?
+  connectedAt    DateTime?
+  connectedBy    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  posts MarketingPost[]
+
+  @@index([shopKey, kind])
+}
+
+model MarketingCampaign {
+  id          Int       @id @default(autoincrement())
+  shopKey     String    @default("vyra")
+  name        String
+  goal        String?
+  objective   String    @default("AWARENESS")
+  status      String    @default("DRAFT")
+  startsAt    DateTime?
+  endsAt      DateTime?
+  budgetCents Int?
+  notes       String?
+  createdBy   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  products MarketingCampaignProduct[]
+  contents MarketingContent[]
+
+  @@index([shopKey, status])
+}
+
+model MarketingCampaignProduct {
+  campaignId Int
+  productId  Int
+
+  campaign MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  product  Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, productId])
+}
+
+model MarketingContent {
+  id         Int      @id @default(autoincrement())
+  shopKey    String   @default("vyra")
+  campaignId Int?
+  productId  Int?
+  title      String
+  brief      String?
+  imageKeys  Json     @default("[]")
+  createdBy  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  campaign MarketingCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  product  Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
+  posts    MarketingPost[]
+
+  @@index([campaignId])
+  @@index([productId])
+}
+
+model MarketingPost {
+  id           Int       @id @default(autoincrement())
+  shopKey      String    @default("vyra")
+  contentId    Int
+  channelKind  String
+  channelId    Int?
+  format       String    @default("POST")
+  text         String
+  imageKeys    Json      @default("[]")
+  trackingTag  String    @unique
+  link         String?
+  status       String    @default("DRAFT")
+  scheduledFor DateTime?
+  approvedBy   String?
+  approvedAt   DateTime?
+  publishedAt  DateTime?
+  externalId   String?
+  externalUrl  String?
+  error        String?
+  attempts     Int       @default(0)
+  aiGenerated  Boolean   @default(false)
+  aiCostCents  Int       @default(0)
+  createdBy    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  content MarketingContent  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  channel MarketingChannel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+
+  @@index([status, scheduledFor])
+  @@index([contentId])
+}
+
+model MarketingAuditLog {
+  id        Int      @id @default(autoincrement())
+  shopKey   String   @default("vyra")
+  actor     String
+  action    String
+  entity    String
+  entityId  Int?
+  detail    Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
 }
