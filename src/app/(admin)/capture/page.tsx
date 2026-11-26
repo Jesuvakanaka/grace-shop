@@ -95,7 +95,6 @@ function PhotoPicker({
   hint,
   files,
   max,
-  camera,
   onChange,
   testId,
 }: {
@@ -103,7 +102,6 @@ function PhotoPicker({
   hint: string;
   files: File[];
   max: number;
-  camera: boolean;
   onChange: (files: File[]) => void;
   testId: string;
 }) {
@@ -165,7 +163,6 @@ function PhotoPicker({
         ref={inputRef}
         type="file"
         accept="image/*"
-        {...(camera ? { capture: 'environment' as const } : {})}
         multiple
         className="hidden"
         onChange={onPick}
@@ -465,10 +462,9 @@ export default function CapturePage() {
       <form onSubmit={submit} className="card p-4 mb-6 space-y-5" data-testid="capture-form">
         <PhotoPicker
           label="Photos of the garment"
-          hint={`1 to ${REFERENCE_MAX} photos: flat on a table, on a hanger, a close-up of details.`}
+          hint={`1 to ${REFERENCE_MAX} photos: flat on a table, on a hanger, a close-up of details. Choose them from your photos, or take one.`}
           files={reference}
           max={REFERENCE_MAX}
-          camera
           onChange={setReference}
           testId="capture-reference"
         />
@@ -499,7 +495,6 @@ export default function CapturePage() {
             hint={`1 to ${OWN_MAX} photos, for example made earlier in ChatGPT.`}
             files={own}
             max={OWN_MAX}
-            camera={false}
             onChange={setOwn}
             testId="capture-own"
           />
