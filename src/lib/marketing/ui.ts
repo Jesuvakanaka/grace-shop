@@ -179,3 +179,89 @@ export function usdToCents(v: string): number | null | undefined {
 export function centsToUsd(c: number | null | undefined): string {
   return c === null || c === undefined ? '' : (c / 100).toFixed(2)
 }
+
+// ─── AI, plan and connect helpers (ZP-1200) ────────────────────────────────────
+
+/** "AI cost: 2¢" / "AI cost: less than 1¢" / "AI cost: $1.20". Null when there is no cost to show. */
+export function costText(cents: number | null | undefined): string | null {
+  if (cents === null || cents === undefined || !Number.isFinite(cents) || cents < 0) return null
+  if (cents === 0) return 'AI cost: less than 1¢'
+  return cents < 100 ? `AI cost: ${cents}¢` : `AI cost: $${(cents / 100).toFixed(2)}`
+}
+
+export interface DraftOutcomeDto { posts: { id: number }[]; failed: { channel: string; reason: string }[]; costCents: number }
+
+/** Plain sentences for the result of "Write with AI". */
+export function draftSummary(o: DraftOutcomeDto): { message: string; failures: string[]; cost: string | null } {
+  const n = o.posts.length
+  const message = n === 0 ? 'The AI did not write any posts.' : `The AI wrote ${n} post${n === 1 ? '' : 's'}. Read them, then submit for approval.`
+  return { message, failures: o.failed.map((f) => `${channelLabel(f.channel)}: ${f.reason}`), cost: costText(o.costCents) }
+}
+
+/** True when the post can be rewritten by AI (the server allows only these). */
+export const canRewrite = (status: string) => status === 'DRAFT' || status === 'REJECTED'
+
+export interface PlanItemDto { postId: number; channelKind: string; mode: 'api' | 'manual'; scheduledFor: string | null; suggestedFor: string | null; day: string | null }
+
+/** Items grouped by the (local) day they fall on, in time order. */
+export function groupPlanByDay<T extends PlanItemDto>(items: readonly T[]): { key: string; date: Date; items: T[] }[] {
+  const when = (i: T) => i.scheduledFor ?? i.suggestedFor
+  const sorted = [...items]
+    .filter((i) => when(i) && !Number.isNaN(new Date(when(i)!).getTime()))
+    .sort((a, b) => new Date(when(a)!).getTime() - new Date(when(b)!).getTime())
+  const out: { key: string; date: Date; items: T[] }[] = []
+  for (const i of sorted) {
+    const d = new Date(when(i)!)
+    const key = dayKey(d)
+    const g = out.find((x) => x.key === key)
+    if (g) g.items.push(i)
+    else out.push({ key, date: d, items: [i] })
+  }
+  return out
+}
+
+/** Body items for /api/marketing/plan/apply: ticked items only, with their proposed (or suggested) time. */
+export function planApplyBody(items: readonly PlanItemDto[], unticked: ReadonlySet<number>): { postId: number; scheduledFor: string }[] {
+  return items.filter((i) => !unticked.has(i.postId)).flatMap((i) => {
+    const t = i.scheduledFor ?? i.suggestedFor
+    return t ? [{ postId: i.postId, scheduledFor: t }] : []
+  })
+}
+
+export interface PlanResultDto { postId: number; result: 'scheduled' | 'suggested' | 'failed'; error?: string }
+export function planResultText(r: PlanResultDto): string {
+  return r.result === 'scheduled' ? 'Scheduled' : r.result === 'suggested' ? 'Suggested day (you post it by hand)' : `Not scheduled: ${r.error ?? 'unknown problem'}`
+}
+
+/** Link that opens new content with a product preselected. */
+export const newContentHref = (productId: number) => `/marketing/content/new?productId=${productId}`
+/** The preselected product id from a query string, or null. */
+export function productIdFromQuery(search: string): number | null {
+  const v = new URLSearchParams(search).get('productId')
+  const n = v ? Number(v) : NaN
+  return Number.isInteger(n) && n > 0 ? n : null
+}
+
+/** "Connected as X, token ends ...1234, connected on 3 Nov 2026 by owner". */
+export function connectedAsText(c: { name: string; tokenHint: string | null; connectedAt: string | null; connectedBy?: string | null }): string {
+  const parts = [`Connected as ${c.name}`]
+  if (c.tokenHint) parts.push(`token ends ...${c.tokenHint}`)
+  if (c.connectedAt) {
+    const d = new Date(c.connectedAt)
+    if (!Number.isNaN(d.getTime())) {
+      parts.push(`connected on ${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}${c.connectedBy ? ` by ${c.connectedBy}` : ''}`)
+    }
+  }
+  return parts.join(', ')
+}
+
+/** Checks the connect form before sending. A plain message, or null when fine. */
+export function connectFormError(pageId: string, token: string): string | null {
+  if (!/^\d{5,30}$/.test(pageId.trim())) return 'The Page ID is a number (digits only).'
+  if (token.trim() === '') return 'Paste the access token.'
+  if (/\s/.test(token.trim())) return 'The access token must not contain spaces.'
+  return null
+}
+
+export const attemptsLeft = (attempts: number | undefined) => Math.max(0, MAX_ATTEMPTS - (attempts ?? 0))
+export const viewOnlineLabel = (channelKind: string) => (channelKind === 'INSTAGRAM' ? 'View on Instagram' : channelKind === 'FACEBOOK_PAGE' ? 'View on Facebook' : 'See it online')

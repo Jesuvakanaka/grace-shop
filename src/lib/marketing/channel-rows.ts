@@ -11,6 +11,7 @@ export interface ChannelRowDto {
   externalId: string | null
   tokenHint: string | null
   connectedAt: Date | null
+  connectedBy: string | null
   lastError: string | null
 }
 
@@ -23,6 +24,7 @@ export const toChannelRowDto = (r: MarketingChannel): ChannelRowDto => ({
   externalId: r.externalId,
   tokenHint: r.tokenHint,
   connectedAt: r.connectedAt,
+  connectedBy: r.connectedBy,
   lastError: r.lastError,
 })
 

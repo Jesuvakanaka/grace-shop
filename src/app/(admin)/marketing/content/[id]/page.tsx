@@ -7,7 +7,9 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useToast } from '@/components/Toast';
 import { ChannelPicker } from '@/components/marketing/ChannelPicker';
 import { PostCard } from '@/components/marketing/PostCard';
+import { canRewrite } from '@/lib/marketing/ui';
 import { mk, type ChannelItem, type Content, type PickerProduct, type Post } from '@/components/marketing/api';
+import { DraftReport, writeWithAi, type DraftOutcome } from '@/components/marketing/ai';
 import { Card, ErrorNote, Loading, PhotoTicker } from '@/components/marketing/parts';
 
 export default function ContentPage() {
@@ -24,6 +26,9 @@ export default function ContentPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [aiBusy, setAiBusy] = useState<string | null>(null);
+  const [aiReport, setAiReport] = useState<DraftOutcome | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const apply = useCallback((c: Content) => {
     setContent(c);
@@ -74,6 +79,21 @@ export default function ContentPage() {
     }
   };
 
+  const runAi = async (channels?: string[]) => {
+    setAiBusy(channels ? channels[0] : 'all');
+    setAiError(null);
+    setAiReport(null);
+    try {
+      const out = await writeWithAi(Number(id), channels);
+      setAiReport(out);
+      await reload();
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : 'The AI could not write these posts.');
+    } finally {
+      setAiBusy(null);
+    }
+  };
+
   const approveAll = async () => {
     setBusy(true);
     setError(null);
@@ -106,6 +126,7 @@ export default function ContentPage() {
   const posts = content.posts ?? [];
   const connectedKinds = new Set(channels.filter((c) => c.effectiveStatus === 'CONNECTED').map((c) => c.kind));
   const choices = [...new Set([...(product?.photos.map((p) => p.imageKey) ?? []), ...content.imageKeys])];
+  const writable = posts.filter((p) => canRewrite(p.status)).length;
   const pending = posts.filter((p) => p.status === 'PENDING_APPROVAL').length;
 
   return (
@@ -133,6 +154,17 @@ export default function ContentPage() {
         </div>
       </Card>
 
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" className="btn btn-primary" onClick={() => runAi()} disabled={busy || aiBusy !== null || writable === 0} data-testid="write-with-ai">
+            {aiBusy === 'all' ? 'The AI is writing…' : 'Write with AI'}
+          </button>
+          <p className="text-xs text-slate-500">Writes every draft or rejected post for its channel. You still read and approve each one.</p>
+        </div>
+        <ErrorNote message={aiError} />
+        {aiReport ? <DraftReport outcome={aiReport} onClose={() => setAiReport(null)} /> : null}
+      </div>
+
       {pending > 0 ? (
         <button type="button" className="btn btn-primary" onClick={approveAll} disabled={busy} data-testid="approve-all">Approve all for this content ({pending})</button>
       ) : null}
@@ -140,7 +172,7 @@ export default function ContentPage() {
       <div className="space-y-4">
         {posts.length === 0 ? <p className="text-sm text-slate-500">No channels yet. Add some below.</p> : null}
         {posts.map((p) => (
-          <PostCard key={p.id} post={p} photoChoices={choices} connected={connectedKinds.has(p.channelKind)} onChange={onPost} title={content.title} />
+          <PostCard key={p.id} post={p} photoChoices={choices} connected={connectedKinds.has(p.channelKind)} onChange={onPost} title={content.title} aiBusy={aiBusy !== null} aiWorking={aiBusy === p.channelKind || aiBusy === 'all'} onRewrite={() => runAi([p.channelKind])} />
         ))}
       </div>
 

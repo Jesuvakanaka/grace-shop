@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/Toast';
 import { ChannelPicker } from '@/components/marketing/ChannelPicker';
 import { mk, type Campaign, type ChannelItem, type Content, type PickerProduct } from '@/components/marketing/api';
+import { DraftReport, SuggestionsPanel, writeWithAi, type DraftOutcome } from '@/components/marketing/ai';
+import { productIdFromQuery } from '@/lib/marketing/ui';
 import { Card, ErrorNote, PhotoTicker, ProductSearch } from '@/components/marketing/parts';
 
 export default function NewContentPage() {
@@ -20,6 +22,9 @@ export default function NewContentPage() {
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<Content | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiReport, setAiReport] = useState<DraftOutcome | null>(null);
 
   useEffect(() => {
     mk<{ channels: ChannelItem[] }>('/api/marketing/channels').then((d) => setChannels(d.channels)).catch((e) => setError(e.message));
@@ -30,6 +35,15 @@ export default function NewContentPage() {
         if (c) setCampaignId(c);
       })
       .catch(() => {});
+    const pid = productIdFromQuery(window.location.search);
+    if (pid) {
+      mk<{ products: PickerProduct[] }>(`/api/marketing/products?ids=${pid}`)
+        .then((d) => {
+          const p = d.products.find((x) => x.id === pid);
+          if (p) { setProduct(p); setPhotos(p.photos.slice(0, 3).map((x) => x.imageKey)); setTitle((t) => t || p.name); }
+        })
+        .catch(() => {});
+    }
   }, []);
 
   const choose = (p: PickerProduct) => {
@@ -48,16 +62,49 @@ export default function NewContentPage() {
       if (campaignId) body.campaignId = Number(campaignId);
       const d = await mk<{ content: Content }>('/api/marketing/content', { method: 'POST', body });
       toast.success('Content created.');
-      router.push(`/marketing/content/${d.content.id}`);
+      if (picked.length === 0) router.push(`/marketing/content/${d.content.id}`);
+      else { setCreated(d.content); setBusy(false); }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create.');
       setBusy(false);
     }
   };
 
+  const aiNow = async () => {
+    if (!created) return;
+    setAiBusy(true);
+    setError(null);
+    try {
+      const out = await writeWithAi(created.id);
+      setAiReport(out);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The AI could not write these posts.');
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  if (created) {
+    return (
+      <div className="space-y-4 max-w-3xl" data-testid="content-created">
+        <ErrorNote message={error} />
+        <Card className="space-y-4">
+          <h2 className="font-serif text-xl font-semibold">Your content is ready</h2>
+          <p className="text-sm text-slate-600">The posts are created as drafts with your words. You can let the AI write each one properly for its channel, or edit them by hand.</p>
+          {aiReport ? <DraftReport outcome={aiReport} /> : null}
+          <div className="flex flex-wrap gap-3">
+            {!aiReport ? <button type="button" className="btn btn-primary" onClick={aiNow} disabled={aiBusy} data-testid="write-ai-now">{aiBusy ? 'The AI is writing…' : 'Write the posts with AI now'}</button> : null}
+            <button type="button" className={aiReport ? 'btn btn-primary' : 'btn btn-secondary'} onClick={() => router.push(`/marketing/content/${created.id}`)} data-testid="edit-by-hand">{aiReport ? 'Open the posts' : 'Edit by hand'}</button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={create} className="space-y-6 max-w-3xl">
       <ErrorNote message={error} />
+      {!product ? <SuggestionsPanel limit={4} /> : null}
       <Card className="space-y-4">
         <h2 className="font-serif text-xl font-semibold">1. Product (optional)</h2>
         {product ? (
