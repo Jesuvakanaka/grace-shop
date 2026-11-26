@@ -26,7 +26,7 @@ export interface ConnectorContext {
 }
 
 export type PublishResult =
-  | { ok: true; externalId: string; externalUrl: string | null }
+  | { ok: true; externalId: string; externalUrl: string | null; /** Plain words for the owner, shown with the result (cost, "open the app to finish"). */ message?: string }
   | { ok: false; error: string; retryable: boolean; /** Platform error code (Meta: 190 = token no longer valid). */ code?: number }
 
 export interface InsightsResult {

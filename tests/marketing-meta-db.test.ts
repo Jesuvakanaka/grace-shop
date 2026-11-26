@@ -144,6 +144,22 @@ describe('connect and disconnect', () => {
     // reconnect for the publish tests
     await connectMeta(prisma, { kind: 'FACEBOOK_PAGE', pageId: PAGE, accessToken: TOKEN }, owner.username, { fetch: pageFetch().fn })
   })
+
+  test('any connector: code 401 marks the channel ERROR; a success message goes on the activity log', async () => {
+    await live(true)
+    const stub = (result: unknown) => () => ({ kind: 'FACEBOOK_PAGE', verify: async () => ({ ok: true as const, externalId: null, name: null }), publish: async () => result }) as never
+    const dead = await newPost('FACEBOOK_PAGE')
+    const r = await publishPost(prisma, dead.id, owner, { fetch: fake(() => ({})).fn, getConnector: stub({ ok: false, error: 'Token expired', retryable: false, code: 401 }) })
+    assert.strictEqual(r.status, 'FAILED')
+    const ch = await prisma.marketingChannel.findFirstOrThrow({ where: { kind: 'FACEBOOK_PAGE', externalId: PAGE } })
+    assert.strictEqual(ch.status, 'ERROR')
+    await connectMeta(prisma, { kind: 'FACEBOOK_PAGE', pageId: PAGE, accessToken: TOKEN }, owner.username, { fetch: pageFetch().fn })
+    const noted = await newPost('FACEBOOK_PAGE')
+    const p = await publishPost(prisma, noted.id, owner, { fetch: fake(() => ({})).fn, getConnector: stub({ ok: true, externalId: 'x1', externalUrl: null, message: 'Sent to your inbox' }) })
+    assert.strictEqual(p.status, 'PUBLISHED')
+    const log = await prisma.marketingAuditLog.findFirst({ where: { entity: 'post', entityId: noted.id, action: 'post.publish_note' } })
+    assert.deepStrictEqual(log?.detail, { message: 'Sent to your inbox' })
+  })
 })
 
 describe('publishPost', () => {

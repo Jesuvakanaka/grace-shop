@@ -61,7 +61,7 @@ const META_PAGE_STEPS = [
 const MANUAL_NOTE = 'No official API: the hub prepares the words and photos and you post them yourself, then mark it as shared.'
 
 /** Channels with a connector in src/lib/marketing/connectors. */
-const WITH_CONNECTOR = new Set(['FACEBOOK_PAGE', 'INSTAGRAM', 'META_ADS'])
+const WITH_CONNECTOR = new Set(['FACEBOOK_PAGE', 'INSTAGRAM', 'META_ADS', 'PINTEREST', 'TELEGRAM', 'X', 'YOUTUBE', 'TIKTOK'])
 
 export const CHANNELS: readonly ChannelDef[] = [
   def('FACEBOOK_PAGE', 'Facebook Page', 'meta', 'api', ['POST', 'STORY', 'VIDEO'],
@@ -114,23 +114,23 @@ export const CHANNELS: readonly ChannelDef[] = [
   def('YOUTUBE', 'YouTube', 'video', 'api', ['VIDEO', 'REEL'],
     { publish: true, schedule: true, insights: true }, { maxText: 5000, maxHashtags: 15, maxImages: 1 },
     ['Create a YouTube channel for VYRA.', 'In Google Cloud enable the YouTube Data API and create OAuth credentials.', 'Paste the refresh token into the Connect box.'],
-    ['New API projects must pass an audit before uploads are public; until then uploads stay private.', 'Default quota allows about 100 uploads per day.']),
+    ['New API projects must pass an audit before uploads are public; until then uploads stay private.', 'Default quota is 100 uploads per day per project (checked 26 Nov 2026).', 'Google may keep uploads from unaudited API projects private: check the first upload in YouTube Studio. The hub uploads as unlisted unless you set the channel to public.', 'Every post needs a video file; photos alone cannot be uploaded.']),
   def('TIKTOK', 'TikTok', 'video', 'api', ['VIDEO', 'REEL'],
     { publish: true, insights: true }, { maxText: 2200, maxHashtags: 10, maxImages: 1 },
     ['Create a TikTok developer account and a "Content Posting" app.', 'Connect the VYRA TikTok account and paste the token into the Connect box.', 'Drafts arrive in your TikTok inbox: open the app and press Post.'],
-    ['TikTok keeps posts from unaudited apps private and does not audit tools for your own account.', 'So the hub sends drafts to the TikTok inbox and you post them from the TikTok app.']),
+    ['TikTok keeps posts from unaudited apps private and does not audit tools for your own account.', 'So the hub sends drafts to the TikTok inbox and you post them from the TikTok app.', 'Video drafts carry only the video: type the caption in the TikTok app. Photo drafts carry a title and description.', 'TikTok allows 5 waiting drafts per 24 hours, and the website domain must be verified in the TikTok developer portal.']),
   def('PINTEREST', 'Pinterest', 'social', 'api', ['PIN'],
     { publish: true, insights: true }, { maxText: 500, maxHashtags: 20, needsImage: true, maxImages: 1 },
     ['Create a Pinterest Business account and claim the VYRA website.', 'Create a Pinterest developer app and a token with pins:write.', 'Paste the token and the board ID into the Connect box.'],
-    ['New apps start with trial access, which Pinterest must upgrade before pins are public.', 'Each pin goes to one board.']),
+    ['New apps start with trial access, which Pinterest must upgrade before pins are public.', 'Each pin goes to one board, needs a picture, a title up to 100 characters and a description up to 800.']),
   def('X', 'X (Twitter)', 'social', 'api', ['POST'],
     { publish: true, insights: true }, { maxText: 280, maxHashtags: 2, maxImages: 4 },
     ['Create an X developer account and a project with write access.', 'Add credit to the developer account (pay per use).', 'Paste the keys and tokens into the Connect box.'],
-    ['Costs $0.015 per post, and $0.20 for a post with a link.', 'Text limit is 280 characters.']),
+    ['Costs $0.015 per post, and $0.20 for a post with a link (pay per use, checked 26 Nov 2026). The hub shows the expected cost with each result.', 'Text limit is 280 characters and a link counts as 23.', 'Up to 4 photos per post; no video yet.']),
   def('TELEGRAM', 'Telegram channel', 'social', 'api', ['POST'],
     { publish: true, schedule: true }, { maxText: 4096, maxImages: 10 },
     ['Create a Telegram channel for VYRA.', 'Talk to @BotFather to create a bot and copy its token.', 'Add the bot as an administrator of the channel.', 'Paste the token and the channel name into the Connect box.'],
-    ['The bot API cannot report views for a channel.', 'Photo captions are limited to 1024 characters.']),
+    ['The bot API cannot report views for a channel.', 'Photo captions are limited to 1024 characters: a longer text is sent as a message right after the photos.', 'A media group holds 2 to 10 photos.']),
   def('EMAIL', 'Email newsletter', 'messages', 'api', ['EMAIL'],
     { publish: true, messages: true }, { maxText: 20000, maxHashtags: 0, maxImages: 5 },
     ['Pick an email sending service (for example Resend or Mailgun) and verify the VYRA domain.', 'Paste the API key and the "from" address into the Connect box.', 'Only people who agreed to hear from VYRA may be emailed.'],

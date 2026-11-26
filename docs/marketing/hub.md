@@ -175,10 +175,43 @@ Editing before the ad is on Meta sends it back to DRAFT and clears the approval.
 
 `GET /api/public/marketing/feed.csv` and `feed.xml` (RSS 2.0 with the `g:` namespace) list published products only: id (item number), title, description, availability (in stock / out of stock / preorder), condition new, price like `12.00 USD` only when the storefront shows a price, link (`?src=feed`), image link (public JPEG rendition, 1200 px), brand VYRA, Google category when it can be worked out from the category name, `identifier_exists=no`. They answer 404 unless `productFeedEnabled` is on in the settings and the hub is not killed. No sign-in (public product data), cached for 5 minutes. Pieces with a hidden price are listed without one, and Meta and Google will flag them as missing a price.
 
+## Pinterest, Telegram, X, YouTube and TikTok
+
+Code: `src/lib/marketing/connectors/{pinterest,telegram,x,youtube,tiktok}.ts` (shared helpers in `common.ts`, credential names in `connect-fields.ts`). All five are registered, switched off until credentials exist, and every publish re-checks the go-live gate before any request. Official docs and the date checked (26 Nov 2026) are in a comment at the top of each file. Tests: `tests/marketing-social-connectors.test.ts` (fake fetch, no network).
+
+Errors: a rejected or expired token gives code 401 and is not retried (reconnect the channel); rate limits (429) and server errors (5xx) are retryable. A publish result may carry a `message` for the owner (cost, "open the app").
+
+### Pinterest
+- **What it does:** creates a Pin with `POST /v5/pins`: board, title (first line, max 100), description (rest, max 800), the tracked link and the first photo. Needs a photo.
+- **Set up:** make a free Pinterest Business account and claim the VYRA website; at developers.pinterest.com create an app, then generate an access token with the scopes boards:read, pins:read, pins:write and user_accounts:read. In the Connect box paste the token and the board ID (the number in the board's address, or from the API's boards list).
+- **Can't do:** new apps have "trial" access: pins are visible only to you until Pinterest upgrades the app to Standard. One board per pin. No video pins yet.
+
+### Telegram
+- **What it does:** posts to a channel: text (`sendMessage`), one photo with a caption (`sendPhoto`) or 2 to 10 photos (`sendMediaGroup`, caption on the first). A caption over 1024 characters goes as a message right after the photos.
+- **Set up:** create a channel in Telegram; message @BotFather, send `/newbot`, copy the token; open the channel, Administrators, add the bot and let it post messages. In the Connect box paste the token and the channel (`@vyrashop` or the numeric chat ID). Connecting checks the token (`getMe`) and the channel (`getChat`).
+- **Can't do:** the bot API cannot read channel views; no polls or videos yet.
+
+### X
+- **What it does:** creates a post with `POST /2/tweets`, with up to 4 photos uploaded first through the v2 media upload (`/2/media/upload/initialize`, `append`, `finalize`).
+- **Cost (pay per use):** $0.015 per post, $0.20 for a post with a link. Every tracked post has a link, so expect $0.20 each. The result and the server log show the expected cost.
+- **Set up:** sign up at developer.x.com, create a project and app with "Read and write", turn on OAuth 2.0, add credit. Generate an OAuth 2.0 user token with scopes tweet.read, tweet.write, users.read, media.write, offline.access and paste it in the Connect box.
+- **Can't do:** 280 characters (a link counts 23); the hub refuses longer text before calling X. User tokens expire after 2 hours unless refreshed, so a stored token will need re-entering until automatic refresh is added.
+
+### YouTube
+- **What it does:** uploads a video with `videos.insert` (resumable upload). Title is the first line of the post, description the rest plus the tracked link. Visibility is `unlisted` unless the channel config sets `privacy` to `private` or `public`.
+- **A video is needed:** put a video link in the channel/post config as `videoUrl`, or attach a video file to the post. Without one the post fails with "YouTube needs a video file".
+- **Set up:** create a YouTube channel for VYRA. In Google Cloud console create a project, enable "YouTube Data API v3", configure the consent screen, and create an OAuth client (Web). Use the OAuth Playground (or your own consent step) with scopes youtube.upload and youtube.readonly to get a refresh token. Paste the client ID, client secret and refresh token.
+- **Can't do:** default quota is 100 uploads a day per project. Google can keep uploads from unaudited projects private: check the first upload in YouTube Studio. Videos are not made public by the hub unless you set `privacy: public`.
+
+### TikTok (drafts only)
+- **What it does:** "upload to inbox" only. Videos use `/v2/post/publish/inbox/video/init/` (TikTok pulls the file from a verified address, or the hub uploads the bytes when config `uploadMode` is `file`); photos use `/v2/post/publish/content/init/` with `post_mode: MEDIA_UPLOAD`. The result says "Sent to your TikTok inbox: open TikTok to post it": open the TikTok app, tap the inbox notification, add the caption and press Post.
+- **Set up:** register at developers.tiktok.com, create an app with the Content Posting API and the scopes video.upload and user.info.basic, log in as the VYRA TikTok account to get an access token, and verify the VYRA website domain under URL properties. Paste the token in the Connect box.
+- **Can't do:** the hub never posts directly (TikTok keeps posts from unaudited apps private). Video drafts carry no caption: type it in the app. At most 5 waiting drafts per 24 hours; 6 requests a minute. Photo drafts need TikTok app 31.8 or later.
+
 ## Switching a channel on
 
 Each registry entry has plain-English `setupSteps` and `apiNotes` (what the official API cannot do). Channels with `mode: 'manual'` (Facebook Groups and Marketplace, WhatsApp Status, Channels and broadcast lists, influencers, resellers, classifieds, print/QR) need no keys: the hub prepares the content and the owner posts it and presses "Mark as shared".
 
 ## Coming in later PRs
 
-Concrete connectors (Threads, Google, TikTok drafts, Pinterest, X, Telegram, YouTube, email, SMS, WhatsApp Cloud), contacts with opt-in, partners, daily results and recommendations.
+Concrete connectors (Threads, Google, email, SMS, WhatsApp Cloud), contacts with opt-in, partners, daily results and recommendations.

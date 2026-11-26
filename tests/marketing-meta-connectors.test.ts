@@ -67,10 +67,10 @@ describe('graph version and registry', () => {
     assert.strictEqual(graphBase({ META_GRAPH_VERSION: 'v26.0' }), 'https://graph.facebook.com/v26.0')
     assert.strictEqual(graphBase({ META_GRAPH_VERSION: '../evil' }), 'https://graph.facebook.com/v25.0')
   })
-  test('registry maps both kinds', () => {
+  test('registry maps the Meta kinds and not a channel without a connector', () => {
     assert.strictEqual(getConnector('FACEBOOK_PAGE')?.kind, 'FACEBOOK_PAGE')
     assert.strictEqual(getConnector('INSTAGRAM')?.kind, 'INSTAGRAM')
-    assert.strictEqual(getConnector('TIKTOK'), undefined)
+    assert.strictEqual(getConnector('WHATSAPP_CLOUD'), undefined)
   })
 })
 
