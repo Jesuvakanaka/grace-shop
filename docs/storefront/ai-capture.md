@@ -17,8 +17,8 @@ Everything here is **OWNER only** (`authorize(request, OWNER_ONLY)`).
 | `AI` | 1 to 3 reference photos of the garment (flat-lay, hanger, close-up) | Listing text + 3 model photos |
 | `OWN` | Reference photo(s) + 1 to 6 finished photos (e.g. made earlier in ChatGPT) | Listing text only |
 
-The reference photo is always kept and added as the LAST gallery image
-(`aiGenerated = false`), so customers can see the real garment.
+Only the finished photos (AI or own) go on the product. The reference photos
+stay on the draft as the AI's input and are never published.
 
 ## Data model
 

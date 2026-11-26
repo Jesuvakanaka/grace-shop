@@ -248,9 +248,9 @@ describe('approve', () => {
       assert.strictEqual(p.stockMovements.length, 1)
       assert.strictEqual(p.stockMovements[0].movementType, 'OPENING_BALANCE')
       assert.strictEqual(p.stockMovements[0].closingBalance, 5)
-      assert.strictEqual(p.images.length, 4)
-      assert.deepStrictEqual(p.images.map((i) => i.aiGenerated), [true, true, true, false])
-      assert.deepStrictEqual(p.images.map((i) => i.isPrimary), [true, false, false, false])
+      assert.strictEqual(p.images.length, 3) // the raw garment photo is not published
+      assert.deepStrictEqual(p.images.map((i) => i.aiGenerated), [true, true, true])
+      assert.deepStrictEqual(p.images.map((i) => i.isPrimary), [true, false, false])
       assert.ok(p.images.every((i) => i.alt === 'Pink dress'))
       assert.strictEqual(p.imageUrl, `/api/images/${p.images[0].imageKey.slice('products/'.length)}`)
       const after = await prisma.captureDraft.findUniqueOrThrow({ where: { id: d.id } })
@@ -278,8 +278,8 @@ describe('approve', () => {
     assert.strictEqual(p.preorderShipFrom?.toISOString().slice(0, 10), '2027-02-01')
     assert.strictEqual(p.preorderShipTo?.toISOString().slice(0, 10), '2027-03-31')
     assert.strictEqual(p.stockMovements.length, 0)
-    assert.deepStrictEqual(p.images.map((i) => i.aiGenerated), [false, false, false])
-    assert.strictEqual(p.images.length, 3)
+    assert.deepStrictEqual(p.images.map((i) => i.aiGenerated), [false, false])
+    assert.strictEqual(p.images.length, 2) // own photos only, no raw garment photo
     assert.strictEqual(p.published, false)
   })
 

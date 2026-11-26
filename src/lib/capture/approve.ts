@@ -38,7 +38,9 @@ export async function approveDraft(
     if (draft.imageMode === 'AI' && (generated.length < SLOT_COUNT || generated.some((k) => !k))) {
       throw new WebsiteError(400, 'The model photos are not all ready yet.')
     }
-    const keys = [...new Set([...(draft.imageMode === 'AI' ? generated : draft.ownKeys), ...draft.referenceKeys])]
+    // Only the finished photos go on the product. The owner's raw garment photos
+    // (on the floor, on a hanger) stay on the draft as the AI's reference.
+    const keys = [...new Set(draft.imageMode === 'AI' ? generated : draft.ownKeys)]
     if (keys.length > GALLERY_MAX_IMAGES) throw new WebsiteError(400, `At most ${GALLERY_MAX_IMAGES} photos per product.`)
     const aiKeys = new Set(draft.imageMode === 'AI' ? generated : [])
 
