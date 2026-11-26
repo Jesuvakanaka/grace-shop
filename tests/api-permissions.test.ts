@@ -72,6 +72,9 @@ import * as mkPosts from '../src/app/api/marketing/posts/route';
 import * as mkPostById from '../src/app/api/marketing/posts/[id]/route';
 import * as mkPostTransition from '../src/app/api/marketing/posts/[id]/transition/route';
 import * as mkAudit from '../src/app/api/marketing/audit/route';
+import * as mkStatus from '../src/app/api/marketing/status/route';
+import * as mkProducts from '../src/app/api/marketing/products/route';
+import * as mkContentPosts from '../src/app/api/marketing/content/[id]/posts/route';
 
 // PUBLIC: no session needed (sign-in routes). "Allowed" for every caller, including no cookie.
 type Policy = 'PUBLIC' | 'SESSION' | 'OWNER';
@@ -183,6 +186,9 @@ const cases: Case[] = [
   { method: 'PATCH', path: `/api/marketing/posts/${MISSING_ID}`, handler: h(mkPostById.PATCH), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'POST', path: `/api/marketing/posts/${MISSING_ID}/transition`, handler: h(mkPostTransition.POST), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'GET', path: '/api/marketing/audit', handler: h(mkAudit.GET), policy: 'OWNER' },
+  { method: 'GET', path: '/api/marketing/status', handler: h(mkStatus.GET), policy: 'OWNER' },
+  { method: 'GET', path: '/api/marketing/products', handler: h(mkProducts.GET), policy: 'OWNER' },
+  { method: 'POST', path: `/api/marketing/content/${MISSING_ID}/posts`, handler: h(mkContentPosts.POST), policy: 'OWNER', params: { id: MISSING_ID } },
 
   // ZP-483: admin website tools. Every route is OWNER only, reads included.
   { method: 'GET', path: '/api/website/products', handler: h(websiteProducts.GET), policy: 'OWNER' },

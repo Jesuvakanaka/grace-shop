@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
+import { useMarketingEnabled } from '@/components/useMarketingEnabled';
 import { pendingReviewsLabel, usePendingReviews } from '@/components/usePendingReviews';
 import { STOREFRONT_PREFIX } from '@/lib/host-routing';
 import { SITE_ROUTES, sitePath } from '@/lib/storefront/paths';
 
-const navItems = [
+const navItems: { label: string; href: string; icon: string; testId: string; ownerOnly?: boolean; marketing?: boolean }[] = [
   { label: 'Dashboard', href: '/', icon: '📊', testId: 'sidebar-dashboard' },
   { label: 'Daily Log', href: '/daily-log', icon: '📋', testId: 'sidebar-daily-log' },
   { label: 'Products', href: '/products', icon: '📦', testId: 'sidebar-products' },
@@ -26,6 +27,8 @@ const navItems = [
   { label: 'Website', href: '/website', icon: '🌐', testId: 'sidebar-website', ownerOnly: true },
   // ZP-505: website analytics.
   { label: 'Insights', href: '/insights', icon: '📈', testId: 'sidebar-insights', ownerOnly: true },
+  // ZP-1200: the Marketing hub (hidden when GRACE_MARKETING_HUB is "false").
+  { label: 'Marketing', href: '/marketing', icon: '📣', testId: 'sidebar-marketing', ownerOnly: true, marketing: true },
   { label: 'Exchange Rate', href: '/settings/exchange-rate', icon: '⚙️', testId: 'sidebar-exchange-rate', ownerOnly: true },
   { label: 'Change Password', href: '/settings/password', icon: '🔑', testId: 'sidebar-change-password' },
 ];
@@ -38,7 +41,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
-  const visibleNavItems = navItems.filter((item) => !(item.ownerOnly && user?.role !== 'OWNER'));
+  const marketingOn = useMarketingEnabled();
+  const visibleNavItems = navItems.filter((item) => !(item.ownerOnly && user?.role !== 'OWNER') && !(item.marketing && !marketingOn));
   // ZP-508: reviews waiting for the owner, as a badge on "Website".
   const pendingReviews = usePendingReviews();
 
