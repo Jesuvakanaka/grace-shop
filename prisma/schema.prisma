@@ -1185,3 +1185,21 @@ model MarketingMetric {
   @@unique([entity, entityId, day])
   @@index([entity, day])
 }
+
+/// One weekly piece of advice for the owner (ZP-1200). Numbers come from code, the words from the AI or a rule.
+model MarketingRecommendation {
+  id          Int      @id @default(autoincrement())
+  shopKey     String   @default("vyra")
+  weekOf      DateTime @db.Date
+  kind        String
+  title       String
+  body        String
+  data        Json?
+  /// NEW | DONE | DISMISSED
+  status      String   @default("NEW")
+  aiCostCents Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([weekOf, status])
+}
