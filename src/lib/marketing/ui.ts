@@ -265,3 +265,69 @@ export function connectFormError(pageId: string, token: string): string | null {
 
 export const attemptsLeft = (attempts: number | undefined) => Math.max(0, MAX_ATTEMPTS - (attempts ?? 0))
 export const viewOnlineLabel = (channelKind: string) => (channelKind === 'INSTAGRAM' ? 'View on Instagram' : channelKind === 'FACEBOOK_PAGE' ? 'View on Facebook' : 'See it online')
+
+// ───────────────────────── results, ads, audiences (ZP-1200) ─────────────────────────
+
+export const usd = (cents: number): string => `$${(cents / 100).toFixed(2)}`
+
+export const AD_STATUS_LABELS: Record<string, string> = {
+  DRAFT: 'Draft', PENDING_APPROVAL: 'Waiting for approval', APPROVED: 'Approved', CREATING: 'Being made on Meta',
+  PAUSED_ON_PLATFORM: 'Made on Meta, paused', ACTIVE: 'Running', COMPLETED: 'Finished', FAILED: 'Failed', REJECTED: 'Rejected', CANCELLED: 'Cancelled',
+}
+export const AD_STATUS_CLASSES: Record<string, string> = {
+  DRAFT: STATUS_CLASSES.DRAFT, PENDING_APPROVAL: STATUS_CLASSES.PENDING_APPROVAL, APPROVED: STATUS_CLASSES.APPROVED,
+  CREATING: STATUS_CLASSES.PUBLISHING, PAUSED_ON_PLATFORM: STATUS_CLASSES.SCHEDULED, ACTIVE: STATUS_CLASSES.PUBLISHED,
+  COMPLETED: STATUS_CLASSES.CANCELLED, FAILED: STATUS_CLASSES.FAILED, REJECTED: STATUS_CLASSES.REJECTED, CANCELLED: STATUS_CLASSES.CANCELLED,
+}
+export const AD_OBJECTIVE_LABELS: Record<string, string> = {
+  TRAFFIC: 'Visits to the website', ENGAGEMENT: 'Likes and comments', CLICK_TO_WHATSAPP: 'Messages on WhatsApp',
+}
+
+export type AdActionName = 'submit' | 'approve' | 'reject' | 'create_on_platform' | 'start' | 'pause' | 'cancel'
+export interface AdButton { action: AdActionName; label: string; tone: 'primary' | 'secondary' | 'danger'; confirm?: string }
+
+/** The buttons an owner sees on an ad in each status (the server decides what is really allowed). */
+export function adButtons(status: string, dailyBudgetCents = 0): AdButton[] {
+  switch (status) {
+    case 'DRAFT': return [{ action: 'submit', label: 'Ask for approval', tone: 'primary' }, { action: 'cancel', label: 'Cancel ad', tone: 'danger' }]
+    case 'PENDING_APPROVAL': return [{ action: 'approve', label: 'Approve', tone: 'primary' }, { action: 'reject', label: 'Reject', tone: 'danger' }]
+    case 'APPROVED': return [{ action: 'create_on_platform', label: 'Create on Meta (paused)', tone: 'primary' }, { action: 'cancel', label: 'Cancel ad', tone: 'danger' }]
+    case 'FAILED': return [{ action: 'create_on_platform', label: 'Try again on Meta', tone: 'primary' }, { action: 'cancel', label: 'Cancel ad', tone: 'danger' }]
+    case 'PAUSED_ON_PLATFORM': return [
+      { action: 'start', label: 'Start', tone: 'primary', confirm: `Start this ad? Meta can spend up to ${usd(dailyBudgetCents)} a day until you pause it or it ends.` },
+      { action: 'cancel', label: 'Cancel ad', tone: 'danger' },
+    ]
+    case 'ACTIVE': return [{ action: 'pause', label: 'Pause', tone: 'secondary' }]
+    case 'REJECTED': return [{ action: 'cancel', label: 'Cancel ad', tone: 'danger' }]
+    default: return []
+  }
+}
+
+/** How much of the monthly limit is used (0 to 100). 0 when there is no limit. */
+export function capPercent(usedCents: number, capCents: number): number {
+  if (capCents <= 0) return 0
+  return Math.max(0, Math.min(100, Math.round((usedCents / capCents) * 100)))
+}
+
+/** One sentence on why the money buttons will be refused right now, or null when nothing blocks them. */
+export function adBlockNote(live: { env: boolean; settings: boolean; connectedChannels: number } | null, capCents: number): string | null {
+  const why: string[] = []
+  if (capCents <= 0) why.push('your monthly ad limit is $0.00 (set it in Settings)')
+  if (live && !live.env) why.push('going live is switched off on this server')
+  else if (live && !live.settings) why.push('the live switch is off in Settings')
+  if (live && live.connectedChannels === 0) why.push('no channel is connected yet')
+  return why.length ? `Creating on Meta and starting an ad will be refused for now: ${why.join('; ')}.` : null
+}
+
+export const REC_STATUS_LABELS: Record<string, string> = { NEW: 'New', DONE: 'Done', DISMISSED: 'Dismissed' }
+
+/** Default results range: the last 30 days up to `today` (YYYY-MM-DD). */
+export function defaultRange(today: Date = new Date()): { from: string; to: string } {
+  const to = today.toISOString().slice(0, 10)
+  return { from: new Date(today.getTime() - 29 * 86_400_000).toISOString().slice(0, 10), to }
+}
+
+/** Visits per enquiry-style rate shown in tables: enquiries / visits as a whole percent, or '–'. */
+export function enquiryRate(visits: number, enquiries: number): string {
+  return visits > 0 ? `${Math.round((enquiries / visits) * 100)}%` : '–'
+}

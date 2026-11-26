@@ -177,7 +177,7 @@ Editing before the ad is on Meta sends it back to DRAFT and clears the approval.
 
 ## Pinterest, Telegram, X, YouTube and TikTok
 
-Code: `src/lib/marketing/connectors/{pinterest,telegram,x,youtube,tiktok}.ts` (shared helpers in `common.ts`, credential names in `connect-fields.ts`). All five are registered, switched off until credentials exist, and every publish re-checks the go-live gate before any request. Official docs and the date checked (26 Nov 2026) are in a comment at the top of each file. Tests: `tests/marketing-social-connectors.test.ts` (fake fetch, no network).
+Code: `src/lib/marketing/connectors/{pinterest,telegram,x,youtube,tiktok}.ts` (shared helpers in `common.ts`; the Connect form fields are in `channels.ts` `CONNECT_FIELDS`). All five are registered, switched off until credentials exist, and every publish re-checks the go-live gate before any request. Official docs and the date checked (26 Nov 2026) are in a comment at the top of each file. Tests: `tests/marketing-social-connectors.test.ts` (fake fetch, no network).
 
 Errors: a rejected or expired token gives code 401 and is not retried (reconnect the channel); rate limits (429) and server errors (5xx) are retryable. A publish result may carry a `message` for the owner (cost, "open the app").
 
@@ -207,6 +207,32 @@ Errors: a rejected or expired token gives code 401 and is not retried (reconnect
 - **What it does:** "upload to inbox" only. Videos use `/v2/post/publish/inbox/video/init/` (TikTok pulls the file from a verified address, or the hub uploads the bytes when config `uploadMode` is `file`); photos use `/v2/post/publish/content/init/` with `post_mode: MEDIA_UPLOAD`. The result says "Sent to your TikTok inbox: open TikTok to post it": open the TikTok app, tap the inbox notification, add the caption and press Post.
 - **Set up:** register at developers.tiktok.com, create an app with the Content Posting API and the scopes video.upload and user.info.basic, log in as the VYRA TikTok account to get an access token, and verify the VYRA website domain under URL properties. Paste the token in the Connect box.
 - **Can't do:** the hub never posts directly (TikTok keeps posts from unaudited apps private). Video drafts carry no caption: type it in the app. At most 5 waiting drafts per 24 hours; 6 requests a minute. Photo drafts need TikTok app 31.8 or later.
+
+## Results and weekly advice
+
+Code: `results.ts`, `ai/recommend.ts` in `src/lib/marketing/`; `scripts/marketing-results.ts`. Screens: Results, Ads, Audiences (tabs in `/marketing`).
+
+### Results
+
+- **Daily rows** go in `MarketingMetric` (entity `POST` for posts, `AD` for ads). Post visits and enquiries are the `AnalyticsDailySource` rows whose `campaign` is the post's tracking tag. Impressions, reach and clicks come from the connector's `fetchInsights` (Facebook Page: `post_impressions`, `post_impressions_unique`, `post_clicks`; Instagram: `views`, `reach`, likes, comments, shares, saved), only for PUBLISHED posts on a connected channel. This is read only, so it needs saved credentials but not the go-live switches.
+- Platforms report lifetime totals, so each day stores only what is new since the earlier days (today's row = lifetime minus the sum before today). Running the sync twice in a day does not double count. A platform error leaves earlier numbers alone and the visits are still counted.
+- **Ads** reuse the ad sync (`syncAd`): ACTIVE and paused-on-Meta ads are pulled in the same run.
+- **Run it:** the Results page button "Update the numbers", `POST /api/marketing/results/sync`, or `npm run marketing:results` (daily is plenty; set up a scheduler when you go live, none is configured). Exits 1 only when an ad could not be synced.
+- **Report:** `GET /api/marketing/results?from=YYYY-MM-DD&to=YYYY-MM-DD` (default the last 30 Harare days, at most a year). Returns totals, `perPost`, `perChannel`, `perCampaign`, `perProduct`, `perAd` and `spendCents` (ads). Ads count in the channel (META_ADS), campaign and product tables.
+
+### Weekly advice
+
+- `MarketingRecommendation` (week starting Monday Harare, kind, title, body, data, status NEW / DONE / DISMISSED, aiCostCents).
+- **Code works out the facts** over the last 28 days: best channel, best product (by visits, enquiries break ties), best day and hour (Harare time, average visits per post, only with 3 or more posts), posts with no visits (older than 2 days), connected channels not used, and ad budget left. Each fact has a plain rule-based text.
+- **The AI only rewords.** With a key (same Claude-then-OpenAI pattern as the writer, injectable client) it rewrites each text; any number that is not in the rule text makes that item keep the rule text. Without a key, or if the AI fails, the rule text is saved (and the failure is shown). Cost is stored in `aiCostCents` (about a cent).
+- Generating again replaces the week's NEW items; DONE and DISMISSED ones stay and are not repeated.
+- API (OWNER only): `GET /api/marketing/recommendations?status=&week=`, `POST .../generate`, `PATCH .../[id]` `{ status }`. Generating and every status change write an audit row.
+
+### Screens
+
+- **Results:** date range, totals, tables by channel, post, product, campaign and ad, "Update the numbers", and the advice with Done, Dismiss and "Get this week's advice".
+- **Ads:** monthly limit, spent and free (from `/api/marketing/budget`), a form to make a draft from a content idea (audience, daily budget, dates), and a card per ad with the next step only (ask for approval, approve, create on Meta paused, start with a confirmation, pause). Refusals from the cap or the go-live gate show in the server's own plain words on the ad.
+- **Audiences:** list and a simple form (distance from Harare, ages, who).
 
 ## Switching a channel on
 
@@ -257,4 +283,4 @@ This channel carries the catalogue, not posts: `publish` always answers "carries
 
 ## Coming in later PRs
 
-Google Ads, email, SMS and WhatsApp Cloud connectors, contacts with opt-in, partners, daily results and recommendations.
+Google Ads, email, SMS and WhatsApp Cloud connectors, contacts with opt-in and partners.

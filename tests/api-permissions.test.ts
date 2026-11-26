@@ -90,6 +90,11 @@ import * as mkAdTransition from '../src/app/api/marketing/ads/[id]/transition/ro
 import * as mkAdSync from '../src/app/api/marketing/ads/[id]/sync/route';
 import * as mkAdDraft from '../src/app/api/marketing/ads/[id]/draft/route';
 import * as mkBudget from '../src/app/api/marketing/budget/route';
+import * as mkResults from '../src/app/api/marketing/results/route';
+import * as mkResultsSync from '../src/app/api/marketing/results/sync/route';
+import * as mkRecs from '../src/app/api/marketing/recommendations/route';
+import * as mkRecsGenerate from '../src/app/api/marketing/recommendations/generate/route';
+import * as mkRecById from '../src/app/api/marketing/recommendations/[id]/route';
 import * as pubFeedCsv from '../src/app/api/public/marketing/feed.csv/route';
 import * as pubFeedXml from '../src/app/api/public/marketing/feed.xml/route';
 
@@ -228,6 +233,11 @@ const cases: Case[] = [
   { method: 'POST', path: `/api/marketing/ads/${MISSING_ID}/sync`, handler: h(mkAdSync.POST), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'POST', path: `/api/marketing/ads/${MISSING_ID}/draft`, handler: h(mkAdDraft.POST), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'GET', path: '/api/marketing/budget', handler: h(mkBudget.GET), policy: 'OWNER' },
+  { method: 'GET', path: '/api/marketing/results', handler: h(mkResults.GET), policy: 'OWNER' },
+  { method: 'POST', path: '/api/marketing/results/sync', handler: h(mkResultsSync.POST), policy: 'OWNER' },
+  { method: 'GET', path: '/api/marketing/recommendations', handler: h(mkRecs.GET), policy: 'OWNER' },
+  { method: 'POST', path: '/api/marketing/recommendations/generate', handler: h(mkRecsGenerate.POST), policy: 'OWNER' },
+  { method: 'PATCH', path: `/api/marketing/recommendations/${MISSING_ID}`, handler: h(mkRecById.PATCH), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'GET', path: '/api/public/marketing/feed.csv', handler: h(pubFeedCsv.GET), policy: 'PUBLIC' },
   { method: 'GET', path: '/api/public/marketing/feed.xml', handler: h(pubFeedXml.GET), policy: 'PUBLIC' },
 

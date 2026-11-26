@@ -75,13 +75,13 @@ export const facebookPageConnector: Connector = {
     const accessToken = token(ctx.credentials)
     try {
       const r = await graphClient(ctx.fetch).get<{ data?: { name: string; values?: { value?: unknown }[] }[] }>(
-        `${externalId}/insights`, accessToken, { metric: 'post_impressions_unique,post_clicks' },
+        `${externalId}/insights`, accessToken, { metric: 'post_impressions,post_impressions_unique,post_clicks' },
       )
       const val = (name: string) => {
         const v = r.data?.find((d) => d.name === name)?.values?.[0]?.value
         return typeof v === 'number' ? v : undefined
       }
-      return { ok: true, metrics: { reach: val('post_impressions_unique'), clicks: val('post_clicks') } }
+      return { ok: true, metrics: { impressions: val('post_impressions'), reach: val('post_impressions_unique'), clicks: val('post_clicks') } }
     } catch (e) {
       return { ok: false, error: failureOf(e).error, metrics: {} }
     }

@@ -120,13 +120,13 @@ export function createInstagramConnector(opts: InstagramOptions = {}): Connector
     async fetchInsights(externalId, ctx): Promise<InsightsResult> {
       try {
         const r = await graphClient(ctx.fetch).get<{ data?: { name: string; values?: { value?: unknown }[] }[] }>(
-          `${externalId}/insights`, token(ctx.credentials), { metric: 'reach,likes,comments,shares,saved' },
+          `${externalId}/insights`, token(ctx.credentials), { metric: 'reach,views,likes,comments,shares,saved' },
         )
         const val = (name: string) => {
           const v = r.data?.find((d) => d.name === name)?.values?.[0]?.value
           return typeof v === 'number' ? v : undefined
         }
-        return { ok: true, metrics: { reach: val('reach'), likes: val('likes'), comments: val('comments'), shares: val('shares') } }
+        return { ok: true, metrics: { impressions: val('views'), reach: val('reach'), likes: val('likes'), comments: val('comments'), shares: val('shares') } }
       } catch (e) {
         return { ok: false, error: failureOf(e).error, metrics: {} }
       }

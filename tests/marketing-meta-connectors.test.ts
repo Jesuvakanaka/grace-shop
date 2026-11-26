@@ -149,15 +149,15 @@ describe('Facebook Page publish', () => {
   test('verify and insights', async () => {
     const f = fakeFetch({
       'GET /me': { id: '111', name: 'VYRA' },
-      'GET /111_9/insights': { data: [{ name: 'post_impressions_unique', values: [{ value: 120 }] }, { name: 'post_clicks', values: [{ value: 7 }] }] },
+      'GET /111_9/insights': { data: [{ name: 'post_impressions', values: [{ value: 300 }] }, { name: 'post_impressions_unique', values: [{ value: 120 }] }, { name: 'post_clicks', values: [{ value: 7 }] }] },
     })
     assert.deepStrictEqual(await facebookPageConnector.verify({ accessToken: 'T' }, f.fn), { ok: true, externalId: '111', name: 'VYRA' })
     assert.deepStrictEqual(f.calls[0].params, { fields: 'id,name' })
     const i = await facebookPageConnector.fetchInsights!('111_9', ctx(f.fn))
-    assert.deepStrictEqual(i, { ok: true, metrics: { reach: 120, clicks: 7 } })
-    assert.deepStrictEqual(f.calls[1].params, { metric: 'post_impressions_unique,post_clicks' })
+    assert.deepStrictEqual(i, { ok: true, metrics: { impressions: 300, reach: 120, clicks: 7 } })
+    assert.deepStrictEqual(f.calls[1].params, { metric: 'post_impressions,post_impressions_unique,post_clicks' })
     const missing = fakeFetch({ 'GET /111_9/insights': { data: [] } })
-    assert.deepStrictEqual(await facebookPageConnector.fetchInsights!('111_9', ctx(missing.fn)), { ok: true, metrics: { reach: undefined, clicks: undefined } })
+    assert.deepStrictEqual(await facebookPageConnector.fetchInsights!('111_9', ctx(missing.fn)), { ok: true, metrics: { impressions: undefined, reach: undefined, clicks: undefined } })
     const bad = fakeFetch({ 'GET /111_9/insights': { error: { message: 'nope', code: 100 } } })
     assert.strictEqual((await facebookPageConnector.fetchInsights!('111_9', ctx(bad.fn))).ok, false)
     const badMe = fakeFetch({ 'GET /me': { error: { message: 'x', code: 190 } } }, 401)
@@ -265,13 +265,14 @@ describe('Instagram publish', () => {
 
   test('insights and verify', async () => {
     const f = fakeFetch({
-      'GET /m9/insights': { data: [{ name: 'reach', values: [{ value: 40 }] }, { name: 'likes', values: [{ value: 5 }] }] },
+      'GET /m9/insights': { data: [{ name: 'views', values: [{ value: 90 }] }, { name: 'reach', values: [{ value: 40 }] }, { name: 'likes', values: [{ value: 5 }] }] },
       'GET /111': { id: '111', username: 'vyra' },
     })
     const ig = createInstagramConnector(noSleep)
     const i = await ig.fetchInsights!('m9', ctx(f.fn))
-    assert.deepStrictEqual(f.calls[0].params, { metric: 'reach,likes,comments,shares,saved' })
+    assert.deepStrictEqual(f.calls[0].params, { metric: 'reach,views,likes,comments,shares,saved' })
     assert.deepStrictEqual([i.ok, i.metrics.reach, i.metrics.likes, i.metrics.comments], [true, 40, 5, undefined])
+    assert.strictEqual(i.metrics.impressions, 90)
     assert.deepStrictEqual(await ig.verify({ accessToken: 'T', igUserId: '111' }, f.fn), { ok: true, externalId: '111', name: 'vyra' })
   })
 })
