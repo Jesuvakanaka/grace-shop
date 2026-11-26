@@ -74,13 +74,15 @@ export async function publishPost(db: Db, postId: number, actorIn: Actor | strin
   await transitionPost(db, postId, action, actor, { now })
 
   const fail = async (error: string, code?: number): Promise<PostDto> => {
+    // 190 = Meta token no longer valid; 401 = any other platform's token expired or revoked.
+    const tokenDead = code === 190 || code === 401
     const failed = await transitionPost(db, postId, 'failed', SYSTEM_ACTOR, { error })
     if (channel) {
       await db.marketingChannel.update({
         where: { id: channel.id },
-        data: { lastError: error.slice(0, 500), ...(code === 190 ? { status: 'ERROR' } : {}) },
+        data: { lastError: error.slice(0, 500), ...(tokenDead ? { status: 'ERROR' } : {}) },
       })
-      if (code === 190) await writeAudit(db, { actor: SYSTEM_ACTOR.username, action: 'channel.error', entity: 'channel', entityId: channel.id, detail: { code } })
+      if (tokenDead) await writeAudit(db, { actor: SYSTEM_ACTOR.username, action: 'channel.error', entity: 'channel', entityId: channel.id, detail: { code } })
     }
     return failed
   }
@@ -102,6 +104,8 @@ export async function publishPost(db: Db, postId: number, actorIn: Actor | strin
     if (!result.ok) return await fail(result.error, result.code)
     const published = await transitionPost(db, postId, 'published', SYSTEM_ACTOR, { externalId: result.externalId, externalUrl: result.externalUrl, now })
     if (channel) await db.marketingChannel.update({ where: { id: channel.id }, data: { lastError: null } })
+    // Extra words from the platform connector (X cost, "sent to your TikTok inbox") go on the activity log.
+    if (result.message) await writeAudit(db, { actor: SYSTEM_ACTOR.username, action: 'post.publish_note', entity: 'post', entityId: postId, detail: { message: result.message.slice(0, 300) } })
     return published
   } catch (e) {
     // Never include anything but the message: credentials are not part of it.
