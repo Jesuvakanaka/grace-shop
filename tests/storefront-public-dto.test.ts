@@ -90,6 +90,7 @@ describe('public product DTO', () => {
       'isNew',
       'loves', // ZP-507: Product.loveCount, see tests/loves-endpoint-db.test.ts
       'name',
+      'preOrder', // pre-order listing (label and ship window), or null
       'priceUsd',
       'ref', // ZP-504: "V-0099" from the id, see tests/whatsapp-enquiry-ref.test.ts
       'sizeChart',

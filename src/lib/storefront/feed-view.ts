@@ -24,6 +24,7 @@
 //  5. `?view=clean|info` on any storefront URL forces that view for that page
 //     load: never a test visit, never stored.
 
+import { PREORDER_ENQUIRE_LABEL } from '@/lib/storefront-model/preorder'
 export const FEED_VIEW_MODES =['CLEAN', 'INFO', 'AB'] as const
 /** The owner's setting (Prisma enum FeedView). */
 export type FeedViewMode = (typeof FEED_VIEW_MODES)[number]
@@ -154,15 +155,17 @@ export function feedViewScript(mode: FeedViewMode): string {
 
 type InfoItem = {
   soldOut: boolean
-  badge: { kind: 'sold-out' | 'few-left' | 'new'; label: string } | null
+  badge: { kind: 'sold-out' | 'few-left' | 'new' | 'pre-order'; label: string } | null
   enquireHref: string | null
+  preOrder?: { label: string } | null
 }
 
-export type InfoAvailability = { kind: 'in-stock' | 'few-left' | 'sold-out'; label: string }
+export type InfoAvailability = { kind: 'in-stock' | 'few-left' | 'sold-out' | 'pre-order'; label: string }
 
 /** The panel's tag, from the slide's existing badge data: Sold out, Few left, else In stock. */
 export function infoAvailability(item: Pick<InfoItem, 'soldOut' | 'badge'>): InfoAvailability {
   if (item.soldOut || item.badge?.kind === 'sold-out') return { kind: 'sold-out', label: 'Sold out' }
+  if (item.badge?.kind === 'pre-order') return { kind: 'pre-order', label: item.badge.label }
   if (item.badge?.kind === 'few-left') return { kind: 'few-left', label: 'Few left' }
   return { kind: 'in-stock', label: 'In stock' }
 }
@@ -172,15 +175,16 @@ export function infoPrice(price: string): string {
   return price.startsWith('$') ? `US${price}` : price
 }
 
-export type InfoPrimary = { kind: 'ask' | 'restock' | 'visit'; label: string }
+export type InfoPrimary = { kind: 'ask' | 'restock' | 'visit' | 'pre-order'; label: string }
 
 /**
  * The panel's main button: the existing enquiry link (restock message when
  * sold out), or Visit us without WhatsApp. ZP-1018: every piece is now "Ask
  * for price", so the button asks for it.
  */
-export function infoPrimary(item: Pick<InfoItem, 'soldOut' | 'enquireHref'>): InfoPrimary {
+export function infoPrimary(item: Pick<InfoItem, 'soldOut' | 'enquireHref' | 'preOrder'>): InfoPrimary {
   if (item.enquireHref === null) return { kind: 'visit', label: 'Visit us' }
+  if (!item.soldOut && item.preOrder) return { kind: 'pre-order', label: PREORDER_ENQUIRE_LABEL }
   return item.soldOut ? { kind: 'restock', label: 'Ask about restock' } : { kind: 'ask', label: 'Ask price on WhatsApp' }
 }
 
