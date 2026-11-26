@@ -151,6 +151,8 @@ model CaptureDraft {
   notes           String? // owner's note for the AI
   listing         Json? // listing draft, validated by parseListingDraft
   error           String? // last failure, owner-facing
+  // Set while one AI step runs (a claim, so two calls never do the same step).
+  busySince       DateTime?
   aiCostCents     Int              @default(0)
   // Set on approve; the draft survives if the product is deleted.
   productId       Int?             @unique

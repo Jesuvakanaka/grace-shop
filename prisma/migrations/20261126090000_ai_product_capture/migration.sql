@@ -37,6 +37,7 @@ CREATE TABLE "CaptureDraft" (
     "notes" TEXT,
     "listing" JSONB,
     "error" TEXT,
+    "busySince" TIMESTAMP(3),
     "aiCostCents" INTEGER NOT NULL DEFAULT 0,
     "productId" INTEGER,
     "createdBy" TEXT,
