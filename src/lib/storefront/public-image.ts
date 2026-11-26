@@ -67,17 +67,20 @@ async function readAll(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
   return Buffer.from(await new Response(stream).arrayBuffer())
 }
 
-/** Resize to `width` (never upscaled) as WebP. Null when the bytes are missing. */
-async function resize(storage: ImageStorage, key: string, width: PublicImageWidth): Promise<Buffer | null> {
+/**
+ * Resize to `width` (never upscaled). WebP by default; JPEG on a white
+ * background for `?format=jpeg` (Instagram only accepts JPEG; ZP-1200).
+ * Null when the bytes are missing.
+ */
+async function resize(storage: ImageStorage, key: string, width: PublicImageWidth | null, jpeg = false): Promise<Buffer | null> {
   const image = await storage.get(key)
   if (!image) return null
   const input = await readAll(image.stream)
   // Loaded on first use, like the upload pipeline, so other routes never load sharp.
   const { default: sharp } = await import('sharp')
-  return sharp(input, { limitInputPixels: RESIZE_MAX_INPUT_PIXELS, failOn: 'error' })
-    .resize({ width, withoutEnlargement: true })
-    .webp({ quality: RESIZE_WEBP_QUALITY })
-    .toBuffer()
+  const pipeline = sharp(input, { limitInputPixels: RESIZE_MAX_INPUT_PIXELS, failOn: 'error' }).resize({ width: width ?? undefined, withoutEnlargement: true })
+  if (jpeg) return pipeline.flatten({ background: '#ffffff' }).jpeg({ quality: 90 }).toBuffer()
+  return pipeline.webp({ quality: RESIZE_WEBP_QUALITY }).toBuffer()
 }
 
 export async function servePublicImage(
@@ -89,33 +92,41 @@ export async function servePublicImage(
   if (!key) return notFound()
   // The query is checked before the database, and the answer does not
   // depend on the key, so a 400 reveals nothing about the picture.
-  const parsed = parsePublicImageWidth(query)
+  // ZP-1200: `format=jpeg` (the only value) returns a JPEG rendition, for platforms that refuse WebP.
+  let jpeg = false
+  let widthQuery = query
+  if (query.has('format')) {
+    if (query.getAll('format').length !== 1 || query.get('format') !== 'jpeg') return plain(400, '"format" must be jpeg')
+    jpeg = true
+    widthQuery = new URLSearchParams([...query].filter(([k]) => k !== 'format'))
+  }
+  const parsed = parsePublicImageWidth(widthQuery)
   if (!parsed.ok) return plain(400, parsed.error)
 
   try {
     // Visibility first, on every request, before any cache.
     if (!(await isPublicImageKey(deps.db, key))) return notFound()
 
-    if (parsed.width === null) {
+    if (parsed.width === null && !jpeg) {
       const image = await deps.storage.get(key)
       if (!image) return notFound()
       return new Response(image.stream, { status: 200, headers: imageHeaders(image.contentType, image.size) })
     }
 
     const cache = deps.cache ?? defaultCache
-    const cacheKey = `${key}|${parsed.width}`
+    const cacheKey = `${key}|${parsed.width}${jpeg ? '|jpeg' : ''}`
     let bytes = cache.get(cacheKey) ?? null
     if (!bytes) {
       let pending = inFlight.get(cacheKey)
       if (!pending) {
-        pending = resize(deps.storage, key, parsed.width).finally(() => inFlight.delete(cacheKey))
+        pending = resize(deps.storage, key, parsed.width, jpeg).finally(() => inFlight.delete(cacheKey))
         inFlight.set(cacheKey, pending)
       }
       bytes = await pending
       if (!bytes) return notFound()
       cache.set(cacheKey, bytes)
     }
-    return new Response(new Uint8Array(bytes), { status: 200, headers: imageHeaders('image/webp', bytes.length) })
+    return new Response(new Uint8Array(bytes), { status: 200, headers: imageHeaders(jpeg ? 'image/jpeg' : 'image/webp', bytes.length) })
   } catch (error) {
     console.error('Public image read failed', error instanceof Error ? error.message : error)
     return plain(500, 'Image unavailable')
