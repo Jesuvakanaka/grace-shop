@@ -2,11 +2,15 @@
 
 import Link from 'next/link';
 import { Sheet } from '@/components/ui/Sheet';
+import { useAuth } from '@/components/AuthProvider';
 
 interface QuickActionSheetProps {
   open: boolean;
   onClose: () => void;
 }
+
+// Add with AI (AI model photos or your own finished photos) is the way to add stock; owner only.
+const addStock = { label: 'Add stock', href: '/capture', description: 'Photograph a piece: AI model photos or your own', icon: '📸' };
 
 const actions = [
   { label: 'Record Sale', href: '/daily-log', description: 'Cash or credit sale', icon: '💰' },
@@ -16,10 +20,12 @@ const actions = [
 ];
 
 export function QuickActionSheet({ open, onClose }: QuickActionSheetProps) {
+  const { isOwner } = useAuth();
+  const shown = isOwner ? [addStock, ...actions] : actions;
   return (
     <Sheet open={open} onClose={onClose} title="Quick action">
       <div className="space-y-2">
-        {actions.map((action) => (
+        {shown.map((action) => (
           <Link
             key={action.href}
             href={action.href}
