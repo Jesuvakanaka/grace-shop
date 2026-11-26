@@ -44,32 +44,39 @@ test('parseListingDraft enforces limits', () => {
 })
 
 test('generateFashionPhoto with fake client', async () => {
-  let args: any
-  const client: any = {
+  type EditArgs = { size?: string; image?: unknown[] }
+  let args: EditArgs = {}
+  type PhotoClient = NonNullable<Parameters<typeof generateFashionPhoto>[0]['client']>
+  const client = {
     images: {
       edit: async (a: unknown) => {
-        args = a
+        args = a as EditArgs
         return { data: [{ b64_json: Buffer.from('png!').toString('base64') }] }
       },
     },
-  }
+  } as unknown as PhotoClient
   const r = await generateFashionPhoto({ references: [Buffer.from('a'), Buffer.from('b')], prompt: 'p', client })
   assert.equal(r.png.toString(), 'png!')
   assert.equal(args.size, '1024x1536')
-  assert.equal(args.image.length, 2)
+  assert.equal(args.image?.length, 2)
   assert.ok(r.costCents > 0)
-  const bad: any = { images: { edit: async () => ({ data: [] }) } }
+  const bad = { images: { edit: async () => ({ data: [] }) } } as unknown as PhotoClient
   await assert.rejects(generateFashionPhoto({ references: [], prompt: 'p', client: bad }))
 })
 
 test('writeListing with fake client', async () => {
-  let args: any
+  type CreateArgs = {
+    output_config: { effort: string; format: { type: string } }
+    messages: { content: { type: string }[] }[]
+  }
+  type TextClient = NonNullable<Parameters<typeof writeListing>[0]['client']>
+  let args = {} as CreateArgs
   const reply = (stop_reason: string) => ({
     stop_reason,
     content: [{ type: 'text', text: JSON.stringify({ publicName: 'Rose Dress', description: 'Lovely', categoryId: 7, details: ['bow'] }) }],
     usage: { input_tokens: 1000, output_tokens: 500 },
   })
-  const client: any = { messages: { create: async (a: unknown) => ((args = a), reply('end_turn')) } }
+  const client = { messages: { create: async (a: unknown) => ((args = a as CreateArgs), reply('end_turn')) } } as unknown as TextClient
   const r = await writeListing({
     references: [Buffer.from('x')],
     categories: [{ id: 7, name: 'Dresses' }],
@@ -83,7 +90,7 @@ test('writeListing with fake client', async () => {
   assert.equal(args.output_config.effort, 'low')
   assert.equal(args.output_config.format.type, 'json_schema')
   assert.equal(args.messages[0].content[0].type, 'image')
-  const refuse: any = { messages: { create: async () => reply('refusal') } }
+  const refuse = { messages: { create: async () => reply('refusal') } } as unknown as TextClient
   await assert.rejects(
     writeListing({ references: [], categories: [], listingType: 'IN_STOCK', client: refuse }),
     /declined/,
