@@ -4,21 +4,23 @@ import type { MarketingChannel } from '@prisma/client'
 import { WebsiteError } from '@/lib/website/http'
 import { writeAudit, type Db } from './audit'
 import { toChannelRowDto, type ChannelRowDto } from './channel-rows'
+import { verifyAdAccount, cleanAccountId } from './connectors/meta-ads'
 import { lookupPage, MetaGraphError } from './connectors/meta-graph'
 import type { FetchLike } from './connectors/types'
 import { encryptJson, tokenHint } from './secrets'
 import { asObject, onlyKeys, oneOf, requiredText } from './validate'
 
-export const CONNECTABLE_KINDS = ['FACEBOOK_PAGE', 'INSTAGRAM'] as const
+export const CONNECTABLE_KINDS = ['FACEBOOK_PAGE', 'INSTAGRAM', 'META_ADS'] as const
 
 async function saveRow(
   db: Db, kind: string, name: string, externalId: string, accessToken: string, config: Record<string, string>, actor: string,
+  credentials?: Record<string, string>,
 ): Promise<MarketingChannel> {
   const data = {
     name,
     status: 'CONNECTED',
     externalId,
-    credentialsEnc: encryptJson(config.pageId ? { accessToken, pageId: config.pageId } : { accessToken }),
+    credentialsEnc: encryptJson(credentials ?? (config.pageId ? { accessToken, pageId: config.pageId } : { accessToken })),
     tokenHint: tokenHint(accessToken),
     config,
     lastError: null,
@@ -44,8 +46,10 @@ export async function connectMeta(
   deps: { fetch: FetchLike },
 ): Promise<{ channels: ChannelRowDto[]; instagramLinked: boolean }> {
   const o = asObject(body)
-  onlyKeys(o, ['kind', 'pageId', 'accessToken'])
+  onlyKeys(o, ['kind', 'pageId', 'accessToken', 'adAccountId'])
   const kind = oneOf(o.kind, 'kind', CONNECTABLE_KINDS)
+  if (kind === 'META_ADS') return connectMetaAds(db, o, actor, deps)
+  if ('adAccountId' in o) throw new WebsiteError(400, 'Unknown field "adAccountId"', { field: 'adAccountId' })
   const pageId = requiredText(o.pageId, 'pageId', 40)
   if (!/^\d{5,30}$/.test(pageId)) throw new WebsiteError(400, 'The Page ID is a number (digits only).', { field: 'pageId' })
   const accessToken = requiredText(o.accessToken, 'accessToken', 1000)
@@ -79,4 +83,30 @@ export async function disconnectChannel(db: Db, id: number, actor: string): Prom
   })
   await writeAudit(db, { actor, action: 'channel.disconnect', entity: 'channel', entityId: id, detail: { kind: row.kind, from: row.status } })
   return toChannelRowDto(updated)
+}
+
+/**
+ * Connect the Meta ad account: verify GET /act_{id}?fields=id,name,currency,account_status, then save the
+ * META_ADS channel as CONNECTED with the token, ad account ID and Page ID encrypted. Never returns the token.
+ */
+export async function connectMetaAds(
+  db: Db,
+  body: unknown,
+  actor: string,
+  deps: { fetch: FetchLike },
+): Promise<{ channels: ChannelRowDto[]; instagramLinked: boolean }> {
+  const o = asObject(body)
+  onlyKeys(o, ['kind', 'adAccountId', 'accessToken', 'pageId'])
+  const rawAccount = requiredText(o.adAccountId, 'adAccountId', 40)
+  const adAccountId = cleanAccountId(rawAccount)
+  if (!/^\d{5,30}$/.test(adAccountId)) throw new WebsiteError(400, 'The ad account ID is a number, usually written act_123456789.', { field: 'adAccountId' })
+  const pageId = requiredText(o.pageId, 'pageId', 40)
+  if (!/^\d{5,30}$/.test(pageId)) throw new WebsiteError(400, 'The Page ID is a number (digits only).', { field: 'pageId' })
+  const accessToken = requiredText(o.accessToken, 'accessToken', 1000)
+  if (/\s/.test(accessToken)) throw new WebsiteError(400, 'The access token must not contain spaces.', { field: 'accessToken' })
+  const v = await verifyAdAccount({ accessToken, adAccountId }, deps.fetch)
+  if (!v.ok) throw new WebsiteError(400, v.error, { field: 'accessToken' })
+  const config = { pageId, adAccountId: v.id, currency: v.currency ?? '', accountName: v.name ?? '' }
+  const row = await saveRow(db, 'META_ADS', v.name ?? 'Meta ad account', v.id, accessToken, config, actor, { accessToken, adAccountId: v.id, pageId })
+  return { channels: [toChannelRowDto(row)], instagramLinked: false }
 }

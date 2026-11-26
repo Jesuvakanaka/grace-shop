@@ -61,7 +61,7 @@ const META_PAGE_STEPS = [
 const MANUAL_NOTE = 'No official API: the hub prepares the words and photos and you post them yourself, then mark it as shared.'
 
 /** Channels with a connector in src/lib/marketing/connectors. */
-const WITH_CONNECTOR = new Set(['FACEBOOK_PAGE', 'INSTAGRAM'])
+const WITH_CONNECTOR = new Set(['FACEBOOK_PAGE', 'INSTAGRAM', 'META_ADS'])
 
 export const CHANNELS: readonly ChannelDef[] = [
   def('FACEBOOK_PAGE', 'Facebook Page', 'meta', 'api', ['POST', 'STORY', 'VIDEO'],
@@ -78,7 +78,7 @@ export const CHANNELS: readonly ChannelDef[] = [
     ['Text limit is 500 characters and only one topic tag per post.', 'No scheduling through the API: the hub holds the post until it is due.']),
   def('META_ADS', 'Facebook and Instagram ads', 'meta', 'api', ['AD'],
     { publish: true, ads: true, insights: true }, { maxText: 2000, needsImage: true, maxImages: 10 },
-    ['Open Meta Business Suite and create a business and an ad account with a payment method.', 'In your Meta developer app add the Marketing API and generate a token with ads_management.', 'Copy the ad account ID (starts with act_) into the Connect box.', 'Set a monthly spend cap in the hub settings. Without one, no ad can be created.'],
+    ['In Meta Business Settings, Accounts, Ad accounts, add (or create) the VYRA ad account.', 'Add a payment method that works from Zimbabwe (Billing, Payment methods). Test with a $1 a day boost first.', 'Users, System users: add a system user, assign it the ad account and the Page, then generate a token with ads_management and ads_read (expiry Never). Standard access is enough for your own ad account.', 'Paste the ad account ID (act_123456789), the Page ID and the token into the Connect box. The token is saved encrypted and never shown again.', 'Set a monthly spend cap in the hub settings. Without one, no ad can be created. Use a USD ad account.'],
     ['Ads are always created paused and need a second approval to switch on.', 'Targeting for housing, jobs and credit is restricted; children\'s clothing ads must target adults (parents).']),
   def('FACEBOOK_GROUPS', 'Facebook Groups', 'meta', 'manual', ['POST'],
     {}, { maxText: 5000, maxImages: 10 }, ['Join the local buying and selling groups you want to use.', 'Open the prepared post here, copy the words and photos, post in the group, then press "Mark as shared".'],

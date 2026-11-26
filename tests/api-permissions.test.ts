@@ -81,6 +81,16 @@ import * as mkPlanApply from '../src/app/api/marketing/plan/apply/route';
 import * as mkStatus from '../src/app/api/marketing/status/route';
 import * as mkProducts from '../src/app/api/marketing/products/route';
 import * as mkContentPosts from '../src/app/api/marketing/content/[id]/posts/route';
+import * as mkAudiences from '../src/app/api/marketing/audiences/route';
+import * as mkAudienceById from '../src/app/api/marketing/audiences/[id]/route';
+import * as mkAds from '../src/app/api/marketing/ads/route';
+import * as mkAdById from '../src/app/api/marketing/ads/[id]/route';
+import * as mkAdTransition from '../src/app/api/marketing/ads/[id]/transition/route';
+import * as mkAdSync from '../src/app/api/marketing/ads/[id]/sync/route';
+import * as mkAdDraft from '../src/app/api/marketing/ads/[id]/draft/route';
+import * as mkBudget from '../src/app/api/marketing/budget/route';
+import * as pubFeedCsv from '../src/app/api/public/marketing/feed.csv/route';
+import * as pubFeedXml from '../src/app/api/public/marketing/feed.xml/route';
 
 // PUBLIC: no session needed (sign-in routes). "Allowed" for every caller, including no cookie.
 type Policy = 'PUBLIC' | 'SESSION' | 'OWNER';
@@ -201,6 +211,23 @@ const cases: Case[] = [
   { method: 'GET', path: '/api/marketing/status', handler: h(mkStatus.GET), policy: 'OWNER' },
   { method: 'GET', path: '/api/marketing/products', handler: h(mkProducts.GET), policy: 'OWNER' },
   { method: 'POST', path: `/api/marketing/content/${MISSING_ID}/posts`, handler: h(mkContentPosts.POST), policy: 'OWNER', params: { id: MISSING_ID } },
+  // ZP-1200: ads, audiences, budget (OWNER only) and the public product feed (PUBLIC: no sign-in; 404 until switched on).
+  { method: 'GET', path: '/api/marketing/audiences', handler: h(mkAudiences.GET), policy: 'OWNER' },
+  { method: 'POST', path: '/api/marketing/audiences', handler: h(mkAudiences.POST), policy: 'OWNER' },
+  { method: 'GET', path: `/api/marketing/audiences/${MISSING_ID}`, handler: h(mkAudienceById.GET), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'PATCH', path: `/api/marketing/audiences/${MISSING_ID}`, handler: h(mkAudienceById.PATCH), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'DELETE', path: `/api/marketing/audiences/${MISSING_ID}`, handler: h(mkAudienceById.DELETE), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'GET', path: '/api/marketing/ads', handler: h(mkAds.GET), policy: 'OWNER' },
+  { method: 'POST', path: '/api/marketing/ads', handler: h(mkAds.POST), policy: 'OWNER' },
+  { method: 'GET', path: `/api/marketing/ads/${MISSING_ID}`, handler: h(mkAdById.GET), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'PATCH', path: `/api/marketing/ads/${MISSING_ID}`, handler: h(mkAdById.PATCH), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'DELETE', path: `/api/marketing/ads/${MISSING_ID}`, handler: h(mkAdById.DELETE), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: `/api/marketing/ads/${MISSING_ID}/transition`, handler: h(mkAdTransition.POST), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: `/api/marketing/ads/${MISSING_ID}/sync`, handler: h(mkAdSync.POST), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: `/api/marketing/ads/${MISSING_ID}/draft`, handler: h(mkAdDraft.POST), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'GET', path: '/api/marketing/budget', handler: h(mkBudget.GET), policy: 'OWNER' },
+  { method: 'GET', path: '/api/public/marketing/feed.csv', handler: h(pubFeedCsv.GET), policy: 'PUBLIC' },
+  { method: 'GET', path: '/api/public/marketing/feed.xml', handler: h(pubFeedXml.GET), policy: 'PUBLIC' },
 
   // ZP-483: admin website tools. Every route is OWNER only, reads included.
   { method: 'GET', path: '/api/website/products', handler: h(websiteProducts.GET), policy: 'OWNER' },

@@ -1022,6 +1022,7 @@ model MarketingCampaign {
 
   products MarketingCampaignProduct[]
   contents MarketingContent[]
+  ads      MarketingAd[]
 
   @@index([shopKey, status])
 }
@@ -1051,6 +1052,7 @@ model MarketingContent {
   campaign MarketingCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   product  Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
   posts    MarketingPost[]
+  ads      MarketingAd[]
 
   @@index([campaignId])
   @@index([productId])
@@ -1101,4 +1103,85 @@ model MarketingAuditLog {
 
   @@index([entity, entityId])
   @@index([createdAt])
+}
+
+// VYRA Marketing hub, ads (ZP-1200). Kinds and statuses are strings validated in src/lib/marketing/.
+model MarketingAudience {
+  id          Int      @id @default(autoincrement())
+  shopKey     String   @default("vyra")
+  name        String
+  description String?
+  kind        String   @default("AD_TARGETING") // AD_TARGETING | CONTACT_LIST
+  targeting   Json?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  ads MarketingAd[]
+
+  @@index([shopKey, kind])
+}
+
+model MarketingAd {
+  id                 Int       @id @default(autoincrement())
+  shopKey            String    @default("vyra")
+  campaignId         Int?
+  contentId          Int?
+  audienceId         Int?
+  channelKind        String    @default("META_ADS")
+  objective          String    @default("TRAFFIC") // TRAFFIC | ENGAGEMENT | CLICK_TO_WHATSAPP
+  headline           String
+  primaryText        String
+  description        String?
+  imageKeys          Json      @default("[]")
+  link               String?
+  trackingTag        String    @unique
+  dailyBudgetCents   Int       @default(0)
+  startsAt           DateTime
+  endsAt             DateTime?
+  status             String    @default("DRAFT")
+  approvedBy         String?
+  approvedAt         DateTime?
+  activatedBy        String?
+  activatedAt        DateTime?
+  externalCampaignId String?
+  externalAdSetId    String?
+  externalCreativeId String?
+  externalAdId       String?
+  spendCents         Int       @default(0)
+  lastSyncedAt       DateTime?
+  error              String?
+  aiGenerated        Boolean   @default(false)
+  aiCostCents        Int       @default(0)
+  createdBy          String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  campaign MarketingCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  content  MarketingContent?  @relation(fields: [contentId], references: [id], onDelete: SetNull)
+  audience MarketingAudience? @relation(fields: [audienceId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([campaignId])
+}
+
+/// Daily results per post or ad (entity 'POST' | 'AD').
+model MarketingMetric {
+  id          Int      @id @default(autoincrement())
+  shopKey     String   @default("vyra")
+  entity      String
+  entityId    Int
+  day         DateTime @db.Date
+  impressions Int      @default(0)
+  reach       Int      @default(0)
+  clicks      Int      @default(0)
+  spendCents  Int      @default(0)
+  enquiries   Int      @default(0)
+  visits      Int      @default(0)
+  raw         Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([entity, entityId, day])
+  @@index([entity, day])
 }

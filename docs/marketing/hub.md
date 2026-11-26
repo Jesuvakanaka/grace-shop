@@ -132,7 +132,48 @@ If Meta rejects a saved token while publishing (error 190), the post is marked F
 - Posting needs Meta app review for `pages_manage_posts` and `instagram_content_publish` before it works for the public; while the app is in development mode only roles on the app can post.
 - Instagram: JPEG only, 50 posts per 24 hours through the API, no shopping tags, no filters, no music, links in captions are not clickable.
 - A failed post can be retried up to 3 attempts in all.
-- The hub does not create ads here (the Meta Ads connector is a later PR).
+- Ads, the Pixel and the product feed are in the sections below.
+
+## Ads (Meta: Facebook and Instagram), Pixel and product feed
+
+Code: `ads.ts`, `ad-state.ts`, `budget.ts`, `audiences.ts`, `connectors/meta-ads.ts`, `connectors/meta-pixel.ts`, `pixel.ts`, `feed.ts`, `feed-route.ts`, `ai/ad-copy.ts` in `src/lib/marketing/`.
+
+### Ads
+
+**Tables:** `MarketingAudience` (ad targeting: Harare 25 km by default, ages 18 to 65, optional gender and interests), `MarketingAd`, `MarketingMetric` (daily impressions, reach, clicks, spend, visits and enquiries per ad or post).
+
+**Status machine** (`ad-state.ts`):
+
+```
+DRAFT -> PENDING_APPROVAL (submit) | CANCELLED
+PENDING_APPROVAL -> APPROVED (approve, owner; also checks the cap) | REJECTED | DRAFT (edit)
+APPROVED -> CREATING (create_on_platform, owner) -> PAUSED_ON_PLATFORM (made on Meta, PAUSED) | FAILED
+PAUSED_ON_PLATFORM -> ACTIVE (start, owner: a separate action) | COMPLETED | CANCELLED
+ACTIVE -> PAUSED_ON_PLATFORM (pause) | COMPLETED (end date passed, noticed on sync)
+FAILED -> CREATING (retry, ids already made on Meta are reused) | DRAFT (edit)
+```
+
+Editing before the ad is on Meta sends it back to DRAFT and clears the approval. Once it is on Meta only the daily budget and end date can change, only while paused, the cap is re-checked, the approval is cleared and the owner approves again; `start` then pushes the approved budget and end date to Meta before switching on.
+
+**Spend cap (hard rule 2)** (`budget.ts`): committed spend of a Harare month = for each ad that is ACTIVE, PAUSED_ON_PLATFORM, APPROVED or CREATING, its daily budget x the days of that month still to come between start and end (today counts), plus the spend already recorded that month. An ad is refused (409, plain message) at approval, at creation on Meta, at a budget change and at start when that would pass `monthlySpendCapCents`. Cap 0 means no spend is possible for any month. Ads that start next month are checked against next month. A Postgres advisory lock makes these decisions one at a time. Syncing an ACTIVE ad pauses it once the month's recorded spend has reached the cap. Only USD ad accounts are accepted because the cap is in US dollars. The minimum daily budget is $1.00.
+
+**Gate (hard rule 1):** every call that creates, changes or starts an ad runs `assertCanGoLive` (live env, live setting, connected META_ADS channel with credentials, owner approval) and the cap check BEFORE any request; a connector call without them fails closed. Everything is created PAUSED. Two calls deliberately skip the live gate: pausing (stopping spend must work even when switches are off; it needs only saved credentials) and reading insights (read only).
+
+**Meta calls** (`connectors/meta-ads.ts`, version from `META_GRAPH_VERSION`): campaign, ad set, creative (`object_story_spec`, `link_data`), ad, all `status=PAUSED`; activate = `status=ACTIVE` on campaign, ad set, then ad; insights = `GET /{ad_id}/insights?fields=impressions,reach,clicks,spend&time_increment=1&date_preset=last_7d`. **The field mapping was written from Meta's documented fields and has not been run against a real ad account (the owner has none yet). It lives in the `build*` functions of one file, must be verified with a real account, and Meta's required fields change between versions.** Objectives: TRAFFIC (OUTCOME_TRAFFIC, LINK_CLICKS, Shop now), ENGAGEMENT (OUTCOME_ENGAGEMENT, POST_ENGAGEMENT, Learn more), CLICK_TO_WHATSAPP (OUTCOME_ENGAGEMENT, CONVERSATIONS, destination WHATSAPP, WhatsApp message button). The ad uses its first photo (as a public JPEG link). Meta errors are shown in Meta's own words.
+
+**Connect the ad account:** `POST /api/marketing/channels/connect` with `{ kind: 'META_ADS', adAccountId, pageId, accessToken }`. The hub checks `GET /act_{id}?fields=id,name,currency,account_status` (must be active), stores the channel CONNECTED with the three values encrypted. How: in Business Settings add the ad account, add a payment method that works from Zimbabwe, test with a $1 a day ad first, create a system user with `ads_management` and `ads_read` (expiry Never; standard access is enough for your own ad account).
+
+**API (OWNER only):** `GET/POST /api/marketing/audiences`, `GET/PATCH/DELETE /audiences/[id]`; `GET/POST /api/marketing/ads`, `GET/PATCH/DELETE /ads/[id]`; `POST /ads/[id]/transition` `{ action: submit | approve | reject | create_on_platform | start | pause | cancel }`; `POST /ads/[id]/sync` (pulls insights into `MarketingMetric`, adds visits and enquiries from the analytics rows whose campaign is the ad's tracking tag, refreshes `spendCents`); `POST /ads/[id]/draft` (AI copy); `GET /api/marketing/budget` (cap, committed, remaining and recorded spend this month). Each ad has its own tracking tag and `?src=` link.
+
+**AI ad copy** (`ai/ad-copy.ts`): headline, text and description for a DRAFT ad, from the product name, description, category and the brand voice only. The model never sees price, sizes or stock, and copy that contains a digit, `$` or `%` is refused. It never approves anything. It is a small standalone writer; point it at the shared channel writer when that lands.
+
+### Meta Pixel (Conversions API)
+
+`connectors/meta-pixel.ts`: `sendEvent` posts `PageView`, `ViewContent` or `Contact` (the WhatsApp enquiry) to `POST /{pixel_id}/events` with `action_source: website`, the page URL, optional product ids and `user_data` (IP and user agent as sent, email and phone SHA-256 hashed). It runs only when the live env is on, the live setting is on, a Pixel ID is saved in the settings and a META_ADS channel is connected; otherwise it throws 409 and sends nothing. `pixel.ts` exports `pixelConfigForStorefront()` (returns `null` unless all those gates pass). **The storefront is NOT wired up yet:** loading the browser Pixel and the visitor privacy notice wording are a later step, and must be done together.
+
+### Product feed
+
+`GET /api/public/marketing/feed.csv` and `feed.xml` (RSS 2.0 with the `g:` namespace) list published products only: id (item number), title, description, availability (in stock / out of stock / preorder), condition new, price like `12.00 USD` only when the storefront shows a price, link (`?src=feed`), image link (public JPEG rendition, 1200 px), brand VYRA, Google category when it can be worked out from the category name, `identifier_exists=no`. They answer 404 unless `productFeedEnabled` is on in the settings and the hub is not killed. No sign-in (public product data), cached for 5 minutes. Pieces with a hidden price are listed without one, and Meta and Google will flag them as missing a price.
 
 ## Switching a channel on
 
@@ -140,4 +181,4 @@ Each registry entry has plain-English `setupSteps` and `apiNotes` (what the offi
 
 ## Coming in later PRs
 
-Concrete connectors (Threads, Meta ads, Google, TikTok drafts, Pinterest, X, Telegram, YouTube, email, SMS, WhatsApp Cloud), ads with budget caps, audiences, contacts with opt-in, partners, daily results and recommendations.
+Concrete connectors (Threads, Google, TikTok drafts, Pinterest, X, Telegram, YouTube, email, SMS, WhatsApp Cloud), contacts with opt-in, partners, daily results and recommendations.
