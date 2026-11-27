@@ -135,25 +135,29 @@ TRUTH RULES, WITH NO EXCEPTIONS
 FIT THE CHANNEL
 - Write one post for each channel requested and follow that channel's rule line exactly.
 - On a very short channel, keep the opening and the action and drop the middle.
+- Never mention a photo, picture or video in the words (no "pictured here", no "see the photo"). You do not know which image will go with the post.
 
 WHAT TO RETURN
 JSON only. For each post: channel (the exact channel code given), text (the main words), openings (two other first lines that could replace the first line of text, each taking a different way in), headline (ads only, else null), description (ads only, else null), subject (email only, else null), hashtags (only where the channel rules allow them, without the # sign, else an empty array).`
 }
 
 /** What each channel wants. Pure; derived from the registry plus a few tighter writing rules. */
-export function channelRules(ch: ChannelDef): { maxText: number; hashtags: number; lines: string } {
-  const tight: Record<string, number> = { SMS: 160, WHATSAPP_STATUS: 140 }
+export function channelRules(ch: ChannelDef, link?: string | null): { maxText: number; words: number; hashtags: number; lines: string } {
+  // The link is added under the words. An SMS counts it; a WhatsApp Status caption gets 140 characters of words on top of it.
+  const linkRoom = link ? link.length + 2 : 0
+  const tight: Record<string, number> = { SMS: 160, WHATSAPP_STATUS: 140 + linkRoom }
   const maxText = Math.min(ch.limits.maxText, tight[ch.kind] ?? Infinity)
+  const words = Math.max(0, maxText - linkRoom)
   const hashtags = ch.kind === 'INSTAGRAM' ? 8 : ch.kind === 'TIKTOK' ? 5 : ch.kind === 'THREADS' ? 1 : 0
-  const parts: string[] = [`${ch.kind} (${ch.label}), format ${ch.formats[0]}, whole text at most ${maxText} characters after the link is added (leave about 60 characters for the link).`]
-  if (ch.kind === 'SMS') parts.push('One short message, at most 160 characters including the link. No hashtags, no emojis.')
-  if (ch.kind === 'WHATSAPP_STATUS') parts.push('Very short: one or two lines, a friendly nudge to look at the photo.')
+  const parts: string[] = [`${ch.kind} (${ch.label}), format ${ch.formats[0]}, your words at most ${words} characters${link ? ' (the link is added after them and is already allowed for)' : ''}. Text over the limit is cut off and loses its ending, so stay under it.`]
+  if (ch.kind === 'SMS') parts.push('One short message. No hashtags, no emojis.')
+  if (ch.kind === 'WHATSAPP_STATUS') parts.push('Very short: one or two lines. The reader\'s moment or one detail of the product, then the action from the brief.')
   if (ch.kind === 'EMAIL') parts.push('Fill "subject" (under 60 characters) and write the body in "text" in short paragraphs.')
   if (ch.formats[0] === 'AD') parts.push('Fill "headline" (short, under 40 characters) and "description" (one short line) as well as the primary text in "text".')
   if (hashtags > 0) parts.push(`Give ${Math.min(hashtags, 5)} to ${hashtags} relevant hashtags in "hashtags".`)
   else parts.push('No hashtags.')
   if (ch.kind === 'INSTAGRAM' || ch.kind === 'TIKTOK') parts.push('Friendly and visual; the link is not clickable, so say the link is in the bio only if the brief says so.')
-  return { maxText, hashtags, lines: parts.join(' ') }
+  return { maxText, words, hashtags, lines: parts.join(' ') }
 }
 
 const DEFAULT_PLAN: BriefPlan = { job: 'OFFER_CLOSE', reader: null, message: null, proof: null, urgency: null, action: 'Message us to order' }
@@ -199,7 +203,7 @@ export function factsBlock(input: DraftInput): string {
 function userText(input: DraftInput, channels: ChannelDef[]): string {
   const lines = [`Language: ${input.language?.trim() || 'English (British spelling)'}.`, '', briefBlock(input), '', factsBlock(input)]
   if (input.brandVoice?.trim()) lines.push('', `Owner's voice notes: ${input.brandVoice.trim()}`)
-  lines.push('', 'Channels to write:', ...channels.map((c) => `- ${channelRules(c).lines}`), 'Write the posts as JSON.')
+  lines.push('', 'Channels to write:', ...channels.map((c) => `- ${channelRules(c, input.links?.[c.kind]).lines}`), 'Write the posts as JSON.')
   return lines.join('\n')
 }
 
@@ -278,8 +282,8 @@ function cutAtWord(s: string, max: number): string {
  * Over-length text is trimmed at a word boundary when only the body must give way; if it
  * still cannot fit, the channel is rejected rather than posting something cut off.
  */
-export function assemblePost(mp: ModelPost, ch: ChannelDef, product: DraftProduct, link: string | null): { text: string; template: string } | { error: string } {
-  const rules = channelRules(ch)
+export function assemblePost(mp: ModelPost, ch: ChannelDef, product: DraftProduct, link: string | null): { text: string; template: string; cut?: boolean } | { error: string } {
+  const rules = channelRules(ch, link)
   const raw = [mp.text, mp.headline, mp.description, mp.subject].filter(Boolean).join('\n')
   if (UNKNOWN_PLACEHOLDER.test(raw)) return { error: 'The AI used a placeholder we do not know.' }
   if (INVENTED_PRICE.test(raw)) return { error: 'The AI wrote its own price, which is not allowed.' }
@@ -311,7 +315,8 @@ export function assemblePost(mp: ModelPost, ch: ChannelDef, product: DraftProduc
   let body = fill(mp.text)
   if (!body) return { error: 'Nothing was left of the text after removing details we cannot show.' }
   let text = build(body)
-  if (text.length > rules.maxText) {
+  const cut = text.length > rules.maxText
+  if (cut) {
     const over = text.length - rules.maxText
     body = cutAtWord(body, body.length - over)
     text = build(body)
@@ -319,12 +324,13 @@ export function assemblePost(mp: ModelPost, ch: ChannelDef, product: DraftProduc
   if (text.length > rules.maxText || body.replace(/…$/, '').trim().length < 15) {
     return { error: `The AI text did not fit in ${rules.maxText} characters for ${ch.label}.` }
   }
-  return { text, template: mp.text }
+  return { text, template: mp.text, ...(cut ? { cut } : {}) }
 }
 
 /** Words that push the reader to hurry. Only allowed when the brief gives a true reason to act now. */
 const URGENCY = /\b(hurry|last chance|selling fast|going fast|don'?t miss(?: out)?|while (?:stocks?|supplies) lasts?|limited (?:stock|time|quantity|quantities|numbers?|availability)|only (?:a few|\w+) left|(?:almost|nearly) gone|running out|before (?:it'?s|they'?re|it is|they are) gone|ends? (?:soon|today|tonight|tomorrow)|act (?:now|fast)|today only)\b/i
 const NUMBER = /\d+(?:[.,]\d+)*/g
+const PHOTO = /\b(pictured|in (?:the|this) (?:photo|picture|image|video)|(?:see|look at|check out) the (?:photo|picture|image|video)|(?:photo|picture) (?:above|below|here))\b/i
 const OPENERS = ['introducing', 'meet ', 'we are excited', "we're excited", 'we’re excited']
 
 export interface SoftProblems {
@@ -355,6 +361,8 @@ export function softProblems(mp: Pick<ModelPost, 'text' | 'headline' | 'descript
   const first = (mp.text.split('\n').find((l) => l.trim()) ?? '').trim().toLowerCase()
   const opener = [...ctx.names.map((n) => n.trim().toLowerCase()).filter((n) => n.length >= 3), ...OPENERS].find((o) => first.startsWith(o))
   if (opener) style.push(`The first line opens with "${opener.trim()}". Open with the reader's moment, a result they want or one specific detail.`)
+  const photo = raw.match(PHOTO)
+  if (photo) style.push(`It talks about the photo ("${photo[0]}"). Describe the product in words, because the writer cannot see which photo goes with the post.`)
   return { truth, style }
 }
 
@@ -374,7 +382,7 @@ function usableOpenings(mp: ModelPost, product: DraftProduct, ctx: { urgency: st
 }
 
 type Fns = AiFns
-type Judged = { mp: ModelPost; built: { text: string; template: string }; soft: SoftProblems } | { error: string }
+type Judged = { mp: ModelPost; built: { text: string; template: string; cut?: boolean }; soft: SoftProblems } | { error: string }
 
 /** Channels this short keep only the opening and the action, so the fuller checks do not apply. */
 export const SHORT_CHANNEL_MAX = 300
@@ -423,7 +431,11 @@ export async function draftPosts(input: DraftInput, fns: Fns = {}): Promise<Draf
     const mp = posts.find((m) => m.channel === ch.kind)
     if (!mp) return { error: 'The AI did not write this channel.' }
     const built = assemblePost(mp, ch, input.product, input.links?.[ch.kind] ?? null)
-    return 'error' in built ? built : { mp, built, soft: softProblems(mp, ctx) }
+    if ('error' in built) return built
+    const soft = softProblems(mp, ctx)
+    // A post that had to be cut has lost its ending, which is where the action is.
+    if (built.cut) soft.style.push(`It was too long for ${ch.label} and was cut off before the end. Keep the words under ${channelRules(ch, input.links?.[ch.kind]).words} characters and still end with the action.`)
+    return { mp, built, soft }
   }
   /** The second AI pass. It never blocks the writing: when it cannot answer, the drafts go through unchecked. */
   const aiCheck = async (rows: { ch: ChannelDef; mp: ModelPost }[]): Promise<Record<string, string[]>> => {

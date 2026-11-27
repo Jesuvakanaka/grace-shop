@@ -141,6 +141,8 @@ describe('the code checks what the AI wrote', () => {
 
   test('a clean draft has no problems', () => {
     assert.deepStrictEqual(softProblems(post(GOOD), ctx()), { truth: [], style: [] })
+    for (const t of ['Take a look at the photo.', 'The dress pictured here has a bow.']) assert.match(softProblems(post(`A dress for the day. ${t}`), ctx()).style[0], /photo/, t)
+    assert.deepStrictEqual(softProblems(post('Ready for the family photo at breakfast.'), ctx()).style, [])
   })
 
   test('urgency the brief did not give is a truth problem; the brief\'s own reason is not', () => {
