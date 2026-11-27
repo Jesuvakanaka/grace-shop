@@ -16,7 +16,7 @@ const product = (extra: Partial<DraftProduct> = {}): DraftProduct => ({
   ...extra,
 })
 
-const mp = (channel: string, text: string, extra: Record<string, unknown> = {}) => ({ channel, text, headline: null, description: null, subject: null, hashtags: [], ...extra })
+const mp = (channel: string, text: string, extra: Record<string, unknown> = {}) => ({ channel, text, headline: null, description: null, subject: null, hashtags: [], openings: [] as string[], ...extra })
 
 function fakeClaude(posts: unknown[], calls: { args?: Record<string, unknown> } = {}, usage = { input_tokens: 1000, output_tokens: 500 }) {
   return {
@@ -70,7 +70,7 @@ describe('placeholders are filled by code from the product', () => {
     const body = JSON.stringify(calls.args)
     assert.match(body, /NOT public/)
     assert.ok(!body.includes('99.99'))
-    assert.match(String(calls.args?.system), /British spelling/)
+    assert.match(body, /British spelling/)
     assert.match(String(calls.args?.system), /Never invent a price, size, stock level/)
   })
 

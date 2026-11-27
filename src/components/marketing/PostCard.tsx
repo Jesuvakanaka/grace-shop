@@ -6,7 +6,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { SharePhotos } from '@/components/SharePhotos';
 import { useToast } from '@/components/Toast';
 import { getChannel } from '@/lib/marketing/channels';
-import { attemptsLeft, availableActions, canRewrite, charCount, viewOnlineLabel, fromLocalInput, isEditable, modeLabel, shareCaption, toLocalInput, type ActionButton } from '@/lib/marketing/ui';
+import { attemptsLeft, availableActions, canRewrite, charCount, viewOnlineLabel, fromLocalInput, isEditable, modeLabel, shareCaption, swapOpening, toLocalInput, type ActionButton } from '@/lib/marketing/ui';
 import { imageUrlForKey, isValidImageKey } from '@/lib/storage/keys';
 import { mk, type Post } from './api';
 import { AiTag } from './ai';
@@ -131,6 +131,28 @@ export function PostCard({
           {count.count} of {count.max} characters{count.over ? ` (${-count.left} too many)` : ''}
         </p>
       </div>
+
+      {post.aiGenerated && (post.aiNotes ?? []).length > 0 && text === post.text ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900" data-testid={`post-notes-${post.id}`}>
+          <p className="font-medium">This draft could be stronger</p>
+          <ul className="list-disc pl-5">{(post.aiNotes ?? []).map((n) => <li key={n}>{n}</li>)}</ul>
+        </div>
+      ) : null}
+
+      {editable && post.aiGenerated && (post.aiOpenings ?? []).length > 0 ? (
+        <div data-testid={`post-openings-${post.id}`}>
+          <span className="label">Other ways to open it</span>
+          <ul className="space-y-2">
+            {(post.aiOpenings ?? []).map((o) => (
+              <li key={o} className="flex flex-wrap items-start gap-2 text-sm">
+                <span className="flex-1 min-w-48 text-slate-700">{o}</span>
+                <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setText(swapOpening(text, o))}>Use this opening</button>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-slate-500 mt-1">This changes the first line above. Press &quot;Save words and photos&quot; to keep it.</p>
+        </div>
+      ) : null}
 
       {editable && choices.length > 0 ? (
         <div>

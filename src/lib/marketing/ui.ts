@@ -189,13 +189,30 @@ export function costText(cents: number | null | undefined): string | null {
   return cents < 100 ? `AI cost: ${cents}¢` : `AI cost: $${(cents / 100).toFixed(2)}`
 }
 
-export interface DraftOutcomeDto { posts: { id: number }[]; failed: { channel: string; reason: string }[]; costCents: number }
+export interface DraftOutcomeDto { posts: { id: number; aiNotes?: string[] }[]; failed: { channel: string; reason: string }[]; costCents: number; warnings?: string[] }
 
 /** Plain sentences for the result of "Write with AI". */
-export function draftSummary(o: DraftOutcomeDto): { message: string; failures: string[]; cost: string | null } {
+export function draftSummary(o: DraftOutcomeDto): { message: string; failures: string[]; cost: string | null; warnings: string[] } {
   const n = o.posts.length
-  const message = n === 0 ? 'The AI did not write any posts.' : `The AI wrote ${n} post${n === 1 ? '' : 's'}. Read them, then submit for approval.`
-  return { message, failures: o.failed.map((f) => `${channelLabel(f.channel)}: ${f.reason}`), cost: costText(o.costCents) }
+  const weak = o.posts.filter((p) => (p.aiNotes ?? []).length > 0).length
+  let message = n === 0 ? 'The AI did not write any posts.' : `The AI wrote ${n} post${n === 1 ? '' : 's'}. Read them, then submit for approval.`
+  if (weak > 0) message += ` ${weak === 1 ? (n === 1 ? 'It' : 'One') : weak} could be stronger: see the note on ${weak === 1 ? 'the' : 'each'} post.`
+  return { message, failures: o.failed.map((f) => `${channelLabel(f.channel)}: ${f.reason}`), cost: costText(o.costCents), warnings: o.warnings ?? [] }
+}
+
+/**
+ * Put another first line in place of the post's first line. A post that is one paragraph has its
+ * first sentence replaced; everything after it is kept as written.
+ */
+export function swapOpening(text: string, opening: string): string {
+  const o = opening.trim()
+  if (!o) return text
+  const lead = text.match(/^\s*/)?.[0] ?? ''
+  const body = text.slice(lead.length)
+  const nl = body.indexOf('\n')
+  if (nl !== -1) return o + body.slice(nl)
+  const m = body.match(/^.*?[.!?…](?=\s+\S)/)
+  return m ? o + body.slice(m[0].length) : o
 }
 
 /** True when the post can be rewritten by AI (the server allows only these). */

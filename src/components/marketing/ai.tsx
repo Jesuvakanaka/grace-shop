@@ -21,6 +21,7 @@ export function DraftReport({ outcome, onClose }: { outcome: DraftOutcome; onClo
   return (
     <div className="rounded-lg border border-brand-olive-200 bg-brand-olive-50 px-4 py-3 text-sm space-y-1" role="status" data-testid="draft-report">
       <p className="text-slate-900">{s.message}</p>
+      {s.warnings.map((w) => <p key={w} className="text-amber-800" data-testid="draft-warning">{w}</p>)}
       {s.failures.length > 0 ? (
         <ul className="list-disc pl-5 text-rose-700" data-testid="draft-failures">
           {s.failures.map((f) => <li key={f}>{f}</li>)}

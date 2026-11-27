@@ -3,7 +3,8 @@ import type { MarketingContent, MarketingPost, Prisma } from '@prisma/client'
 import { WebsiteError } from '@/lib/website/http'
 import { writeAudit, type Db } from './audit'
 import { createPostsForContent, toPostDto, type PostDto } from './posts'
-import { asObject, imageKeys, onlyKeys, requiredText, text } from './validate'
+import { JOBS, URGENCY_KINDS } from './brief'
+import { asObject, imageKeys, oneOf, onlyKeys, requiredText, text } from './validate'
 
 export type ContentDto = Omit<MarketingContent, 'imageKeys'> & { imageKeys: string[]; posts?: PostDto[] }
 
@@ -24,6 +25,23 @@ export async function getContent(db: Db, id: number): Promise<ContentDto | null>
   return c ? toDto(c) : null
 }
 
+export const BRIEF_FIELDS = ['job', 'reader', 'message', 'proof', 'urgencyKind', 'urgencyText', 'action'] as const
+
+/** The structured brief fields present in the body, validated. A job is optional so old screens keep working. */
+function briefData(o: Record<string, unknown>): Partial<Record<(typeof BRIEF_FIELDS)[number], string | null>> {
+  const d: Partial<Record<(typeof BRIEF_FIELDS)[number], string | null>> = {}
+  if ('job' in o) d.job = o.job === null || o.job === '' ? null : oneOf(o.job, 'job', JOBS)
+  if ('reader' in o) d.reader = text(o.reader, 'reader', 400)
+  if ('message' in o) d.message = text(o.message, 'message', 600)
+  if ('proof' in o) d.proof = text(o.proof, 'proof', 600)
+  if ('urgencyKind' in o) d.urgencyKind = o.urgencyKind === null || o.urgencyKind === '' ? null : oneOf(o.urgencyKind, 'urgencyKind', URGENCY_KINDS)
+  if ('urgencyText' in o) d.urgencyText = text(o.urgencyText, 'urgencyText', 200)
+  if ('action' in o) d.action = text(o.action, 'action', 160)
+  if (d.urgencyKind === 'OWN' && 'urgencyText' in o && !d.urgencyText) throw new WebsiteError(400, 'Type your reason to act now, or choose "None".', { field: 'urgencyText' })
+  if (d.urgencyKind !== undefined && d.urgencyKind !== 'OWN') d.urgencyText = null
+  return d
+}
+
 function refId(v: unknown, field: string): number | null {
   if (v === null || v === undefined) return null
   if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) throw new WebsiteError(400, `${field} is not valid.`, { field })
@@ -42,7 +60,7 @@ async function checkRefs(db: Db, campaignId: number | null, productId: number | 
 /** Create a content idea; `channels` (optional) also creates one draft post per channel. */
 export async function createContent(db: Db, body: unknown, actor: string, opts: { host?: string | null } = {}): Promise<ContentDto> {
   const o = asObject(body)
-  onlyKeys(o, ['title', 'brief', 'campaignId', 'productId', 'imageKeys', 'channels'])
+  onlyKeys(o, ['title', 'brief', 'campaignId', 'productId', 'imageKeys', 'channels', ...BRIEF_FIELDS])
   const title = requiredText(o.title, 'title', 160)
   const brief = text(o.brief, 'brief', 4000)
   const campaignId = refId(o.campaignId, 'campaignId')
@@ -56,7 +74,9 @@ export async function createContent(db: Db, body: unknown, actor: string, opts: 
     channels = o.channels as string[]
   }
   await checkRefs(db, campaignId, productId)
-  const row = await db.marketingContent.create({ data: { title, brief, campaignId, productId, imageKeys: keys, createdBy: actor } })
+  const plan = briefData(o)
+  if (plan.urgencyKind === 'OWN' && !plan.urgencyText) throw new WebsiteError(400, 'Type your reason to act now, or choose "None".', { field: 'urgencyText' })
+  const row = await db.marketingContent.create({ data: { title, brief, campaignId, productId, imageKeys: keys, createdBy: actor, ...plan } })
   await writeAudit(db, { actor, action: 'content.create', entity: 'content', entityId: row.id, detail: { title } })
   if (channels.length > 0) await createPostsForContent(db, row.id, channels, actor, opts)
   return (await getContent(db, row.id)) as ContentDto
@@ -64,8 +84,8 @@ export async function createContent(db: Db, body: unknown, actor: string, opts: 
 
 export async function updateContent(db: Db, id: number, body: unknown, actor: string): Promise<ContentDto> {
   const o = asObject(body)
-  onlyKeys(o, ['title', 'brief', 'campaignId', 'productId', 'imageKeys'])
-  const data: Prisma.MarketingContentUncheckedUpdateInput = {}
+  onlyKeys(o, ['title', 'brief', 'campaignId', 'productId', 'imageKeys', ...BRIEF_FIELDS])
+  const data: Prisma.MarketingContentUncheckedUpdateInput = { ...briefData(o) }
   if ('title' in o) data.title = requiredText(o.title, 'title', 160)
   if ('brief' in o) data.brief = text(o.brief, 'brief', 4000)
   if ('campaignId' in o) data.campaignId = refId(o.campaignId, 'campaignId')
