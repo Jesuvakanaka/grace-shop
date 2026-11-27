@@ -16,7 +16,7 @@ const product = (extra: Partial<DraftProduct> = {}): DraftProduct => ({
   ...extra,
 })
 
-const mp = (channel: string, text: string, extra: Record<string, unknown> = {}) => ({ channel, text, headline: null, description: null, subject: null, hashtags: [], ...extra })
+const mp = (channel: string, text: string, extra: Record<string, unknown> = {}) => ({ channel, text, headline: null, description: null, subject: null, hashtags: [], openings: [] as string[], ...extra })
 
 function fakeClaude(posts: unknown[], calls: { args?: Record<string, unknown> } = {}, usage = { input_tokens: 1000, output_tokens: 500 }) {
   return {
@@ -70,7 +70,7 @@ describe('placeholders are filled by code from the product', () => {
     const body = JSON.stringify(calls.args)
     assert.match(body, /NOT public/)
     assert.ok(!body.includes('99.99'))
-    assert.match(String(calls.args?.system), /British spelling/)
+    assert.match(body, /British spelling/)
     assert.match(String(calls.args?.system), /Never invent a price, size, stock level/)
   })
 
@@ -106,13 +106,21 @@ describe('channel rules', () => {
       assert.ok(r.text.endsWith(LINK))
       assert.match(r.text, /…\n\n/)
     }
+    assert.ok('text' in r && r.cut === true)
     assert.strictEqual(channelRules(getChannel('SMS')!).maxText, 160)
+    // The writer is told how many characters its words may take once the link is in.
+    assert.strictEqual(channelRules(getChannel('SMS')!, LINK).words, 160 - LINK.length - 2)
+    assert.match(channelRules(getChannel('SMS')!, LINK).lines, new RegExp(`your words at most ${160 - LINK.length - 2} characters`))
   })
 
   test('WhatsApp Status is very short', () => {
     assert.ok(channelRules(getChannel('WHATSAPP_STATUS')!).maxText <= 140)
     const r = assemblePost(mp('WHATSAPP_STATUS', 'New in: the pink party dress. '.repeat(20)), getChannel('WHATSAPP_STATUS')!, product(), null)
     assert.ok('text' in r && r.text.length <= 140)
+    // The link does not eat into the 140 characters of words, and a post that fits is not marked as cut.
+    assert.strictEqual(channelRules(getChannel('WHATSAPP_STATUS')!, LINK).words, 140)
+    const fits = assemblePost(mp('WHATSAPP_STATUS', 'Linen outside, soft cotton against her skin. Message us to order.'), getChannel('WHATSAPP_STATUS')!, product(), LINK)
+    assert.ok('text' in fits && !fits.cut && fits.text.endsWith(LINK))
   })
 
   test('ads carry headline, primary text and description; email carries a subject', () => {

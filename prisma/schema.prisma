@@ -94,22 +94,23 @@ model Product {
   preorderShipTo      DateTime?    @db.Date
   preorderExpectedQty Int?
 
-  stockMovements     StockMovement[]
-  saleItems          SaleItem[]
-  category           Category?                  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  images             ProductImage[]
-  marketingCampaigns MarketingCampaignProduct[]
-  marketingContent   MarketingContent[]
-  slugRedirects      ProductSlugRedirect[]
-  video              ProductVideo?
+  stockMovements          StockMovement[]
+  saleItems               SaleItem[]
+  category                Category?                  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  images                  ProductImage[]
+  marketingCampaigns      MarketingCampaignProduct[]
+  marketingContent        MarketingContent[]
+  marketingSellingProfile MarketingSellingProfile?
+  slugRedirects           ProductSlugRedirect[]
+  video                   ProductVideo?
   // ZP-508: verified customer reviews (owner-moderated) and their one-time links.
-  reviews            Review[]
-  reviewInvites      ReviewInvite[]
-  loves              ProductLove[]
+  reviews                 Review[]
+  reviewInvites           ReviewInvite[]
+  loves                   ProductLove[]
   // ZP-506: popularity score and today's feed rank (nightly).
-  popularity         ProductPopularity?
+  popularity              ProductPopularity?
   // ZP-1100: the capture draft this product was created from, if any.
-  captureDraft       CaptureDraft?
+  captureDraft            CaptureDraft?
 
   @@index([categoryId])
 }
@@ -982,6 +983,12 @@ model MarketingSettings {
   brandVoice           String?
   /// Most customer messages (all broadcasts together) that may be sent in one day.
   messageDailyCap      Int      @default(100)
+  /// One line that says what the shop is; every AI prompt opens with it.
+  shopDescription      String?
+  /// Shop policies the AI may quote when it answers a buyer's doubt. Empty means "ask the owner".
+  policyDelivery       String?
+  policyReturns        String?
+  policyOrdering       String?
   updatedBy            String?
   updatedAt            DateTime @updatedAt
 }
@@ -1040,16 +1047,26 @@ model MarketingCampaignProduct {
 }
 
 model MarketingContent {
-  id         Int      @id @default(autoincrement())
-  shopKey    String   @default("vyra")
-  campaignId Int?
-  productId  Int?
-  title      String
-  brief      String?
-  imageKeys  Json     @default("[]")
-  createdBy  String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id          Int      @id @default(autoincrement())
+  shopKey     String   @default("vyra")
+  campaignId  Int?
+  productId   Int?
+  title       String
+  brief       String?
+  /// The structured brief. job: GET_SEEN | EARN_TRUST | GET_PERMISSION | OFFER_CLOSE | KEEP. All null on content made before the brief.
+  job         String?
+  reader      String?
+  message     String?
+  proof       String?
+  /// NONE | NEW_IN | FEW_LEFT | PREORDER | CAMPAIGN_ENDS | OWN
+  urgencyKind String?
+  /// Only for OWN: the owner's own true reason to act now.
+  urgencyText String?
+  action      String?
+  imageKeys   Json     @default("[]")
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   campaign MarketingCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   product  Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
@@ -1082,6 +1099,10 @@ model MarketingPost {
   attempts     Int       @default(0)
   aiGenerated  Boolean   @default(false)
   aiCostCents  Int       @default(0)
+  /// Other first lines the AI offered for this post (final text, placeholders filled).
+  aiOpenings   Json      @default("[]")
+  /// What the draft check still found weak, in plain words for the owner.
+  aiNotes      Json      @default("[]")
   createdBy    String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -1091,6 +1112,27 @@ model MarketingPost {
 
   @@index([status, scheduledFor])
   @@index([contentId])
+}
+
+/// Why someone buys one product: worked out once by the AI, corrected by the owner, read by every writer.
+model MarketingSellingProfile {
+  id          Int      @id @default(autoincrement())
+  productId   Int      @unique
+  /// [{ who, moment }]
+  buyers      Json     @default("[]")
+  /// [{ reason, fact }]
+  reasons     Json     @default("[]")
+  /// [{ doubt, answer }] where answer null means "ask the owner"
+  doubts      Json     @default("[]")
+  /// [string]
+  occasions   Json     @default("[]")
+  aiGenerated Boolean  @default(false)
+  aiCostCents Int      @default(0)
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 }
 
 model MarketingAuditLog {

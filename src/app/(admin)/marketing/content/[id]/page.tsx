@@ -10,6 +10,7 @@ import { PostCard } from '@/components/marketing/PostCard';
 import { canRewrite } from '@/lib/marketing/ui';
 import { mk, type ChannelItem, type Content, type PickerProduct, type Post } from '@/components/marketing/api';
 import { DraftReport, writeWithAi, type DraftOutcome } from '@/components/marketing/ai';
+import { BriefForm, EMPTY_BRIEF, SellingProfilePanel, briefBody, briefFromContent, briefProblem, useProductSelling, type BriefValue } from '@/components/marketing/brief';
 import { Card, ErrorNote, Loading, PhotoTicker } from '@/components/marketing/parts';
 
 export default function ContentPage() {
@@ -21,6 +22,7 @@ export default function ContentPage() {
   const [product, setProduct] = useState<PickerProduct | null>(null);
   const [title, setTitle] = useState('');
   const [brief, setBrief] = useState('');
+  const [plan, setPlan] = useState<BriefValue>(EMPTY_BRIEF);
   const [photos, setPhotos] = useState<string[]>([]);
   const [addKinds, setAddKinds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -34,6 +36,7 @@ export default function ContentPage() {
     setContent(c);
     setTitle(c.title);
     setBrief(c.brief ?? '');
+    setPlan(briefFromContent(c));
     setPhotos(c.imageKeys);
   }, []);
 
@@ -53,11 +56,13 @@ export default function ContentPage() {
   const reload = async () => apply((await mk<{ content: Content }>(`/api/marketing/content/${id}`)).content);
 
   const saveDetails = async () => {
+    const problem = briefProblem(plan);
+    if (problem) { setError(problem); return; }
     setBusy(true);
     setError(null);
     try {
-      apply((await mk<{ content: Content }>(`/api/marketing/content/${id}`, { method: 'PATCH', body: { title, brief: brief || null, imageKeys: photos } })).content);
-      toast.success('Saved. Photos on posts are changed on each post.');
+      apply((await mk<{ content: Content }>(`/api/marketing/content/${id}`, { method: 'PATCH', body: { title, brief: brief || null, imageKeys: photos, ...briefBody(plan) } })).content);
+      toast.success('Saved. Press "Write with AI" to write the posts again from this brief.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save.');
     } finally {
@@ -120,6 +125,10 @@ export default function ContentPage() {
     }
   };
 
+  const selling = useProductSelling(content?.productId ?? null, content?.campaignId ?? null);
+  const savedPlan = content ? JSON.stringify(briefBody(briefFromContent(content))) : '';
+  const planDirty = content !== null && (JSON.stringify(briefBody(plan)) !== savedPlan || (brief || null) !== (content.brief ?? null));
+
   const onPost = (p: Post) => setContent((c) => (c ? { ...c, posts: (c.posts ?? []).map((x) => (x.id === p.id ? p : x)) } : c));
 
   if (!content) return error ? <ErrorNote message={error} /> : <Loading />;
@@ -137,8 +146,9 @@ export default function ContentPage() {
           <label className="label" htmlFor="ct">Title</label>
           <input id="ct" className="input" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={160} />
         </div>
+        <BriefForm value={plan} onChange={setPlan} profile={selling.data?.profile ?? null} urgency={selling.data?.urgency ?? []} hasProduct={content.productId !== null} />
         <div>
-          <label className="label" htmlFor="cb">What do you want to say?</label>
+          <label className="label" htmlFor="cb">Your note (optional)</label>
           <textarea id="cb" className="input min-h-24" value={brief} onChange={(e) => setBrief(e.target.value)} maxLength={4000} />
         </div>
         {product ? (
@@ -154,9 +164,17 @@ export default function ContentPage() {
         </div>
       </Card>
 
+      {content.productId ? (
+        <>
+          <ErrorNote message={selling.error} />
+          <SellingProfilePanel productId={content.productId} productName={product?.name ?? content.title} profile={selling.data?.profile ?? null} onProfile={selling.setProfile} />
+        </>
+      ) : null}
+
       <div className="space-y-3">
+        {planDirty ? <p className="text-sm text-amber-700" data-testid="brief-unsaved">You changed the brief. Save it first, so the AI writes from the new one.</p> : null}
         <div className="flex flex-wrap items-center gap-3">
-          <button type="button" className="btn btn-primary" onClick={() => runAi()} disabled={busy || aiBusy !== null || writable === 0} data-testid="write-with-ai">
+          <button type="button" className="btn btn-primary" onClick={() => runAi()} disabled={busy || aiBusy !== null || writable === 0 || planDirty} data-testid="write-with-ai">
             {aiBusy === 'all' ? 'The AI is writing…' : 'Write with AI'}
           </button>
           <p className="text-xs text-slate-500">Writes every draft or rejected post for its channel. You still read and approve each one.</p>
@@ -172,7 +190,7 @@ export default function ContentPage() {
       <div className="space-y-4">
         {posts.length === 0 ? <p className="text-sm text-slate-500">No channels yet. Add some below.</p> : null}
         {posts.map((p) => (
-          <PostCard key={p.id} post={p} photoChoices={choices} connected={connectedKinds.has(p.channelKind)} onChange={onPost} title={content.title} aiBusy={aiBusy !== null} aiWorking={aiBusy === p.channelKind || aiBusy === 'all'} onRewrite={() => runAi([p.channelKind])} />
+          <PostCard key={p.id} post={p} photoChoices={choices} connected={connectedKinds.has(p.channelKind)} onChange={onPost} title={content.title} aiBusy={aiBusy !== null || planDirty} aiWorking={aiBusy === p.channelKind || aiBusy === 'all'} onRewrite={() => runAi([p.channelKind])} />
         ))}
       </div>
 

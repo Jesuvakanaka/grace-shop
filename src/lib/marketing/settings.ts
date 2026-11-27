@@ -4,7 +4,7 @@ import { writeAudit, type Db } from './audit'
 import { asObject, bool, int, onlyKeys, text } from './validate'
 import { WebsiteError } from '@/lib/website/http'
 
-export const SETTINGS_FIELDS = ['liveEnabled', 'monthlySpendCapCents', 'metaPixelId', 'productFeedEnabled', 'weeklyPostTarget', 'brandVoice', 'messageDailyCap'] as const
+export const SETTINGS_FIELDS = ['liveEnabled', 'monthlySpendCapCents', 'metaPixelId', 'productFeedEnabled', 'weeklyPostTarget', 'brandVoice', 'messageDailyCap', 'shopDescription', 'policyDelivery', 'policyReturns', 'policyOrdering'] as const
 
 /** The one settings row (id 1), created with the safe defaults when missing. */
 export async function getSettings(db: Db): Promise<MarketingSettings> {
@@ -21,6 +21,8 @@ export async function updateSettings(db: Db, body: unknown, actor: string): Prom
   if ('weeklyPostTarget' in o) data.weeklyPostTarget = int(o.weeklyPostTarget, 'weeklyPostTarget', 0, 100)
   if ('messageDailyCap' in o) data.messageDailyCap = int(o.messageDailyCap, 'messageDailyCap', 0, 10000)
   if ('brandVoice' in o) data.brandVoice = text(o.brandVoice, 'brandVoice', 1000)
+  if ('shopDescription' in o) data.shopDescription = text(o.shopDescription, 'shopDescription', 200)
+  for (const k of ['policyDelivery', 'policyReturns', 'policyOrdering'] as const) if (k in o) data[k] = text(o[k], k, 500)
   if ('metaPixelId' in o) {
     const v = text(o.metaPixelId, 'metaPixelId', 32)
     if (v !== null && !/^\d{5,32}$/.test(v)) throw new WebsiteError(400, 'The Meta Pixel ID is a number (digits only).', { field: 'metaPixelId' })

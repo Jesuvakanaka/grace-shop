@@ -30,12 +30,21 @@ export interface Post {
   attempts: number;
   aiGenerated?: boolean;
   aiCostCents?: number;
+  aiOpenings?: string[];
+  aiNotes?: string[];
 }
 
 export interface Content {
   id: number;
   title: string;
   brief: string | null;
+  job?: string | null;
+  reader?: string | null;
+  message?: string | null;
+  proof?: string | null;
+  urgencyKind?: string | null;
+  urgencyText?: string | null;
+  action?: string | null;
   campaignId: number | null;
   productId: number | null;
   imageKeys: string[];

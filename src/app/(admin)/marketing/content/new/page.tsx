@@ -1,11 +1,12 @@
 'use client';
-// ZP-1200: new content: pick a product and photos, write the idea, tick the channels.
+// ZP-1200: new content: pick a product and photos, fill in the brief, tick the channels.
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/Toast';
 import { ChannelPicker } from '@/components/marketing/ChannelPicker';
 import { mk, type Campaign, type ChannelItem, type Content, type PickerProduct } from '@/components/marketing/api';
 import { DraftReport, SuggestionsPanel, writeWithAi, type DraftOutcome } from '@/components/marketing/ai';
+import { BriefForm, EMPTY_BRIEF, SellingProfilePanel, briefBody, briefProblem, useProductSelling, type BriefValue } from '@/components/marketing/brief';
 import { productIdFromQuery } from '@/lib/marketing/ui';
 import { Card, ErrorNote, PhotoTicker, ProductSearch } from '@/components/marketing/parts';
 
@@ -16,6 +17,7 @@ export default function NewContentPage() {
   const [photos, setPhotos] = useState<string[]>([]);
   const [title, setTitle] = useState('');
   const [brief, setBrief] = useState('');
+  const [plan, setPlan] = useState<BriefValue>(EMPTY_BRIEF);
   const [campaignId, setCampaignId] = useState('');
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [channels, setChannels] = useState<ChannelItem[]>([]);
@@ -25,6 +27,7 @@ export default function NewContentPage() {
   const [created, setCreated] = useState<Content | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiReport, setAiReport] = useState<DraftOutcome | null>(null);
+  const selling = useProductSelling(product?.id ?? null, campaignId ? Number(campaignId) : null);
 
   useEffect(() => {
     mk<{ channels: ChannelItem[] }>('/api/marketing/channels').then((d) => setChannels(d.channels)).catch((e) => setError(e.message));
@@ -54,10 +57,12 @@ export default function NewContentPage() {
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
+    const problem = briefProblem(plan);
+    if (problem) { setError(problem); return; }
     setBusy(true);
     setError(null);
     try {
-      const body: Record<string, unknown> = { title, brief: brief || null, imageKeys: photos, channels: picked };
+      const body: Record<string, unknown> = { title, brief: brief || null, imageKeys: photos, channels: picked, ...(plan.job ? briefBody(plan) : {}) };
       if (product) body.productId = product.id;
       if (campaignId) body.campaignId = Number(campaignId);
       const d = await mk<{ content: Content }>('/api/marketing/content', { method: 'POST', body });
@@ -90,7 +95,7 @@ export default function NewContentPage() {
         <ErrorNote message={error} />
         <Card className="space-y-4">
           <h2 className="font-serif text-xl font-semibold">Your content is ready</h2>
-          <p className="text-sm text-slate-600">The posts are created as drafts with your words. You can let the AI write each one properly for its channel, or edit them by hand.</p>
+          <p className="text-sm text-slate-600">The posts are created as drafts. Let the AI write each one from your brief for its channel, or write them by hand.</p>
           {aiReport ? <DraftReport outcome={aiReport} /> : null}
           <div className="flex flex-wrap gap-3">
             {!aiReport ? <button type="button" className="btn btn-primary" onClick={aiNow} disabled={aiBusy} data-testid="write-ai-now">{aiBusy ? 'The AI is writing…' : 'Write the posts with AI now'}</button> : null}
@@ -123,16 +128,18 @@ export default function NewContentPage() {
         ) : null}
       </Card>
 
+      {product ? (
+        <>
+          <ErrorNote message={selling.error} />
+          <SellingProfilePanel key={product.id} productId={product.id} productName={product.name} profile={selling.data?.profile ?? null} onProfile={selling.setProfile} />
+        </>
+      ) : null}
+
       <Card className="space-y-4">
-        <h2 className="font-serif text-xl font-semibold">2. The idea</h2>
+        <h2 className="font-serif text-xl font-semibold">2. The brief</h2>
         <div>
           <label className="label" htmlFor="c-title">Title</label>
           <input id="c-title" className="input" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={160} required data-testid="content-title" />
-        </div>
-        <div>
-          <label className="label" htmlFor="c-brief">What do you want to say?</label>
-          <textarea id="c-brief" className="input min-h-28" value={brief} onChange={(e) => setBrief(e.target.value)} maxLength={4000} data-testid="content-brief" />
-          <p className="text-xs text-slate-500 mt-1">This becomes the first words of every post. You can change each one after.</p>
         </div>
         <div>
           <label className="label" htmlFor="c-camp">Campaign (optional)</label>
@@ -140,6 +147,12 @@ export default function NewContentPage() {
             <option value="">No campaign</option>
             {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
+        </div>
+        <BriefForm value={plan} onChange={setPlan} profile={selling.data?.profile ?? null} urgency={selling.data?.urgency ?? []} hasProduct={product !== null} />
+        <div>
+          <label className="label" htmlFor="c-brief">Your note (optional)</label>
+          <textarea id="c-brief" className="input min-h-24" value={brief} onChange={(e) => setBrief(e.target.value)} maxLength={4000} data-testid="content-brief" />
+          <p className="text-xs text-slate-500 mt-1">Anything extra you want said. Until the AI writes them, the draft posts start with these words.</p>
         </div>
       </Card>
 

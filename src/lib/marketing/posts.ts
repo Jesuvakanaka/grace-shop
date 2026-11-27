@@ -10,11 +10,15 @@ import { POST_STATUSES, transition, OWNER_ACTIONS, type Actor, type PostAction, 
 import { buildTrackedLink, generateTrackingTag } from './tracking'
 import { asObject, date, imageKeys, onlyKeys, oneOf, requiredText } from './validate'
 
-export type PostDto = Omit<MarketingPost, 'imageKeys'> & { imageKeys: string[] }
+export type PostDto = Omit<MarketingPost, 'imageKeys' | 'aiOpenings' | 'aiNotes'> & { imageKeys: string[]; aiOpenings: string[]; aiNotes: string[] }
+
+const strings = (v: unknown): string[] => (Array.isArray(v) ? (v as unknown[]).filter((k): k is string => typeof k === 'string') : [])
 
 export const toPostDto = (p: MarketingPost): PostDto => ({
   ...p,
-  imageKeys: Array.isArray(p.imageKeys) ? (p.imageKeys as unknown[]).filter((k): k is string => typeof k === 'string') : [],
+  imageKeys: strings(p.imageKeys),
+  aiOpenings: strings(p.aiOpenings),
+  aiNotes: strings(p.aiNotes),
 })
 
 const asActor = (a: Actor | string): Actor => (typeof a === 'string' ? { username: a, role: 'OWNER' } : a)
@@ -116,7 +120,7 @@ export async function updatePost(db: Db, id: number, body: unknown, actor: Actor
   if ('text' in o) {
     const t = requiredText(o.text, 'text', 20000)
     checkText(ch, t)
-    if (t !== post.text) { data.text = t; changes.push('text') }
+    if (t !== post.text) { data.text = t; data.aiNotes = []; changes.push('text') } // the check's notes were about the old words
   }
   if ('imageKeys' in o) {
     const k = imageKeys(o.imageKeys, 'imageKeys')
