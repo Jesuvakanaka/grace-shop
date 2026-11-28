@@ -38,7 +38,7 @@ const rejects = async (fn: () => Promise<unknown>, status: number, re?: RegExp) 
 before(async () => {
   const s = await getSettings(prisma)
   savedSettings = { liveEnabled: s.liveEnabled, monthlySpendCapCents: s.monthlySpendCapCents, metaPixelId: s.metaPixelId, weeklyPostTarget: s.weeklyPostTarget, brandVoice: s.brandVoice, productFeedEnabled: s.productFeedEnabled }
-  const p = await prisma.product.create({ data: { itemNumber: `ZP1200-${Date.now()}`, productName: 'ZP1200 Pink Dress', slug: `zp1200-pink-dress-${Date.now()}` } })
+  const p = await prisma.product.create({ data: { itemNumber: `ZP1200-${Date.now()}`, productName: 'ZP1200 Pink Dress', slug: `zp1200-pink-dress-${Date.now()}`, published: true, currentQuantity: 5 } }) // ZP-1106: on the website and in stock, so it may be marketed
   productId = p.id
   ownerToken = await createToken(900200, owner.username, 'OWNER')
 })

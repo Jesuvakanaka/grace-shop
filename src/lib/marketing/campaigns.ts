@@ -3,6 +3,7 @@ import type { MarketingCampaign, Prisma } from '@prisma/client'
 import { WebsiteError } from '@/lib/website/http'
 import { writeAudit, type Db } from './audit'
 import { asObject, date, idList, int, onlyKeys, oneOf, requiredText, text } from './validate'
+import { assertNewProductsMarketable } from './catalogue'
 
 export const OBJECTIVES = ['AWARENESS', 'VISITS', 'ENQUIRIES'] as const
 /** ARCHIVED replaces deleting (ZP-1124, MM-04-AC6): the campaign and its history stay, hidden from the normal list. */
@@ -58,6 +59,7 @@ export async function createCampaign(db: Db, body: unknown, actor: string): Prom
   const { d, productIds } = parse(asObject(body), true)
   checkDates(d.startsAt as Date | null | undefined, d.endsAt as Date | null | undefined)
   if (productIds) await checkProducts(db, productIds)
+  if (productIds) await assertNewProductsMarketable(db, productIds) // ZP-1106 (MM-01-AC4)
   const row = await db.marketingCampaign.create({
     data: {
       ...(d as Prisma.MarketingCampaignUncheckedCreateInput),
@@ -93,6 +95,9 @@ export async function updateCampaign(db: Db, id: number, body: unknown, actor: s
   checkDates((d.startsAt as Date | null | undefined) ?? existing.startsAt, (d.endsAt as Date | null | undefined) ?? existing.endsAt)
   if (productIds) {
     await checkProducts(db, productIds)
+    // ZP-1106 (MM-01-AC4): newly added products must be marketable; ones already chosen stay listed.
+    const had = new Set((await db.marketingCampaignProduct.findMany({ where: { campaignId: id }, select: { productId: true } })).map((r) => r.productId))
+    await assertNewProductsMarketable(db, productIds.filter((p) => !had.has(p)))
     await db.marketingCampaignProduct.deleteMany({ where: { campaignId: id } })
     await db.marketingCampaignProduct.createMany({ data: productIds.map((productId) => ({ campaignId: id, productId })) })
   }

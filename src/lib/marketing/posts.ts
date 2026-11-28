@@ -1,6 +1,7 @@
 // VYRA Marketing hub (ZP-1200): posts (content as it goes out on one channel). Server only.
 import type { MarketingPost, Prisma } from '@prisma/client'
 import { WebsiteError } from '@/lib/website/http'
+import { assertContentProductMarketable } from './catalogue'
 import { hostRoutingConfigFromEnv } from '@/lib/host-routing'
 import { writeAudit, type Db } from './audit'
 import { campaignBlockReason, type WindowCampaign } from './campaign-window'
@@ -190,6 +191,8 @@ export async function transitionPost(
   }
   const t = transition(post, action, a, opts)
   if (IN_CAMPAIGN_WINDOW.includes(action)) await assertInCampaignWindow(db, post.contentId, opts.now ?? new Date())
+  // ZP-1106 (MM-01-AC4, AT-06): a withdrawn or sold-out product is never sent or scheduled, whatever the path.
+  if (IN_CAMPAIGN_WINDOW.includes(action) || action === 'schedule') await assertContentProductMarketable(db, post.contentId)
   // A scheduled time outside the campaign would only be refused later: refuse it now.
   if (action === 'schedule' && t.scheduledFor) await assertInCampaignWindow(db, post.contentId, t.scheduledFor)
   if (GATED.includes(action)) {
