@@ -16,6 +16,8 @@ describe('Business Control MVP Tests', () => {
   // Clear DB before tests
   before(async () => {
     await prisma.stockMovement.deleteMany({});
+    await prisma.saleRefund.deleteMany({});
+    await prisma.marketingSaleAttribution.deleteMany({});
     await prisma.saleItem.deleteMany({});
     await prisma.sale.deleteMany({});
     await prisma.expense.deleteMany({});

@@ -348,19 +348,56 @@ model StockMovement {
 // ─── Sales ─────────────────────────────────────────────────────────────────────
 
 model Sale {
-  id            Int      @id @default(autoincrement())
+  id            Int       @id @default(autoincrement())
   saleDate      DateTime
   paymentType   String // CASH, CREDIT, MIXED
   customerName  String?
   customerPhone String?
-  totalAmount   Float    @default(0)
-  cashAmount    Float    @default(0)
-  creditAmount  Float    @default(0)
+  totalAmount   Float     @default(0)
+  cashAmount    Float     @default(0)
+  creditAmount  Float     @default(0)
   notes         String?
   createdBy     String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
+  /// MM-13: a receipt number or import row key. Unique, so the same sale cannot be recorded or imported twice.
+  externalRef   String?   @unique
+  /// MM-13: COMPLETED | CANCELLED. A cancelled sale keeps its row (history) and counts nowhere.
+  status        String    @default("COMPLETED")
+  cancelledAt   DateTime?
+  cancelledBy   String?
+  cancelReason  String?
 
-  items SaleItem[]
+  items       SaleItem[]
+  refunds     SaleRefund[]
+  attribution MarketingSaleAttribution?
+}
+
+/// MM-13: money given back (or taken off what a customer owes) for a sale, on its own date.
+/// Never edited or deleted: a mistake is corrected by voiding the row, which reverses its effects and keeps it.
+model SaleRefund {
+  id         Int       @id @default(autoincrement())
+  saleId     Int
+  saleItemId Int?
+  refundDate DateTime
+  amount     Float
+  /// Pieces returned to stock (0 when nothing comes back).
+  quantity   Int       @default(0)
+  /// CASH (money paid back) | CREDIT (taken off what the customer owes)
+  method     String
+  reason     String
+  /// An optional key so a retried request cannot record the same refund twice.
+  requestKey String?   @unique
+  createdBy  String?
+  createdAt  DateTime  @default(now())
+  voidedAt   DateTime?
+  voidedBy   String?
+  voidReason String?
+
+  sale     Sale      @relation(fields: [saleId], references: [id])
+  saleItem SaleItem? @relation(fields: [saleItemId], references: [id])
+
+  @@index([saleId])
+  @@index([refundDate])
 }
 
 model SaleItem {
@@ -372,8 +409,9 @@ model SaleItem {
   totalAmount Float
   createdAt   DateTime @default(now())
 
-  sale    Sale    @relation(fields: [saleId], references: [id])
-  product Product @relation(fields: [productId], references: [id])
+  sale    Sale         @relation(fields: [saleId], references: [id])
+  product Product      @relation(fields: [productId], references: [id])
+  refunds SaleRefund[]
 }
 
 // ─── Expenses ──────────────────────────────────────────────────────────────────
@@ -400,6 +438,8 @@ model CashPosition {
   cashSales              Float    @default(0)
   debtorPaymentsReceived Float    @default(0)
   otherCashIn            Float    @default(0)
+  /// MM-13: cash paid back to customers that day (refunds), net of voided refunds.
+  refundsPaid            Float    @default(0)
   expensesPaid           Float    @default(0)
   creditorPaymentsMade   Float    @default(0)
   expectedClosingCash    Float    @default(0)
@@ -490,6 +530,8 @@ model DayClosing {
   totalExpenses          Float    @default(0)
   debtorPaymentsReceived Float    @default(0)
   creditorPaymentsMade   Float    @default(0)
+  /// ZP-1118: cash refunds paid out that day.
+  refundsPaid            Float    @default(0)
   expectedClosingCash    Float    @default(0)
   actualCountedCash      Float?
   cashVariance           Float?
@@ -1130,24 +1172,24 @@ model MarketingPost {
 
 /// Why someone buys one product: worked out once by the AI, corrected by the owner, read by every writer.
 model MarketingSellingProfile {
-  id          Int      @id @default(autoincrement())
-  productId   Int      @unique
+  id          Int       @id @default(autoincrement())
+  productId   Int       @unique
   /// [{ who, moment }]
-  buyers      Json     @default("[]")
+  buyers      Json      @default("[]")
   /// [{ reason, fact }]
-  reasons     Json     @default("[]")
+  reasons     Json      @default("[]")
   /// [{ doubt, answer }] where answer null means "ask the owner"
-  doubts      Json     @default("[]")
+  doubts      Json      @default("[]")
   /// [string]
-  occasions   Json     @default("[]")
-  aiGenerated Boolean  @default(false)
-  aiCostCents Int      @default(0)
+  occasions   Json      @default("[]")
+  aiGenerated Boolean   @default(false)
+  aiCostCents Int       @default(0)
   updatedBy   String?
   /// ZP-1106 (MM-01-AC3): who confirmed this profile as true, and when. Cleared when the AI rewrites it.
   confirmedBy String?
   confirmedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 }
@@ -1379,4 +1421,38 @@ model MarketingPartner {
   updatedAt         DateTime @updatedAt
 
   @@index([shopKey, kind])
+}
+
+/// MM-13: which campaign one sale is credited to, and on what evidence. One row per sale (v1: one primary campaign).
+/// Attribution is association, never proof that the campaign caused the sale. Payment evidence is separate.
+model MarketingSaleAttribution {
+  id              Int       @id @default(autoincrement())
+  shopKey         String    @default("vyra")
+  saleId          Int       @unique
+  /// TRACKED_LINK | CUSTOMER_REPORTED | UNKNOWN
+  source          String    @default("UNKNOWN")
+  campaignId      Int?
+  postId          Int?
+  channelKind     String?
+  contactId       Int?
+  /// What links the sale to the campaign: the tracking tag, or what the customer said.
+  evidence        String?
+  /// Other touchpoints, as notes only. They never add revenue anywhere.
+  touchpoints     Json      @default("[]")
+  /// True while the evidence points at more than one campaign. The sale stays unknown until the owner reviews it.
+  needsReview     Boolean   @default(false)
+  /// OWNER_RECORDED | PAYMENT_CONFIRMED (confirmed by something other than the owner's own record)
+  paymentEvidence String    @default("OWNER_RECORDED")
+  paymentNote     String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  createdBy       String
+  updatedBy       String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  sale Sale @relation(fields: [saleId], references: [id])
+
+  @@index([campaignId])
+  @@index([source, needsReview])
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createSale, getSales } from '@/lib/sales';
+import { createSale, DuplicateSaleError, getSales } from '@/lib/sales';
 import { authorize } from '@/lib/api-auth';
 
 export async function GET(request: Request) {
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   const { session } = auth;
   try {
     const body = await request.json();
-    const { saleDate, paymentType, items, customerName, customerPhone, cashAmount, creditAmount, notes } = body;
+    const { saleDate, paymentType, items, customerName, customerPhone, cashAmount, creditAmount, notes, receiptRef } = body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ error: 'Items array is required' }, { status: 400 });
@@ -41,10 +41,12 @@ export async function POST(request: Request) {
       cashAmount,
       creditAmount,
       notes,
+      receiptRef: typeof receiptRef === 'string' ? receiptRef : null,
       createdBy: session.username,
     });
     return NextResponse.json(newSale, { status: 201 });
   } catch (error: any) {
+    if (error instanceof DuplicateSaleError) return NextResponse.json({ error: error.message, saleId: error.saleId }, { status: 409 });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

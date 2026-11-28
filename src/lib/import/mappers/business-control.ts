@@ -1,6 +1,8 @@
 import { getValueByHeaders, MapResult } from './product-list';
 
 export interface MappedSale {
+  /** ZP-1118: the receipt or invoice number, when the sheet has one. */
+  receiptRef?: string;
   itemNumber?: string;
   productName?: string;
   quantity: number;
@@ -49,9 +51,11 @@ export function mapSalesRow(row: Record<string, any>, rowNumber: number): MapRes
   const quantityRaw = getValueByHeaders(row, ['Quantity', 'Qty']);
   const amountRaw = getValueByHeaders(row, ['Amount', 'Total', 'Price', 'Sales']);
   const dateRaw = getValueByHeaders(row, ['Date', 'Sale Date']);
+  const receiptRaw = getValueByHeaders(row, ['Receipt', 'Receipt No', 'Receipt Number', 'Invoice', 'Invoice No']);
 
   return {
     mapped: {
+      receiptRef: receiptRaw === undefined || receiptRaw === null || receiptRaw === '' ? undefined : String(receiptRaw),
       itemNumber: itemNumber?.toString(),
       productName: productName?.toString(),
       quantity: Number(quantityRaw) || 0,

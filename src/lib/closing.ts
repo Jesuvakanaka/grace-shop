@@ -7,7 +7,8 @@ export async function getDayClosingSummary(date: Date) {
   const cashPosition = await prisma.cashPosition.findUnique({ where: { cashDate: targetDate } })
   
   const sales = await prisma.sale.findMany({
-    where: { saleDate: { gte: startOfDay(date), lte: endOfDay(date) } },
+    // ZP-1118: a cancelled sale counts nowhere.
+    where: { saleDate: { gte: startOfDay(date), lte: endOfDay(date) }, status: { not: 'CANCELLED' } },
     include: { items: true }
   })
   
@@ -35,6 +36,8 @@ export async function getDayClosingSummary(date: Date) {
     totalCreditSales,
     totalExpenses,
     debtorPaymentsReceived: cashPosition?.debtorPaymentsReceived || 0,
+    // ZP-1118: cash refunds paid out that day (already taken off the expected closing cash).
+    refundsPaid: cashPosition?.refundsPaid || 0,
     creditorPaymentsMade: cashPosition?.creditorPaymentsMade || 0,
     expectedClosingCash: cashPosition?.expectedClosingCash || 0,
     actualCountedCash: cashPosition?.actualCountedCash || null,
