@@ -103,7 +103,7 @@ export function createInstagramConnector(opts: InstagramOptions = {}): Connector
         if (!creationId) return { ok: false, error: 'Instagram did not accept the photo.', retryable: false }
         await waitUntilFinished(g, accessToken, creationId, o)
         const pub = await g.post<{ id?: string }>(`${ig}/media_publish`, accessToken, { creation_id: creationId })
-        if (!pub.id) return { ok: false, error: 'Instagram did not say whether the post went out. Check the account before trying again.', retryable: false }
+        if (!pub.id) return { ok: false, error: 'Instagram did not say whether the post went out. Check the account before trying again.', retryable: false, uncertain: true }
         let externalUrl: string | null = null
         try {
           const m = await g.get<{ permalink?: string }>(pub.id, accessToken, { fields: 'permalink' })

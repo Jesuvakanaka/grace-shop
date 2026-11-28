@@ -79,7 +79,7 @@ export const telegramConnector: Connector = {
       if (!first.ok) return fail(first)
       const msg = Array.isArray(first.result) ? first.result[0] : first.result
       const messageId = msg?.message_id
-      if (messageId == null) return { ok: false, error: 'Telegram did not say whether the post went out. Check the channel before trying again.', retryable: false }
+      if (messageId == null) return { ok: false, error: 'Telegram did not say whether the post went out. Check the channel before trying again.', retryable: false, uncertain: true }
       const username = typeof msg?.chat?.username === 'string' ? msg.chat.username : chat.startsWith('@') ? chat.slice(1) : null
       const note = extra && !extra.ok ? 'The photos went out but the long text did not: check the channel.' : undefined
       return { ok: true, externalId: `${msg?.chat?.id ?? chat}:${messageId}`, externalUrl: username ? `https://t.me/${username}/${messageId}` : null, ...(note ? { message: note } : {}) }

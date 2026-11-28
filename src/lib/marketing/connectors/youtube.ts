@@ -107,7 +107,7 @@ export const youtubeConnector: Connector = {
       const out = await jsonOf(put)
       if (!put.ok) return mapError(put.status, reasonOf(out), String(out?.error?.message ?? ''))
       const id = typeof out?.id === 'string' ? out.id : null
-      if (!id) return { ok: false, error: 'YouTube did not say whether the video was uploaded. Check YouTube Studio before trying again.', retryable: false }
+      if (!id) return { ok: false, error: 'YouTube did not say whether the video was uploaded. Check YouTube Studio before trying again.', retryable: false, uncertain: true }
       return { ok: true, externalId: id, externalUrl: `https://www.youtube.com/watch?v=${id}`, message: `Uploaded to YouTube as ${privacy}.${privacy === 'public' ? '' : ' Open YouTube Studio to make it public when you are ready.'}` }
     } catch (e) {
       if (e instanceof AuthError) return failure(401, 'Google', e.message, { tokenExpired: e.expired })

@@ -21,6 +21,7 @@ export function groupByFamily<T extends { family: ChannelFamily }>(items: readon
 export const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Draft', PENDING_APPROVAL: 'Waiting for approval', APPROVED: 'Approved', SCHEDULED: 'Scheduled', PUBLISHING: 'Posting now',
   PUBLISHED: 'Published', SHARED: 'Shared', FAILED: 'Failed', REJECTED: 'Rejected', CANCELLED: 'Cancelled',
+  UNCERTAIN: 'Not sure it went out',
 }
 
 export const STATUS_CLASSES: Record<string, string> = {
@@ -34,9 +35,10 @@ export const STATUS_CLASSES: Record<string, string> = {
   FAILED: 'bg-rose-50 text-rose-700 border-rose-200',
   REJECTED: 'bg-rose-50 text-rose-700 border-rose-200',
   CANCELLED: 'bg-slate-100 text-slate-600 border-slate-200',
+  UNCERTAIN: 'bg-amber-50 text-amber-800 border-amber-200',
 }
 
-export type PostActionName = 'submit' | 'approve' | 'reject' | 'schedule' | 'unschedule' | 'publish' | 'retry' | 'share' | 'cancel'
+export type PostActionName = 'submit' | 'approve' | 'reject' | 'schedule' | 'unschedule' | 'publish' | 'retry' | 'share' | 'cancel' | 'confirm_published' | 'confirm_not_published'
 
 export interface ActionButton {
   action: PostActionName
@@ -44,6 +46,8 @@ export interface ActionButton {
   tone: 'primary' | 'secondary' | 'danger'
   /** Needs a date and time first. */
   needsDate?: boolean
+  /** Needs the link to the post on the platform first (confirming an uncertain post went out). */
+  needsLink?: boolean
 }
 
 const MAX_ATTEMPTS = 3
@@ -76,6 +80,12 @@ export function availableActions(post: { status: string; channelKind: string; at
       out.push({ action: 'cancel', label: 'Cancel', tone: 'danger' })
       return out
     }
+    case 'UNCERTAIN':
+      // ZP-1124: never retried blind. The owner looks on the platform first.
+      return [
+        { action: 'confirm_published', label: 'It went out', tone: 'primary', needsLink: true },
+        { action: 'confirm_not_published', label: 'It did not go out', tone: 'secondary' },
+      ]
     default:
       return []
   }

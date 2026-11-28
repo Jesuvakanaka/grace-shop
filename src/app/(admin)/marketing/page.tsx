@@ -16,6 +16,7 @@ export default function MarketingOverviewPage() {
   const [approved, setApproved] = useState<Post[]>([]);
   const [scheduled, setScheduled] = useState<Post[]>([]);
   const [week, setWeek] = useState<Post[]>([]);
+  const [unsure, setUnsure] = useState<Post[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [now] = useState(() => new Date());
@@ -29,12 +30,14 @@ export default function MarketingOverviewPage() {
       mk<{ posts: Post[] }>('/api/marketing/posts?status=APPROVED'),
       mk<{ posts: Post[] }>('/api/marketing/posts?status=SCHEDULED'),
       mk<{ posts: Post[] }>(`/api/marketing/posts?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+      mk<{ posts: Post[] }>('/api/marketing/posts?status=UNCERTAIN'),
     ])
-      .then(([a, b, c, d]) => {
+      .then(([a, b, c, d, e]) => {
         setPending(a.posts);
         setApproved(b.posts);
         setScheduled(c.posts);
         setWeek(d.posts);
+        setUnsure(e.posts);
         setReady(true);
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Could not load.'));
@@ -66,6 +69,23 @@ export default function MarketingOverviewPage() {
       ) : null}
 
       {!ready && !error ? <Loading /> : null}
+
+      {unsure.length > 0 ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-4" data-testid="uncertain-posts">
+          <p className="font-semibold text-slate-900">Check {unsure.length === 1 ? 'this post' : `these ${unsure.length} posts`}: we are not sure {unsure.length === 1 ? 'it' : 'they'} went out.</p>
+          <p className="mt-1 text-sm text-slate-600">Nothing is tried again until you look on the platform and say what you found.</p>
+          <ul className="mt-2 divide-y divide-amber-200">
+            {unsure.map((p) => (
+              <li key={p.id}>
+                <Link href={`/marketing/content/${p.contentId}#post-${p.id}`} className="flex items-center justify-between gap-3 py-3 min-h-12">
+                  <span className="text-sm"><strong>{channelLabel(p.channelKind)}</strong> <span className="text-slate-600">{p.text.slice(0, 60)}</span></span>
+                  <span className="text-sm text-brand-olive-700 shrink-0">Check</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" data-testid="marketing-counts">
         <Link href="/marketing/approvals" className="card block" data-testid="count-pending"><p className="text-sm text-slate-500">Waiting for approval</p><p className="text-3xl font-semibold text-slate-900">{pending.length}</p></Link>

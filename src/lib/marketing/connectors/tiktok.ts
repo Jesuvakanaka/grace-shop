@@ -113,7 +113,7 @@ export const tiktokConnector: Connector = {
         if (r.result) return r.result
         publishId = r.data?.publish_id
       }
-      if (!publishId) return { ok: false, error: 'TikTok did not confirm the draft. Check your TikTok inbox before trying again.', retryable: false }
+      if (!publishId) return { ok: false, error: 'TikTok did not confirm the draft. Check your TikTok inbox before trying again.', retryable: false, uncertain: true }
       return { ok: true, externalId: publishId, externalUrl: null, message: TIKTOK_INBOX_MESSAGE }
     } catch (e) {
       return networkFailure('TikTok', e)

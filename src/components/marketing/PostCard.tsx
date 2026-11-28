@@ -39,6 +39,7 @@ export function PostCard({
   const [text, setText] = useState(post.text);
   const [keys, setKeys] = useState<string[]>(post.imageKeys);
   const [when, setWhen] = useState(toLocalInput(post.scheduledFor));
+  const [postUrl, setPostUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ActionButton | null>(null);
@@ -82,6 +83,10 @@ export function PostCard({
         const iso = fromLocalInput(when);
         if (!iso) throw new Error('Choose a date and time first.');
         body.scheduledFor = iso;
+      }
+      if (a.needsLink) {
+        if (!postUrl.trim()) throw new Error('Paste the link to the post first.');
+        body.externalUrl = postUrl.trim();
       }
       const d = await mk<{ post: Post }>(`/api/marketing/posts/${post.id}/transition`, { method: 'POST', body });
       onChange(d.post);
@@ -197,6 +202,14 @@ export function PostCard({
             <button type="button" className="btn btn-secondary min-h-12 px-5" onClick={copyCaption}>Copy caption</button>
           </div>
           <SharePhotos urls={post.imageKeys.filter(isValidImageKey).map(imageUrlForKey)} title={title} text={shareCaption({ text, link: post.link })} />
+        </div>
+      ) : null}
+
+      {post.status === 'UNCERTAIN' ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2" data-testid={`uncertain-${post.id}`}>
+          <p className="text-sm text-amber-900">We are not sure this went out. Open {ch.label} and look for it before doing anything else: it will not be tried again by itself.</p>
+          <label className="label" htmlFor={`url-${post.id}`}>If it is there, paste its link</label>
+          <input id={`url-${post.id}`} type="url" inputMode="url" className="input" placeholder="https://" value={postUrl} onChange={(e) => setPostUrl(e.target.value)} />
         </div>
       ) : null}
 

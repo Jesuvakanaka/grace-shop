@@ -76,16 +76,20 @@ export default function CampaignPage() {
       await mk(`/api/marketing/campaigns/${id}`, { method: 'DELETE' });
       router.push('/marketing/campaigns');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not delete.');
+      setError(e instanceof Error ? e.message : 'Could not archive.');
     }
   };
 
   if (!c) return error ? <ErrorNote message={error} /> : <Loading />;
+  // ZP-1124: an archived campaign is read-only: the form is disabled and there is no Save.
+  const readOnly = c.status === 'ARCHIVED';
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setForm({ ...form, [k]: e.target.value });
 
   return (
     <div className="space-y-6 max-w-3xl">
       <ErrorNote message={error} />
+      {c.status === 'ARCHIVED' ? <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700" data-testid="campaign-archived">This campaign is archived. It is kept for the record and can no longer be changed.</p> : null}
+      <fieldset disabled={readOnly} className="space-y-6">
       <Card className="space-y-4">
         <div><label className="label" htmlFor="f-name">Name</label><input id="f-name" className="input" value={form.name} onChange={set('name')} maxLength={120} data-testid="campaign-edit-name" /></div>
         <div><label className="label" htmlFor="f-goal">Goal, in plain words</label><input id="f-goal" className="input" value={form.goal} onChange={set('goal')} maxLength={500} placeholder="For example: sell the new school range before term starts" /></div>
@@ -111,16 +115,19 @@ export default function CampaignPage() {
             ))}
           </ul>
         )}
-        <ProductSearch onPick={(p) => !productIds.includes(p.id) && setProductIds([...productIds, p.id])} extraIds={productIds} pickedIds={productIds} label="Add a product" />
+        {readOnly ? null : <ProductSearch onPick={(p) => !productIds.includes(p.id) && setProductIds([...productIds, p.id])} extraIds={productIds} pickedIds={productIds} label="Add a product" />}
       </Card>
+      </fieldset>
 
-      <div className="flex flex-wrap gap-2">
-        <button type="button" className="btn btn-primary" onClick={save} disabled={busy || form.name.trim() === ''} data-testid="campaign-save">Save campaign</button>
-        <button type="button" className="btn btn-danger" onClick={() => setConfirmDelete(true)}>Delete</button>
-      </div>
+      {readOnly ? null : (
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="btn btn-primary" onClick={save} disabled={busy || form.name.trim() === ''} data-testid="campaign-save">Save campaign</button>
+          <button type="button" className="btn btn-danger" onClick={() => setConfirmDelete(true)} data-testid="campaign-archive">Archive</button>
+        </div>
+      )}
 
       <Card className="space-y-3">
-        <div className="flex items-center justify-between"><h2 className="font-serif text-xl font-semibold">Content</h2><Link className="btn btn-secondary btn-sm" href={`/marketing/content/new?campaignId=${id}`}>New content</Link></div>
+        <div className="flex items-center justify-between"><h2 className="font-serif text-xl font-semibold">Content</h2>{readOnly ? null : <Link className="btn btn-secondary btn-sm" href={`/marketing/content/new?campaignId=${id}`}>New content</Link>}</div>
         {content.length === 0 ? <p className="text-sm text-slate-500">No content in this campaign yet.</p> : (
           <ul className="divide-y divide-slate-100">
             {content.map((k) => (
@@ -135,7 +142,7 @@ export default function CampaignPage() {
         )}
       </Card>
 
-      <ConfirmDialog open={confirmDelete} title="Delete this campaign?" message="The campaign is removed. Its content and posts are kept." confirmText="Delete" variant="danger" onCancel={() => setConfirmDelete(false)} onConfirm={remove} />
+      <ConfirmDialog open={confirmDelete} title="Archive this campaign?" message="The campaign, its content and its results are kept for the record. Posts that have not gone out are withdrawn and no more posts from it go out. A campaign with an ad running on Meta or Google cannot be archived: pause the ad first." confirmText="Archive" variant="danger" onCancel={() => setConfirmDelete(false)} onConfirm={remove} />
     </div>
   );
 }

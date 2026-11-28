@@ -5,7 +5,10 @@ import { writeAudit, type Db } from './audit'
 import { asObject, date, idList, int, onlyKeys, oneOf, requiredText, text } from './validate'
 
 export const OBJECTIVES = ['AWARENESS', 'VISITS', 'ENQUIRIES'] as const
-export const CAMPAIGN_STATUSES = ['DRAFT', 'ACTIVE', 'PAUSED', 'ENDED'] as const
+/** ARCHIVED replaces deleting (ZP-1124, MM-04-AC6): the campaign and its history stay, hidden from the normal list. */
+export const CAMPAIGN_STATUSES = ['DRAFT', 'ACTIVE', 'PAUSED', 'ENDED', 'ARCHIVED'] as const
+/** The statuses the owner can set by editing. Archiving has its own action. */
+const SETTABLE_STATUSES = ['DRAFT', 'ACTIVE', 'PAUSED', 'ENDED'] as const
 const FIELDS = ['name', 'goal', 'objective', 'status', 'startsAt', 'endsAt', 'budgetCents', 'notes', 'productIds'] as const
 
 export type CampaignDto = MarketingCampaign & { productIds: number[] }
@@ -17,6 +20,7 @@ const include = { products: { select: { productId: true } } } as const
 export async function listCampaigns(db: Db, status?: string | null): Promise<CampaignDto[]> {
   const where: Prisma.MarketingCampaignWhereInput = {}
   if (status) where.status = oneOf(status, 'status', CAMPAIGN_STATUSES)
+  else where.status = { not: 'ARCHIVED' }
   return (await db.marketingCampaign.findMany({ where, orderBy: { id: 'desc' }, include })).map(toDto)
 }
 
@@ -37,7 +41,7 @@ function parse(o: Record<string, unknown>, creating: boolean) {
   if (creating || 'name' in o) d.name = requiredText(o.name, 'name', 120)
   if ('goal' in o) d.goal = text(o.goal, 'goal', 500)
   if ('objective' in o) d.objective = oneOf(o.objective, 'objective', OBJECTIVES)
-  if ('status' in o) d.status = oneOf(o.status, 'status', CAMPAIGN_STATUSES)
+  if ('status' in o) d.status = oneOf(o.status, 'status', SETTABLE_STATUSES)
   if ('startsAt' in o) d.startsAt = date(o.startsAt, 'startsAt')
   if ('endsAt' in o) d.endsAt = date(o.endsAt, 'endsAt')
   if ('budgetCents' in o) d.budgetCents = o.budgetCents === null ? null : int(o.budgetCents, 'budgetCents', 0, 100_000_000)
@@ -67,11 +71,25 @@ export async function createCampaign(db: Db, body: unknown, actor: string): Prom
   return toDto(row)
 }
 
+/**
+ * ZP-1124 (MM-04-AC4): an ad already running on Meta or Google keeps spending on the platform whatever the
+ * hub says, and this slice does not pause it remotely (that is MM-04-AC5). So a campaign with a running ad
+ * cannot be archived or ended here: the owner pauses the ad first.
+ */
+async function assertNoRunningAd(db: Db, campaignId: number, what: 'archive' | 'end'): Promise<void> {
+  const running = await db.marketingAd.findMany({ where: { campaignId, status: 'ACTIVE' }, select: { id: true, headline: true }, take: 3 })
+  if (running.length === 0) return
+  const names = running.map((a) => `"${a.headline}"`).join(', ')
+  throw new WebsiteError(409, `This campaign has an ad running on the platform (${names}). Pause the ad on the Ads screen first, then ${what} the campaign.`, { blocked: 'ad' })
+}
+
 export async function updateCampaign(db: Db, id: number, body: unknown, actor: string): Promise<CampaignDto> {
   const { d, productIds } = parse(asObject(body), false)
   if (Object.keys(d).length === 0 && !productIds) throw new WebsiteError(400, 'Nothing to change.')
   const existing = await db.marketingCampaign.findUnique({ where: { id } })
   if (!existing) throw new WebsiteError(404, 'Campaign not found')
+  if (existing.status === 'ARCHIVED') throw new WebsiteError(409, 'This campaign is archived and can no longer be changed.')
+  if (d.status === 'ENDED' && existing.status !== 'ENDED') await assertNoRunningAd(db, id, 'end')
   checkDates((d.startsAt as Date | null | undefined) ?? existing.startsAt, (d.endsAt as Date | null | undefined) ?? existing.endsAt)
   if (productIds) {
     await checkProducts(db, productIds)
@@ -91,10 +109,27 @@ export async function updateCampaign(db: Db, id: number, body: unknown, actor: s
 
 const o2 = (b: unknown) => (typeof b === 'object' && b ? (b as Record<string, unknown>) : {})
 
-/** Deletes the campaign; its content and posts stay (content is detached). */
-export async function deleteCampaign(db: Db, id: number, actor: string): Promise<void> {
-  const existing = await db.marketingCampaign.findUnique({ where: { id } })
+/**
+ * Archives the campaign instead of deleting it (ZP-1124, MM-04-AC6): the campaign, its content, posts
+ * and results stay for the record. Posts that have not gone out are withdrawn with a reason, and nothing
+ * from an archived campaign can go out (campaign-window.ts). Archiving twice is harmless.
+ */
+export async function archiveCampaign(db: Db, id: number, actor: string): Promise<CampaignDto> {
+  const existing = await db.marketingCampaign.findUnique({ where: { id }, include })
   if (!existing) throw new WebsiteError(404, 'Campaign not found')
-  await db.marketingCampaign.delete({ where: { id } })
-  await writeAudit(db, { actor, action: 'campaign.delete', entity: 'campaign', entityId: id, detail: { name: existing.name } })
+  if (existing.status === 'ARCHIVED') return toDto(existing)
+  await assertNoRunningAd(db, id, 'archive')
+  const res = await db.marketingCampaign.updateMany({ where: { id, status: existing.status }, data: { status: 'ARCHIVED' } })
+  if (res.count === 0) throw new WebsiteError(409, 'Someone else just changed this campaign. Reload and try again.')
+  const posts = await db.marketingPost.findMany({ where: { status: { in: ['APPROVED', 'SCHEDULED'] }, content: { campaignId: id } }, select: { id: true, status: true } })
+  const withdrawn: number[] = []
+  for (const p of posts) {
+    const r = await db.marketingPost.updateMany({
+      where: { id: p.id, status: p.status },
+      data: { status: 'CANCELLED', scheduledFor: null, error: 'Withdrawn: the campaign was archived before this went out.' },
+    })
+    if (r.count === 1) withdrawn.push(p.id)
+  }
+  await writeAudit(db, { actor, action: 'campaign.archive', entity: 'campaign', entityId: id, detail: { name: existing.name, from: existing.status, withdrawnPosts: withdrawn } })
+  return (await getCampaign(db, id)) as CampaignDto
 }

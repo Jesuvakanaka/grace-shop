@@ -4,15 +4,21 @@ import { getChannel } from './channels'
 
 export const POST_STATUSES = [
   'DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'SCHEDULED', 'PUBLISHING', 'PUBLISHED', 'SHARED', 'FAILED', 'REJECTED', 'CANCELLED',
+  // ZP-1124: the platform may have the post (no answer, a timeout, a crash mid-request). Never retried until the owner checks.
+  'UNCERTAIN',
 ] as const
 export type PostStatus = (typeof POST_STATUSES)[number]
 
 export const MAX_ATTEMPTS = 3
 
 /** Actions the owner can ask for through the API. */
-export const OWNER_ACTIONS = ['submit', 'cancel', 'approve', 'reject', 'schedule', 'unschedule', 'publish', 'retry', 'share'] as const
+export const OWNER_ACTIONS = [
+  'submit', 'cancel', 'approve', 'reject', 'schedule', 'unschedule', 'publish', 'retry', 'share',
+  // ZP-1124: the owner looked at the platform after an uncertain outcome.
+  'confirm_published', 'confirm_not_published',
+] as const
 /** Actions only the runner / connector code takes. */
-export const SYSTEM_ACTIONS = ['start', 'published', 'failed'] as const
+export const SYSTEM_ACTIONS = ['start', 'published', 'failed', 'uncertain'] as const
 /** `edit` is raised when the words, photos or format change. */
 export type PostAction = (typeof OWNER_ACTIONS)[number] | (typeof SYSTEM_ACTIONS)[number] | 'edit'
 
@@ -56,7 +62,7 @@ const conflict = (m: string) => new WebsiteError(409, m)
 const LABEL: Record<string, string> = {
   DRAFT: 'a draft', PENDING_APPROVAL: 'waiting for approval', APPROVED: 'approved', SCHEDULED: 'scheduled',
   PUBLISHING: 'being published', PUBLISHED: 'published', SHARED: 'already shared', FAILED: 'failed',
-  REJECTED: 'rejected', CANCELLED: 'cancelled',
+  REJECTED: 'rejected', CANCELLED: 'cancelled', UNCERTAIN: 'waiting for you to check whether it went out',
 }
 
 function mustBe(post: StatePost, action: string, from: readonly PostStatus[]) {
@@ -129,11 +135,28 @@ export function transition(post: StatePost, action: PostAction, actor: Actor, op
       if (post.attempts >= MAX_ATTEMPTS) throw conflict(`This post failed ${MAX_ATTEMPTS} times. Edit it or cancel it.`)
       return { status: 'PUBLISHING', attempts: post.attempts + 1, error: null }
     case 'published':
-      mustBe(post, 'mark as published', ['PUBLISHING'])
-      return { status: 'PUBLISHED', publishedAt: now, externalId: opts.externalId ?? null, externalUrl: opts.externalUrl ?? null, error: null }
+      // UNCERTAIN too: an attempt marked lost after its lease can still finish and report the real outcome.
+      mustBe(post, 'mark as published', ['PUBLISHING', 'UNCERTAIN'])
+      // MM-09-AC3: published means the platform gave the post's ID. Without one the outcome is uncertain, not published.
+      if (!opts.externalId || !opts.externalId.trim()) throw conflict('A post is only published once the platform returns its ID.')
+      return { status: 'PUBLISHED', publishedAt: now, externalId: opts.externalId, externalUrl: opts.externalUrl ?? null, error: null }
     case 'failed':
-      mustBe(post, 'mark as failed', ['PUBLISHING'])
+      mustBe(post, 'mark as failed', ['PUBLISHING', 'UNCERTAIN'])
       return { status: 'FAILED', error: (opts.error ?? 'Publishing failed.').slice(0, 500) }
+    case 'uncertain':
+      mustBe(post, 'mark as uncertain', ['PUBLISHING'])
+      return { status: 'UNCERTAIN', error: (opts.error ?? 'The platform did not say whether the post went out.').slice(0, 500) }
+    case 'confirm_published':
+      // The owner checked the platform and the post is there. MM-09-AC3: published needs proof, so the owner pastes its link.
+      mustBeOwner(actor, 'confirm that a post went out')
+      mustBe(post, 'confirm this post went out', ['UNCERTAIN'])
+      if (!opts.externalUrl || !/^https:\/\/\S+$/i.test(opts.externalUrl.trim())) throw conflict('Paste the link to the post (starting https://) so it can be found later.')
+      return { status: 'PUBLISHED', publishedAt: now, externalUrl: opts.externalUrl.trim(), error: null }
+    case 'confirm_not_published':
+      // The owner checked and the post is not there: it counts as a failed attempt, and Try again is allowed if attempts remain.
+      mustBeOwner(actor, 'confirm that a post did not go out')
+      mustBe(post, 'confirm this post did not go out', ['UNCERTAIN'])
+      return { status: 'FAILED', error: 'You checked: it did not go out.' }
     case 'share': {
       mustBeOwner(actor, 'mark a post as shared')
       mustBe(post, 'mark as shared', ['APPROVED'])

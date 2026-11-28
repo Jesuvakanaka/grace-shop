@@ -1,6 +1,6 @@
 'use client';
 // ZP-1200: campaigns: list and create.
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { EmptyState } from '@/components/EmptyState';
@@ -11,15 +11,30 @@ const OBJECTIVE_LABELS: Record<string, string> = { AWARENESS: 'Get seen', VISITS
 
 export default function CampaignsPage() {
   const router = useRouter();
+  // ZP-1124: archived campaigns are kept for the record and listed on their own (?archived=1).
+  const [archived, setArchived] = useState<boolean | null>(null);
   const [items, setItems] = useState<Campaign[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [objective, setObjective] = useState('AWARENESS');
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    mk<{ campaigns: Campaign[] }>('/api/marketing/campaigns').then((d) => setItems(d.campaigns)).catch((e) => setError(e.message));
+  const load = useCallback((on: boolean) => {
+    mk<{ campaigns: Campaign[] }>(on ? '/api/marketing/campaigns?status=ARCHIVED' : '/api/marketing/campaigns')
+      .then((d) => {
+        setArchived(on);
+        setItems(d.campaigns);
+      })
+      .catch((e) => setError(e.message));
   }, []);
+  useEffect(() => {
+    load(new URLSearchParams(window.location.search).get('archived') === '1');
+  }, [load]);
+  const showArchived = (on: boolean) => {
+    window.history.replaceState(null, '', on ? '/marketing/campaigns?archived=1' : '/marketing/campaigns');
+    setItems(null);
+    load(on);
+  };
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,6 +52,9 @@ export default function CampaignsPage() {
   return (
     <div className="space-y-6">
       <ErrorNote message={error} />
+      {archived ? (
+        <p className="text-sm text-slate-600" data-testid="campaigns-archived-heading">Archived campaigns, kept for the record. <button type="button" className="link" onClick={() => showArchived(false)}>Back to campaigns</button></p>
+      ) : (
       <Card>
         <form onSubmit={create} className="grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end">
           <div>
@@ -52,8 +70,9 @@ export default function CampaignsPage() {
           <button type="submit" className="btn btn-primary" disabled={busy || name.trim() === ''} data-testid="campaign-create">Create</button>
         </form>
       </Card>
+      )}
       {!items && !error ? <Loading /> : null}
-      {items && items.length === 0 ? <EmptyState icon="🎯" title="No campaigns yet" description="A campaign groups products and posts around one goal." /> : null}
+      {items && items.length === 0 ? (archived ? <p className="text-sm text-slate-500">No archived campaigns.</p> : <EmptyState icon="🎯" title="No campaigns yet" description="A campaign groups products and posts around one goal." />) : null}
       <ul className="space-y-3">
         {items?.map((c) => (
           <li key={c.id}>
@@ -64,6 +83,7 @@ export default function CampaignsPage() {
           </li>
         ))}
       </ul>
+      {archived === false ? <p className="text-sm"><button type="button" className="link" onClick={() => showArchived(true)} data-testid="campaigns-show-archived">Show archived campaigns</button></p> : null}
     </div>
   );
 }
