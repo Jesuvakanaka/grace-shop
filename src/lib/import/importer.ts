@@ -337,15 +337,15 @@ export async function getImportDetail(importDocumentId: number) {
  * ZP-1126: the sale fields of an imported sales row. The mapper writes `amount` and `date`; older stored rows may use
  * `totalAmount` and `saleDate`. A row with no payment split is a cash sale of its whole amount. No date means today.
  */
-export function importedSaleFields(mapped: Record<string, any>, now = new Date()) {
+export function importedSaleFields(mapped: Record<string, unknown>, now = new Date()) {
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : Number(v) || 0);
   const totalAmount = num(mapped.amount ?? mapped.totalAmount);
   const dateRaw = mapped.date ?? mapped.saleDate;
-  const parsed = dateRaw ? new Date(dateRaw) : null;
+  const parsed = dateRaw ? new Date(dateRaw as string | number | Date) : null;
   const saleDate = parsed && !isNaN(parsed.getTime()) ? parsed : now;
   const split = mapped.cashAmount !== undefined || mapped.creditAmount !== undefined;
   const cashAmount = split ? num(mapped.cashAmount) : totalAmount;
   const creditAmount = split ? num(mapped.creditAmount) : 0;
-  const paymentType = mapped.paymentType || (creditAmount > 0 ? (cashAmount > 0 ? 'MIXED' : 'CREDIT') : 'CASH');
+  const paymentType = (typeof mapped.paymentType === 'string' && mapped.paymentType) || (creditAmount > 0 ? (cashAmount > 0 ? 'MIXED' : 'CREDIT') : 'CASH');
   return { saleDate, totalAmount, cashAmount, creditAmount, paymentType };
 }
