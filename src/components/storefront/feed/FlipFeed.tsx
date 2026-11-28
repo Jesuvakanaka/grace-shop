@@ -995,10 +995,10 @@ export function FlipFeed({
   return (
     // FEED_PAGE_ATTR: the storefront frame becomes the full-screen feed frame for any page that renders this.
     <div data-feed-page="" className="flex h-full w-full items-center justify-center gap-6 bg-brand-cream" onClickCapture={onVisitLinkCapture}>
-      {/* Keeps the column centred against the step buttons on computers. */}
-      <span aria-hidden="true" className="hidden w-12 md:block" />
+      {/* Keeps the column centred against the step buttons on computers (touch tablets fill the screen like phones). */}
+      <span aria-hidden="true" className="hidden w-12 desk:block" />
 
-      <div className="relative h-full w-full overflow-hidden bg-brand-ink text-brand-cream-50 md:h-[calc(100%-32px)] md:w-auto md:aspect-[9/16] md:max-w-[calc(100vw-160px)] md:rounded-[4px] md:shadow-[0_18px_50px_rgba(30,30,30,0.22)]">
+      <div className="relative h-full w-full overflow-hidden bg-brand-ink text-brand-cream-50 desk:h-[calc(100%-32px)] desk:w-auto desk:aspect-[9/16] desk:max-w-[calc(100vw-160px)] desk:rounded-[4px] desk:shadow-[0_18px_50px_rgba(30,30,30,0.22)]">
         {/* Slim top bar, first in reading and tab order, drawn on top: menu, wordmark, collection pill. Ink over the cream end slide. */}
         <div
           className={cn(
@@ -1110,7 +1110,7 @@ export function FlipFeed({
 
       </div>
 
-      <div className="hidden w-12 flex-col gap-3 md:flex">
+      <div className="hidden w-12 flex-col gap-3 desk:flex">
         <button type="button" onClick={() => step(-1)} disabled={active === 0} aria-label="Previous look" className={stepButton}>
           <ChevronIcon direction="up" className="h-5 w-5" />
         </button>

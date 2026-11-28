@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/* Computers: a screen at least 768px wide with a mouse or trackpad as the main
+   pointer. Touch tablets (iPad) are as wide but get the phone layout, full
+   screen (the look feed's phone-shaped column is for computers only). Same
+   test as the feed's JS (FlipFeed, FeedGuide). */
+@custom-variant desk (@media (min-width: 768px) and (pointer: fine));
+/* Touch tablets: at least 768px wide with a touch screen as the main pointer. */
+@custom-variant tablet (@media (min-width: 768px) and (pointer: coarse));
+
 /*
  * VYRA brand tokens (see docs/brand/vyra-brand-kit.md).
  * Palette: lime #9BB21E (accent), olive #5F7A1F (primary / depth),

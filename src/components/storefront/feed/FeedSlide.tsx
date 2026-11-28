@@ -33,8 +33,8 @@ import { FeedVideo } from "../video/FeedVideo";
 import { PhoneIcon, WhatsAppLogoIcon } from "../icons";
 import { ChevronIcon, CornersIcon, DetailsIcon, EyeIcon, PinIcon, ShareIcon } from "./feed-icons";
 
-/** Phones: the full width; computers: the phone-shaped column (about 9/16 of the viewport height). */
-const SLIDE_SIZES = "(min-width: 768px) 57vh, 100vw";
+/** Phones and touch tablets: the full width; computers: the phone-shaped column (about 9/16 of the viewport height). */
+const SLIDE_SIZES = "(min-width: 768px) and (pointer: fine) 57vh, 100vw";
 
 const badgeTone: Record<FeedBadge["kind"], string> = {
   "sold-out": "bg-brand-cream-50 text-brand-ink",
@@ -67,6 +67,9 @@ const railBottom = "bottom-[calc(max(env(safe-area-inset-bottom),12px)_+_40px)]"
 const captionBottom = "bottom-[calc(max(env(safe-area-inset-bottom),12px)_+_38px)]";
 // ZP-543 info view: the panel reaches the bottom edge; its content ends above the swipe hint.
 const infoPanelBottom = "pb-[calc(max(env(safe-area-inset-bottom),12px)_+_38px)]";
+// Touch tablets in landscape fill the screen: the panel's gradient spans it, its content
+// keeps to a 640px column in the middle, under the photo (shown whole in the middle).
+const infoPanelWide = "tablet:landscape:px-[max(16px,calc((100%-640px)/2))]";
 /** The panel's two buttons: at least 48px (44px on short screens) tall. */
 const infoButton =
   "sf-focus flex min-h-12 items-center justify-center gap-2 rounded-[2px] px-3 text-center text-[14px] font-medium leading-tight [@media(max-height:700px)]:min-h-11";
@@ -786,7 +789,7 @@ export function FeedSlide({
           {infoMode === "slim" ? (
             // The slim line: the name (one line), "Ask for price · tap for more" (a button that
             // brings the full panel back) and a round WhatsApp button (Visit us without a number).
-            <div className={cn("pointer-events-auto flex items-center gap-3 px-4 pt-7 text-brand-cream-50", infoPanelBg, infoPanelBottom)}>
+            <div className={cn("pointer-events-auto flex items-center gap-3 px-4 pt-7 text-brand-cream-50", infoPanelBg, infoPanelBottom, infoPanelWide)}>
               <h2 className="sr-only">{item.name}</h2>
               <button
                 ref={infoSlimRef}
@@ -824,7 +827,7 @@ export function FeedSlide({
             role="group"
             aria-labelledby={infoHeadingId}
             tabIndex={-1}
-            className={cn("sf-panel-up pointer-events-auto px-4 pt-9 text-brand-cream-50 outline-none [@media(max-height:700px)]:pt-7", infoPanelBg, infoPanelBottom)}
+            className={cn("sf-panel-up pointer-events-auto px-4 pt-9 text-brand-cream-50 outline-none [@media(max-height:700px)]:pt-7", infoPanelBg, infoPanelBottom, infoPanelWide)}
           >
             <span
               className={cn(
