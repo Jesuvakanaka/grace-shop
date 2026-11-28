@@ -24,7 +24,7 @@ export function rate(top: Metric, bottom: Metric, label: string): Metric {
 export const REACH_LABEL = 'Summed reported reach'
 export const REACH_NOTE = 'Added up from each platform. The same person can be counted on more than one platform or post, so this is not the number of different people.'
 export const ATTRIBUTION_LIMITS = 'Only sales you credited to a campaign count. Credit shows a link, not proof that the campaign caused the sale, and sales nobody credited are left out.'
-export const DATE_BASIS = 'Dates are shop days in Harare. Platform numbers, visits and conversations count on the day they happened. Takings count on the day money came in or went out, so a payment or refund on a later day lands in that day. Sales are counted on the day of the sale.'
+export const DATE_BASIS = 'Platform numbers, visits and conversations count by Harare day. Sales and takings count by the till\'s day, which can be the day before the Harare day for a sale between midnight and 2 am (ZP-1125 will line them up). Takings count on the day money came in or went out, and sales on the day of the sale.'
 export const PROFIT_NOTE = 'Takings minus marketing cost is not profit. Profit also needs what the pieces cost you and what delivery and packing cost.'
 
 /** How many records a judgement needs before it is more than a hint. */

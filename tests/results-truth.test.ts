@@ -57,9 +57,12 @@ describe('MM-14-AC3: unknown is not zero; nothing over zero', () => {
     assert.match(r.costs.scope, /ad spend only/)
     assert.doesNotMatch(JSON.stringify(r), /No messages were sent/)
   })
-  test('the date basis is stated: shop days, money on the day it moved, sales on the day of the sale', () => {
+  test('the date basis is stated: Harare days for platform and website, the till\'s day for sales and takings', () => {
     const notes = truthReport(base()).notes.join(' ')
-    assert.match(notes, /shop days in Harare/)
+    assert.match(notes, /Platform numbers, visits and conversations count by Harare day/)
+    assert.match(notes, /Sales and takings count by the till's day/)
+    assert.match(notes, /between midnight and 2 am/)
+    assert.doesNotMatch(notes, /shop days in Harare/)
     assert.match(notes, /day money came in or went out/)
     assert.match(notes, /day of the sale/)
   })
