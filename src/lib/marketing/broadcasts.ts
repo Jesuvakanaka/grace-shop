@@ -3,13 +3,14 @@
 // assertCanGoLive (env live + live setting + connected channel + OWNER approval), and never twice to one person
 // (unique recipient row, claimed before the request). The recipient list is recomputed at send time and consent
 // is checked again right before each message, so an opt-out during a send is honoured.
-import type { MarketingBroadcast, MarketingChannel, Prisma } from '@prisma/client'
+import { Prisma, type MarketingBroadcast, type MarketingChannel } from '@prisma/client'
 import { hostRoutingConfigFromEnv } from '@/lib/host-routing'
 import { WebsiteError } from '@/lib/website/http'
 import { writeAudit, type Db } from './audit'
 import { BROADCAST_OWNER_ACTIONS, BROADCAST_STATUSES, transitionBroadcast, type BroadcastAction, type BroadcastActor } from './broadcast-state'
 import { getChannel } from './channels'
 import { CONSENT_FOR_CHANNEL, addressFor, isOptedIn, CONTACT_SOURCES } from './consent'
+import { PURPOSE_FOR_BROADCAST } from './consent-records'
 import { getConnector } from './connectors'
 import type { Connector, ConnectorMessage, FetchLike } from './connectors/types'
 import { assertCanGoLive, checkCanGoLive, type GoLiveInput } from './flags'
@@ -21,6 +22,29 @@ import { unsubscribeUrl } from './unsubscribe'
 import { asObject, date, idList, onlyKeys, oneOf, requiredText, text } from './validate'
 
 export const BROADCAST_CHANNELS = ['EMAIL', 'SMS', 'WHATSAPP_CLOUD'] as const
+/** MM-12: what a message is for. Each needs its own consent purpose (PURPOSE_FOR_BROADCAST). */
+export const BROADCAST_PURPOSES = ['PROMOTION', 'REVIEW_REQUEST'] as const
+
+/** MM-12-AC3: the cost of `count` messages, or null when the channel's per-message cost is not known. Pure. */
+export function estimateCostCents(count: number, channelKind: string, costs: unknown): number | null {
+  const table = typeof costs === 'object' && costs !== null && !Array.isArray(costs) ? costs as Record<string, unknown> : {}
+  const unit = table[channelKind]
+  if (typeof unit !== 'number' || !Number.isFinite(unit) || unit < 0) return null
+  return Math.round(count * unit)
+}
+
+// MM-12-AC5: a review request asks for an honest review. It never asks only for good ones, never offers anything
+// for a review, and the shop never writes reviews itself.
+const REVIEW_RULES: Array<[RegExp, string]> = [
+  [/\b(5|five)[- ]?stars?\b|\b(positive|good|great|glowing|nice|excellent)\s+(review|rating|feedback)s?\b|\bonly (happy|satisfied)\b/i, 'Ask for an honest review, not a good one.'],
+  [/\b(discount|voucher|coupon|gift|free|reward|prize|draw|entry|cash ?back|points)\b[^.?!]*\b(review|rating|feedback)\b|\b(review|rating|feedback)\b[^.?!]*\b(discount|voucher|coupon|gift|free|reward|prize|draw|entry|cash ?back|points)\b|%\s*off[^.?!]*\breview|\breview\b[^.?!]*%\s*off/i, 'A review request cannot offer anything in return for a review.'],
+  [/\b(we|i)('ll| will| can)? (write|post|leave) (a|the|your) review\b|\breview (written|posted) (for|on behalf of) you\b/i, 'The shop never writes or posts reviews for customers.'],
+]
+
+/** Problems with a request for reviews or feedback (pure). Checked on every message, whatever its purpose. */
+export function reviewRequestProblems(text: string): string[] {
+  return REVIEW_RULES.filter(([re]) => re.test(text)).map(([, why]) => why)
+}
 export const MAX_PER_RUN = 500
 export const DEFAULT_PER_SECOND = 1
 /** Text limits: SMS leaves room for the "Reply STOP" line. */
@@ -105,9 +129,11 @@ export interface AudienceSummary {
 }
 
 /** The recipients as of now: latest consent for exactly this channel is OPTED_IN, and the contact has an address. */
-export async function computeAudience(db: Db, b: { channelKind: string; audienceFilter: unknown }): Promise<AudienceSummary> {
+export async function computeAudience(db: Db, b: { channelKind: string; audienceFilter: unknown; purpose?: string }): Promise<AudienceSummary> {
   const consentChannel = CONSENT_FOR_CHANNEL[b.channelKind]
   if (!consentChannel) throw new WebsiteError(400, 'This channel cannot send messages to contacts.')
+  // MM-12-AC2: only a recorded opt-in for this exact channel AND purpose counts. Buying or a group never does.
+  const purpose = PURPOSE_FOR_BROADCAST[b.purpose ?? 'PROMOTION'] ?? 'PROMOTION'
   const f = parseFilter(b.audienceFilter)
   const where: Prisma.MarketingContactWhereInput = { shopKey: 'vyra' }
   if (f.sources?.length) where.source = { in: f.sources }
@@ -117,8 +143,8 @@ export async function computeAudience(db: Db, b: { channelKind: string; audience
   for (const c of contacts) {
     const address = addressFor(b.channelKind, c)
     if (!address) { out.withheld.noAddress++; continue }
-    if (isOptedIn(c.consents, consentChannel)) { out.eligible.push({ id: c.id, name: c.name, address }); continue }
-    if (c.consents.length > 0) out.withheld.optedOut++
+    if (isOptedIn(c.consents, consentChannel, purpose)) { out.eligible.push({ id: c.id, name: c.name, address }); continue }
+    if (c.consents.some((r) => (r.purpose || 'PROMOTION') === purpose)) out.withheld.optedOut++
     else out.withheld.noConsent++
   }
   return out
@@ -159,8 +185,10 @@ const toDto = (b: MarketingBroadcast): BroadcastDto => ({
 })
 
 /** Problems with the words themselves (checked on submit and shown on the screen). */
-export function contentProblems(b: { channelKind: string; text: string; subject: string | null; templateName: string | null }): string[] {
+export function contentProblems(b: { channelKind: string; text: string; subject: string | null; templateName: string | null; templateVars?: unknown }): string[] {
   const p: string[] = []
+  const vars = Array.isArray(b.templateVars) ? b.templateVars.filter((v): v is string => typeof v === 'string').join('\n') : ''
+  p.push(...reviewRequestProblems([b.subject ?? '', b.text, vars].join('\n')))
   if (!b.text.trim()) p.push('Write the words of the message.')
   if (b.channelKind === 'EMAIL' && !b.subject?.trim()) p.push('An email needs a subject.')
   if (b.channelKind === 'WHATSAPP_CLOUD' && !b.templateName) p.push('WhatsApp needs the name of a template that Meta has approved.')
@@ -177,6 +205,13 @@ export interface BroadcastDetail {
   preview: { text: string; subject: string | null }
   sentToday: number
   dailyCap: number
+  /**
+   * MM-12-AC3: what the owner approved, or null before approval. `willGet` is who a send reaches now: approved and
+   * still eligible. `waitingForApproval` became eligible after approval and is left out until it is approved again.
+   */
+  approval: { count: number; costCents: number | null; criteria: unknown; purpose: string; willGet: number; waitingForApproval: number; noLongerEligible: number } | null
+  /** The current estimate for everyone eligible now, or null when the per-message cost is not set. */
+  estimatedCostCents: number | null
 }
 
 export async function getBroadcastDetail(db: Db, id: number, deps: Partial<BroadcastDeps> = {}): Promise<BroadcastDetail> {
@@ -193,7 +228,19 @@ export async function getBroadcastDetail(db: Db, id: number, deps: Partial<Broad
   const sentToday = await db.marketingBroadcastRecipient.count({ where: { status: 'SENT', sentAt: { gte: harareDayStart((deps.now ?? (() => new Date()))()) } } })
   if (settings.messageDailyCap <= sentToday) reasons.push(`The daily limit of ${settings.messageDailyCap} messages has been reached.`)
   const { hosts } = { hosts: hostRoutingConfigFromEnv().storefrontHosts }
+  let approval: BroadcastDetail['approval'] = null
+  if (b.approvedCount !== null && Array.isArray((b.approvedAudience as { contactIds?: unknown } | null)?.contactIds)) {
+    const ok = new Set(approvedIds(b))
+    const now = new Set(aud.eligible.map((m) => m.id))
+    const willGet = [...now].filter((x) => ok.has(x)).length
+    approval = {
+      count: b.approvedCount, costCents: b.approvedCostCents, criteria: (b.approvedAudience as { criteria?: unknown }).criteria ?? null, purpose: b.purpose,
+      willGet, waitingForApproval: now.size - willGet, noLongerEligible: ok.size - willGet,
+    }
+  }
   return {
+    approval,
+    estimatedCostCents: estimateCostCents(aud.eligible.length, b.channelKind, settings.messageCostCents),
     broadcast: toDto(b),
     audience: { eligible: aud.eligible.length, matched: aud.matched, withheld: aud.withheld },
     blockedReasons: reasons,
@@ -206,6 +253,16 @@ export async function getBroadcastDetail(db: Db, id: number, deps: Partial<Broad
 export async function listBroadcasts(db: Db): Promise<BroadcastDto[]> {
   const rows = await db.marketingBroadcast.findMany({ where: { shopKey: 'vyra' }, orderBy: { id: 'desc' }, take: 200 })
   return rows.map(toDto)
+}
+
+// ---------------------------------------------------------------- approval snapshot
+
+const UNFREEZE = { approvedAudience: Prisma.DbNull, approvedCount: null, approvedCostCents: null } as const
+
+/** The contact ids the owner approved this message for. */
+export function approvedIds(b: { approvedAudience: unknown }): number[] {
+  const ids = (b.approvedAudience as { contactIds?: unknown } | null)?.contactIds
+  return Array.isArray(ids) ? ids.filter((x): x is number => Number.isInteger(x)) : []
 }
 
 // ---------------------------------------------------------------- create / edit
@@ -237,13 +294,14 @@ function parseFields(o: Record<string, unknown>, channelKind: string) {
     d.templateVars = o.templateVars as string[]
   }
   if ('audienceFilter' in o) d.audienceFilter = parseFilter(o.audienceFilter) as Prisma.InputJsonValue
+  if ('purpose' in o) d.purpose = oneOf(o.purpose, 'purpose', BROADCAST_PURPOSES)
   if ('scheduledFor' in o) d.scheduledFor = date(o.scheduledFor, 'scheduledFor')
   return d
 }
 
 export async function createBroadcast(db: Db, body: unknown, actor: string): Promise<BroadcastDto> {
   const o = asObject(body)
-  onlyKeys(o, ['channelKind', 'name', 'subject', 'text', 'templateName', 'templateLanguage', 'templateVars', 'audienceFilter', 'scheduledFor'])
+  onlyKeys(o, ['channelKind', 'name', 'subject', 'text', 'templateName', 'templateLanguage', 'templateVars', 'audienceFilter', 'purpose', 'scheduledFor'])
   const channelKind = oneOf(o.channelKind, 'channelKind', BROADCAST_CHANNELS)
   if (!('name' in o)) throw new WebsiteError(400, 'Give the message a name.', { field: 'name' })
   if (!('text' in o)) throw new WebsiteError(400, 'Write the words of the message.', { field: 'text' })
@@ -259,13 +317,13 @@ export async function createBroadcast(db: Db, body: unknown, actor: string): Pro
 export async function updateBroadcast(db: Db, id: number, body: unknown, actorIn: BroadcastActor | string): Promise<BroadcastDto> {
   const actor = asActor(actorIn)
   const o = asObject(body)
-  onlyKeys(o, ['name', 'subject', 'text', 'templateName', 'templateLanguage', 'templateVars', 'audienceFilter', 'scheduledFor'])
+  onlyKeys(o, ['name', 'subject', 'text', 'templateName', 'templateLanguage', 'templateVars', 'audienceFilter', 'purpose', 'scheduledFor'])
   const b = await db.marketingBroadcast.findUnique({ where: { id } })
   if (!b) throw new WebsiteError(404, 'Message not found')
   const d = parseFields(o, b.channelKind)
   if (Object.keys(d).length === 0) throw new WebsiteError(400, 'Nothing to change.')
   const t = transitionBroadcast(b, 'edit', actor) // 409 when it is already being sent or finished
-  const res = await db.marketingBroadcast.updateMany({ where: { id, status: b.status }, data: { ...(d as Prisma.MarketingBroadcastUpdateManyMutationInput), ...t } })
+  const res = await db.marketingBroadcast.updateMany({ where: { id, status: b.status }, data: { ...(d as Prisma.MarketingBroadcastUpdateManyMutationInput), ...t, ...UNFREEZE } })
   if (res.count === 0) throw new WebsiteError(409, 'Someone else just changed this. Reload and try again.')
   await writeAudit(db, { actor: actor.username, action: 'broadcast.edit', entity: 'broadcast', entityId: id, detail: { fields: Object.keys(d), from: b.status, to: t.status } })
   return toDto((await db.marketingBroadcast.findUnique({ where: { id } })) as MarketingBroadcast)
@@ -305,14 +363,28 @@ export async function broadcastAction(db: Db, id: number, action: string, actorI
   const b = await db.marketingBroadcast.findUnique({ where: { id } })
   if (!b) throw new WebsiteError(404, 'Message not found')
   if (action === 'send' || action === 'retry') return startSending(db, b, action, actor, deps, opts)
-  if (action === 'submit') {
+  if (action === 'submit' || action === 'approve') {
     const problems = contentProblems(b)
     if (problems.length > 0) throw new WebsiteError(409, problems[0])
   }
   const t = transitionBroadcast(b, action as BroadcastAction, actor)
-  const res = await db.marketingBroadcast.updateMany({ where: { id, status: b.status }, data: { ...t } })
+  // MM-12-AC3: approval is for these people, these criteria and this cost. Anything else clears it.
+  let frozen: Prisma.MarketingBroadcastUpdateManyMutationInput = UNFREEZE
+  let approvalDetail: Record<string, unknown> = {}
+  if (action === 'approve') {
+    const aud = await computeAudience(db, b)
+    const settings = await getSettings(db)
+    const cost = estimateCostCents(aud.eligible.length, b.channelKind, settings.messageCostCents)
+    frozen = {
+      approvedAudience: { contactIds: aud.eligible.map((m) => m.id), criteria: parseFilter(b.audienceFilter), purpose: b.purpose, channelKind: b.channelKind } as unknown as Prisma.InputJsonValue,
+      approvedCount: aud.eligible.length,
+      approvedCostCents: cost,
+    }
+    approvalDetail = { count: aud.eligible.length, costCents: cost, criteria: parseFilter(b.audienceFilter), purpose: b.purpose }
+  }
+  const res = await db.marketingBroadcast.updateMany({ where: { id, status: b.status }, data: { ...t, ...(action === 'cancel' ? {} : frozen) } })
   if (res.count === 0) throw new WebsiteError(409, 'Someone else just changed this. Reload and try again.')
-  await writeAudit(db, { actor: actor.username, action: `broadcast.${action}`, entity: 'broadcast', entityId: id, detail: { from: b.status, to: t.status, channel: b.channelKind } })
+  await writeAudit(db, { actor: actor.username, action: `broadcast.${action}`, entity: 'broadcast', entityId: id, detail: { from: b.status, to: t.status, channel: b.channelKind, ...approvalDetail } })
   return { broadcast: toDto((await db.marketingBroadcast.findUnique({ where: { id } })) as MarketingBroadcast), run: null }
 }
 
@@ -321,6 +393,9 @@ async function startSending(db: Db, b: MarketingBroadcast, action: 'send' | 'ret
   const channel = await channelOf(db, b.channelKind)
   const t = transitionBroadcast(b, action, actor) // owner + status + approval, 409 before anything else
   assertCanGoLive({ settings, channel, post: b, env: deps.env }) // every condition, before any change or request
+  if (action === 'send' && !Array.isArray((b.approvedAudience as { contactIds?: unknown } | null)?.contactIds)) {
+    throw new WebsiteError(409, 'This message was approved before approvals listed the people it goes to. Submit and approve it again.')
+  }
   const problems = contentProblems(b)
   if (problems.length > 0) throw new WebsiteError(409, problems[0])
   const res = await db.marketingBroadcast.updateMany({ where: { id: b.id, status: b.status }, data: { ...t } })
@@ -328,9 +403,12 @@ async function startSending(db: Db, b: MarketingBroadcast, action: 'send' | 'ret
   await writeAudit(db, { actor: actor.username, action: `broadcast.${action}`, entity: 'broadcast', entityId: b.id, detail: { from: b.status, to: 'SENDING', channel: b.channelKind } })
   if (action === 'send') {
     // Recompute who may be messaged NOW. Rows that already exist are kept (nobody gets it twice).
+    // MM-12-AC3: only people the owner approved, and only while they are still eligible. Newcomers wait for a new approval.
     const aud = await computeAudience(db, b)
-    await db.marketingBroadcastRecipient.createMany({ data: aud.eligible.map((m) => ({ broadcastId: b.id, contactId: m.id })), skipDuplicates: true })
-    await writeAudit(db, { actor: actor.username, action: 'broadcast.plan', entity: 'broadcast', entityId: b.id, detail: { eligible: aud.eligible.length, matched: aud.matched, ...aud.withheld } })
+    const approved = new Set(approvedIds(b))
+    const go = aud.eligible.filter((m) => approved.has(m.id))
+    await db.marketingBroadcastRecipient.createMany({ data: go.map((m) => ({ broadcastId: b.id, contactId: m.id })), skipDuplicates: true })
+    await writeAudit(db, { actor: actor.username, action: 'broadcast.plan', entity: 'broadcast', entityId: b.id, detail: { eligible: go.length, matched: aud.matched, notApproved: aud.eligible.length - go.length, noLongerEligible: approved.size - go.length, ...aud.withheld } })
   } else {
     // Retry only the ones that failed with a known outcome. Anything of unknown outcome is never sent again.
     await db.marketingBroadcastRecipient.updateMany({ where: { broadcastId: b.id, status: 'FAILED', NOT: { error: { startsWith: 'Not sure' } } }, data: { status: 'PENDING', error: null } })
@@ -383,7 +461,8 @@ export async function continueSending(db: Db, id: number, actor: BroadcastActor,
       await db.marketingBroadcastRecipient.update({ where: { id: next.id }, data: { status: 'SKIPPED', error: why } })
       run.skipped++
     }
-    if (!isOptedIn(next.contact.consents, consentChannel)) { await skip('No longer opted in.'); continue }
+    // MM-12-AC1: checked again right before each message, for this channel and this purpose.
+    if (!isOptedIn(next.contact.consents, consentChannel, PURPOSE_FOR_BROADCAST[b.purpose] ?? 'PROMOTION')) { await skip('No longer opted in.'); continue }
     const address = addressFor(b.channelKind, next.contact)
     if (!address) { await skip('No address.'); continue }
 

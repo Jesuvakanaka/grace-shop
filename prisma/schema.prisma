@@ -1045,6 +1045,8 @@ model MarketingSettings {
   audienceNotes        Json     @default("[]")
   /// { field: { by, at } }: who confirmed each shop fact, and when.
   confirmations        Json     @default("{}")
+  /// MM-12-AC3: what one message costs per channel, in US cents ({ "SMS": 3 }). A channel not listed is "not known".
+  messageCostCents     Json     @default("{}")
   updatedBy            String?
   updatedAt            DateTime @updatedAt
 }
@@ -1325,6 +1327,7 @@ model MarketingContact {
 
   consents   MarketingConsent[]
   recipients MarketingBroadcastRecipient[]
+  enquiries  MarketingEnquiry[]
 
   @@unique([shopKey, phone])
   @@unique([shopKey, email])
@@ -1337,6 +1340,9 @@ model MarketingConsent {
   contactId  Int
   /// WHATSAPP | SMS | EMAIL
   channel    String
+  /// MM-12: what the permission is for. PROMOTION (offers, new stock) | FEEDBACK (review and feedback requests).
+  /// Service replies to a customer's own enquiry need no consent and are never promotional.
+  purpose    String   @default("PROMOTION")
   /// OPTED_IN | OPTED_OUT
   status     String
   /// How it was given, e.g. "said yes on WhatsApp on 26 Nov"
@@ -1348,34 +1354,43 @@ model MarketingConsent {
   contact MarketingContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@index([contactId, channel, recordedAt])
+  @@index([contactId, channel, purpose, recordedAt])
 }
 
 model MarketingBroadcast {
-  id               Int       @id @default(autoincrement())
-  shopKey          String    @default("vyra")
+  id                Int       @id @default(autoincrement())
+  shopKey           String    @default("vyra")
   /// EMAIL | SMS | WHATSAPP_CLOUD
-  channelKind      String
-  name             String
-  subject          String?
-  text             String
-  templateName     String?
-  templateLanguage String    @default("en")
-  templateVars     Json      @default("[]")
-  audienceFilter   Json      @default("{}")
-  trackingTag      String    @unique
+  channelKind       String
+  name              String
+  subject           String?
+  text              String
+  templateName      String?
+  templateLanguage  String    @default("en")
+  templateVars      Json      @default("[]")
+  audienceFilter    Json      @default("{}")
+  /// MM-12: PROMOTION | REVIEW_REQUEST. Decides which consent purpose each recipient needs.
+  purpose           String    @default("PROMOTION")
+  /// MM-12-AC3: frozen at approval: the contact ids approved, the criteria, the count and the cost estimate.
+  /// Sending goes only to approved people who are still eligible; anyone new needs a new approval.
+  approvedAudience  Json?
+  approvedCount     Int?
+  /// Null when the per-message cost of the channel is not known (never shown as 0).
+  approvedCostCents Int?
+  trackingTag       String    @unique
   /// DRAFT | PENDING_APPROVAL | APPROVED | SENDING | SENT | FAILED | CANCELLED | REJECTED
-  status           String    @default("DRAFT")
-  approvedBy       String?
-  approvedAt       DateTime?
-  scheduledFor     DateTime?
-  plannedCount     Int       @default(0)
-  sentCount        Int       @default(0)
-  failedCount      Int       @default(0)
-  skippedCount     Int       @default(0)
-  error            String?
-  createdBy        String
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  status            String    @default("DRAFT")
+  approvedBy        String?
+  approvedAt        DateTime?
+  scheduledFor      DateTime?
+  plannedCount      Int       @default(0)
+  sentCount         Int       @default(0)
+  failedCount       Int       @default(0)
+  skippedCount      Int       @default(0)
+  error             String?
+  createdBy         String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   recipients MarketingBroadcastRecipient[]
 
@@ -1455,4 +1470,64 @@ model MarketingSaleAttribution {
 
   @@index([campaignId])
   @@index([source, needsReview])
+}
+
+/// MM-11: one customer enquiry. A WhatsApp tap on the website is a tap, never an enquiry: an enquiry exists only when
+/// the owner records a real conversation (OWNER_RECORDED) or a connected inbox reports one (PROVIDER_OBSERVED).
+model MarketingEnquiry {
+  id                 Int       @id @default(autoincrement())
+  shopKey            String    @default("vyra")
+  contactId          Int?
+  /// As the customer gave it, when no contact is linked yet.
+  customerName       String?
+  customerPhone      String?
+  /// WHATSAPP | PHONE | INSTAGRAM | FACEBOOK | EMAIL | IN_SHOP | OTHER
+  channelKind        String
+  /// OWNER_RECORDED | PROVIDER_OBSERVED
+  conversation       String    @default("OWNER_RECORDED")
+  /// Why we think it came from where it came from (a tracking tag, "said they saw the reel").
+  sourceEvidence     String?
+  trackingTag        String?
+  campaignId         Int?
+  /// [productId]
+  productIds         Json      @default("[]")
+  message            String?
+  /// NEW | CONTACTED | WAITING | WON | LOST
+  status             String    @default("NEW")
+  assignedTo         String?
+  nextFollowUpAt     DateTime?
+  lostReason         String?
+  /// A recorded sale (WON only). Winning never creates revenue: the sale is the money.
+  saleId             Int?      @unique
+  /// The provider's event id. Unique, so the same inbound event never makes two enquiries.
+  externalEventId    String?   @unique
+  /// True while the contact match is uncertain (for example the same name, no phone). Candidates in contactCandidates.
+  needsContactReview Boolean   @default(false)
+  contactCandidates  Json      @default("[]")
+  createdBy          String
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  contact MarketingContact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  events  MarketingEnquiryEvent[]
+
+  @@index([shopKey, status, nextFollowUpAt])
+  @@index([contactId])
+}
+
+/// MM-11-AC5: the enquiry's history. Never edited or deleted.
+model MarketingEnquiryEvent {
+  id         Int      @id @default(autoincrement())
+  enquiryId  Int
+  /// CREATED | STATUS | NOTE | ASSIGNED | FOLLOW_UP | SALE_LINKED | SALE_UNLINKED | CONTACT_SET | REPLY_COPIED | REPLY_SENT_BY_OWNER | DUPLICATE_EVENT
+  kind       String
+  fromStatus String?
+  toStatus   String?
+  detail     Json?
+  actor      String
+  at         DateTime @default(now())
+
+  enquiry MarketingEnquiry @relation(fields: [enquiryId], references: [id], onDelete: Cascade)
+
+  @@index([enquiryId, at])
 }

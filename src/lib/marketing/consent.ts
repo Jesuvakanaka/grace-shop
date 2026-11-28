@@ -7,6 +7,12 @@ export type ConsentChannel = (typeof CONSENT_CHANNELS)[number]
 export const CONSENT_STATUSES = ['OPTED_IN', 'OPTED_OUT'] as const
 export type ConsentStatus = (typeof CONSENT_STATUSES)[number]
 export const CONTACT_SOURCES = ['ENQUIRY', 'MANUAL', 'IMPORT', 'STOREFRONT'] as const
+/**
+ * MM-12: what a permission is for. PROMOTION covers offers and new stock; FEEDBACK covers review and feedback
+ * requests. Permission for one never covers the other. A service reply to the customer's own enquiry needs none.
+ */
+export const CONSENT_PURPOSES = ['PROMOTION', 'FEEDBACK'] as const
+export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number]
 
 /** The consent channel a broadcast channel needs. WhatsApp consent does not allow SMS, and so on. */
 export const CONSENT_FOR_CHANNEL: Readonly<Record<string, ConsentChannel>> = {
@@ -17,6 +23,8 @@ export const CONSENT_FOR_CHANNEL: Readonly<Record<string, ConsentChannel>> = {
 
 export interface ConsentRow {
   channel: string
+  /** Rows from before MM-12 have no purpose: they were for promotion. */
+  purpose?: string | null
   status: string
   recordedAt: Date | string
   id: number
@@ -24,25 +32,41 @@ export interface ConsentRow {
 
 const at = (r: ConsentRow) => new Date(r.recordedAt).getTime()
 
-/** The row that counts for a channel: the newest by recordedAt, a higher id breaking a tie. Null when none. */
-export function latestConsent<T extends ConsentRow>(rows: readonly T[], channel: string): T | null {
+const purposeOf = (r: ConsentRow) => r.purpose || 'PROMOTION'
+
+/** The row that counts for a channel and purpose: the newest by recordedAt, a higher id breaking a tie. Null when none. */
+export function latestConsent<T extends ConsentRow>(rows: readonly T[], channel: string, purpose: string = 'PROMOTION'): T | null {
   let best: T | null = null
   for (const r of rows) {
-    if (r.channel !== channel) continue
+    if (r.channel !== channel || purposeOf(r) !== purpose) continue
     if (!best || at(r) > at(best) || (at(r) === at(best) && r.id > best.id)) best = r
   }
   return best
 }
 
-/** True only when the latest row for exactly this channel says OPTED_IN. No row, or OPTED_OUT, is false. */
-export function isOptedIn(rows: readonly ConsentRow[], channel: string): boolean {
-  return latestConsent(rows, channel)?.status === 'OPTED_IN'
+/** True only when the latest row for exactly this channel and purpose says OPTED_IN. No row, or OPTED_OUT, is false. */
+export function isOptedIn(rows: readonly ConsentRow[], channel: string, purpose: string = 'PROMOTION'): boolean {
+  return latestConsent(rows, channel, purpose)?.status === 'OPTED_IN'
 }
 
-/** Current state per channel: 'OPTED_IN' | 'OPTED_OUT' | 'NONE'. */
-export function consentSummary(rows: readonly ConsentRow[]): Record<ConsentChannel, ConsentStatus | 'NONE'> {
+/**
+ * MM-12-AC4: opting back in after an opt-out needs new evidence: some evidence, and not the evidence of any earlier
+ * row for this channel and purpose. Returns why not, or null when the new row may be written.
+ */
+export function restorationProblem(rows: readonly (ConsentRow & { evidence?: string | null })[], channel: string, purpose: string, evidence: string | null): string | null {
+  const latest = latestConsent(rows, channel, purpose)
+  if (latest?.status !== 'OPTED_OUT') return null
+  const e = evidence?.trim().toLowerCase() ?? ''
+  if (!e) return 'This person opted out before. Opting them back in needs new evidence: write down when and how they asked again.'
+  const used = rows.some((r) => r.channel === channel && purposeOf(r) === purpose && (r.evidence ?? '').trim().toLowerCase() === e)
+  if (used) return 'That evidence was already used before the opt-out. Opting back in needs new evidence.'
+  return null
+}
+
+/** Current promotional state per channel: 'OPTED_IN' | 'OPTED_OUT' | 'NONE'. */
+export function consentSummary(rows: readonly ConsentRow[], purpose: string = 'PROMOTION'): Record<ConsentChannel, ConsentStatus | 'NONE'> {
   const out = {} as Record<ConsentChannel, ConsentStatus | 'NONE'>
-  for (const c of CONSENT_CHANNELS) out[c] = (latestConsent(rows, c)?.status as ConsentStatus | undefined) ?? 'NONE'
+  for (const c of CONSENT_CHANNELS) out[c] = (latestConsent(rows, c, purpose)?.status as ConsentStatus | undefined) ?? 'NONE'
   return out
 }
 

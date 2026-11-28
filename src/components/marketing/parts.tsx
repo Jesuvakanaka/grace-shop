@@ -22,6 +22,7 @@ const TABS = [
   ['/marketing/results', 'Results'],
   ['/marketing/ads', 'Ads'],
   ['/marketing/audiences', 'Audiences'],
+  ['/marketing/enquiries', 'Enquiries'],
   ['/marketing/contacts', 'Contacts'],
   ['/marketing/messages', 'Messages'],
   ['/marketing/partners', 'Partners'],

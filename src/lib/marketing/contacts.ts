@@ -5,12 +5,18 @@ import type { MarketingConsent, MarketingContact, Prisma } from '@prisma/client'
 import { WebsiteError } from '@/lib/website/http'
 import { writeAudit, type Db } from './audit'
 import {
-  CONSENT_CHANNELS, CONSENT_STATUSES, CONTACT_SOURCES, consentSummary, latestConsent, normalizeEmail, normalizePhone, parseConsentCell,
+  CONSENT_CHANNELS, CONSENT_PURPOSES, CONSENT_STATUSES, CONTACT_SOURCES, consentSummary, latestConsent, normalizeEmail, normalizePhone, parseConsentCell,
   type ConsentChannel, type ConsentStatus,
 } from './consent'
+import { writeConsent } from './consent-records'
 import { asObject, onlyKeys, oneOf, requiredText, text } from './validate'
 
-export type ContactDto = Omit<MarketingContact, 'shopKey'> & { consent: Record<ConsentChannel, ConsentStatus | 'NONE'> }
+export type ContactDto = Omit<MarketingContact, 'shopKey'> & {
+  /** Promotional permission per channel. */
+  consent: Record<ConsentChannel, ConsentStatus | 'NONE'>
+  /** MM-12: permission for review and feedback requests per channel, kept apart from promotion. */
+  feedbackConsent: Record<ConsentChannel, ConsentStatus | 'NONE'>
+}
 export type ConsentDto = MarketingConsent
 
 const SHOP = 'vyra'
@@ -18,7 +24,7 @@ const SHOP = 'vyra'
 const toDto = (c: MarketingContact & { consents: MarketingConsent[] }): ContactDto => {
   const { consents, shopKey: _shopKey, ...rest } = c
   void _shopKey
-  return { ...rest, consent: consentSummary(consents) }
+  return { ...rest, consent: consentSummary(consents), feedbackConsent: consentSummary(consents, 'FEEDBACK') }
 }
 
 const bad = (m: string, field: string) => new WebsiteError(400, m, { field })
@@ -130,8 +136,9 @@ export async function updateContact(db: Db, id: number, body: unknown, actor: st
 /** Add one consent history row (the latest row wins). The method says how it was given. */
 export async function recordConsent(db: Db, contactId: number, body: unknown, actor: string): Promise<ContactDto> {
   const o = asObject(body)
-  onlyKeys(o, ['channel', 'status', 'method', 'evidence'])
+  onlyKeys(o, ['channel', 'purpose', 'status', 'method', 'evidence'])
   const channel = oneOf(o.channel, 'channel', CONSENT_CHANNELS)
+  const purpose = o.purpose === undefined ? 'PROMOTION' : oneOf(o.purpose, 'purpose', CONSENT_PURPOSES)
   const status = oneOf(o.status, 'status', CONSENT_STATUSES)
   const method = requiredText(o.method, 'method', 300)
   const evidence = text(o.evidence, 'evidence', 1000)
@@ -141,8 +148,8 @@ export async function recordConsent(db: Db, contactId: number, body: unknown, ac
     if (channel === 'EMAIL' && !c.email) throw bad('This contact has no email address, so they cannot opt in to email.', 'channel')
     if (channel !== 'EMAIL' && !c.phone) throw bad('This contact has no phone number, so they cannot opt in to this channel.', 'channel')
   }
-  await db.marketingConsent.create({ data: { contactId, channel, status, method, evidence, recordedBy: actor } })
-  await writeAudit(db, { actor, action: status === 'OPTED_IN' ? 'consent.opt_in' : 'consent.opt_out', entity: 'contact', entityId: contactId, detail: { channel, method } })
+  // MM-12: restoration needs new evidence; an opt-out takes them off waiting messages at once.
+  await writeConsent(db, { contactId, channel, purpose, status, method, evidence, recordedBy: actor })
   return (await getContact(db, contactId)).contact
 }
 
@@ -334,7 +341,8 @@ export async function commitImport(db: Db, body: unknown, actor: string): Promis
       updated++
     }
     for (const c of r.consent) {
-      await db.marketingConsent.create({ data: { contactId: id as number, channel: c.channel, status: c.status, method: c.method, evidence: c.evidence, recordedBy: actor } })
+      // A file's consent column is about promotion. Restoration after an opt-out is already refused by the plan.
+      await writeConsent(db, { contactId: id as number, channel: c.channel, purpose: 'PROMOTION', status: c.status, method: c.method, evidence: c.evidence, recordedBy: actor }, { via: 'import' })
     }
   }
   await writeAudit(db, { actor, action: 'contacts.import', entity: 'contacts', detail: { fileName, created, updated, skipped: plan.totals.skip, optIns: plan.totals.optIns, optOuts: plan.totals.optOuts, ignoredOptIns: plan.totals.ignoredOptIns, consentColumns: plan.consentColumns } })

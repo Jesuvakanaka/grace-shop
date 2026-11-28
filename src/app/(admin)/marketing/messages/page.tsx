@@ -17,11 +17,15 @@ export default function MessagesPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [cap, setCap] = useState('');
-  const [f, setF] = useState({ channelKind: 'SMS', name: '', subject: '', text: '', templateName: '', templateLanguage: 'en', templateVars: '', sources: [] as string[] });
+  const [costs, setCosts] = useState<Record<string, string>>({});
+  const [f, setF] = useState({ channelKind: 'SMS', name: '', subject: '', text: '', templateName: '', templateLanguage: 'en', templateVars: '', sources: [] as string[], purpose: 'PROMOTION' });
 
   const load = useCallback(() => {
     mk<{ broadcasts: Row[] }>('/api/marketing/broadcasts').then((d) => setRows(d.broadcasts)).catch((e) => setError(e instanceof Error ? e.message : 'Could not load.'));
-    mk<{ settings: { messageDailyCap: number } }>('/api/marketing/settings').then((d) => setCap(String(d.settings.messageDailyCap))).catch(() => {});
+    mk<{ settings: { messageDailyCap: number; messageCostCents: Record<string, number> } }>('/api/marketing/settings').then((d) => {
+      setCap(String(d.settings.messageDailyCap));
+      setCosts(Object.fromEntries(Object.entries(d.settings.messageCostCents ?? {}).map(([k, v]) => [k, String(v)])));
+    }).catch(() => {});
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -33,7 +37,7 @@ export default function MessagesPage() {
       const { broadcast } = await mk<{ broadcast: { id: number } }>('/api/marketing/broadcasts', {
         method: 'POST',
         body: {
-          channelKind: f.channelKind, name: f.name, text: f.text,
+          channelKind: f.channelKind, name: f.name, text: f.text, purpose: f.purpose,
           ...(f.channelKind === 'EMAIL' ? { subject: f.subject } : {}),
           ...(wa ? { templateName: f.templateName || null, templateLanguage: f.templateLanguage, templateVars: f.templateVars.split('\n').map((v) => v.trim()).filter(Boolean) } : {}),
           audienceFilter: f.sources.length ? { sources: f.sources } : {},
@@ -44,7 +48,9 @@ export default function MessagesPage() {
   };
   const saveCap = async () => {
     setError(null);
-    try { await mk('/api/marketing/settings', { method: 'PUT', body: { messageDailyCap: Number(cap) } }); load(); }
+    // MM-12-AC3: an empty cost means "not known", and approval then says so instead of guessing.
+    const messageCostCents = Object.fromEntries(Object.entries(costs).filter(([, v]) => v.trim() !== '').map(([k, v]) => [k, Number(v)]));
+    try { await mk('/api/marketing/settings', { method: 'PUT', body: { messageDailyCap: Number(cap), messageCostCents } }); load(); }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not save.'); }
   };
   const limit = LIMITS[f.channelKind];
@@ -75,6 +81,14 @@ export default function MessagesPage() {
               <div className="sm:col-span-2"><label className="label" htmlFor="m-vars">Template fields, one per line ({'{name}'} = first name)</label><textarea id="m-vars" className="input min-h-20" value={f.templateVars} onChange={(e) => setF({ ...f, templateVars: e.target.value })} /></div>
             </>
           ) : null}
+          <div className="sm:col-span-2">
+            <label className="label" htmlFor="m-purpose">What it is for</label>
+            <select id="m-purpose" className="select" value={f.purpose} onChange={(e) => setF({ ...f, purpose: e.target.value })} data-testid="message-purpose">
+              <option value="PROMOTION">An offer or news: goes to people who agreed to offers</option>
+              <option value="REVIEW_REQUEST">Asking for an honest review: goes to people who agreed to feedback requests</option>
+            </select>
+            {f.purpose === 'REVIEW_REQUEST' ? <p className="mt-1 text-xs text-slate-500">Ask for an honest review. Never ask only for good ones, and never offer anything for a review.</p> : null}
+          </div>
           <fieldset className="sm:col-span-2">
             <legend className="label">Who (only people who agreed are ever included)</legend>
             <div className="flex flex-wrap gap-4">
@@ -92,8 +106,14 @@ export default function MessagesPage() {
         <label className="label" htmlFor="m-cap">Most messages to send in one day (all channels together)</label>
         <div className="flex flex-wrap items-center gap-3">
           <input id="m-cap" className="input max-w-32" type="number" min={0} max={10000} value={cap} onChange={(e) => setCap(e.target.value)} data-testid="message-cap" />
-          <button type="button" className="btn btn-secondary" onClick={saveCap} disabled={cap === ''}>Save limit</button>
         </div>
+        <p className="label mt-4">What one message costs you, in US cents (leave empty if you do not know)</p>
+        <div className="grid gap-3 sm:grid-cols-3" data-testid="message-costs">
+          {Object.entries(MESSAGE_CHANNEL_LABELS).map(([k, l]) => (
+            <div key={k}><label className="text-sm text-slate-600" htmlFor={`m-cost-${k}`}>{l}</label><input id={`m-cost-${k}`} className="input" type="number" min={0} max={1000} step="0.1" value={costs[k] ?? ''} onChange={(e) => setCosts({ ...costs, [k]: e.target.value })} data-testid={`message-cost-${k}`} /></div>
+          ))}
+        </div>
+        <button type="button" className="btn btn-secondary mt-3" onClick={saveCap} disabled={cap === ''}>Save limit and costs</button>
         <p className="mt-1 text-xs text-slate-500">Messages go out gently, about one a second. Each text or WhatsApp message costs money: start small.</p>
       </Card>
 

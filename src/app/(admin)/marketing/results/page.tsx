@@ -32,8 +32,8 @@ function Table({ title, rows, labelOf, testId }: { title: string; rows: Row[]; l
                 <th className="py-2 pr-3 font-medium text-right">Seen</th>
                 <th className="py-2 pr-3 font-medium text-right">Clicks</th>
                 <th className="py-2 pr-3 font-medium text-right">Visits</th>
-                <th className="py-2 pr-3 font-medium text-right">Enquiries</th>
-                <th className="py-2 pr-3 font-medium text-right">Enquiry rate</th>
+                <th className="py-2 pr-3 font-medium text-right">Message taps</th>
+                <th className="py-2 pr-3 font-medium text-right">Tap rate</th>
                 <th className="py-2 font-medium text-right">Ad spend</th>
               </tr>
             </thead>
@@ -127,7 +127,7 @@ export default function ResultsPage() {
             {busy === 'sync' ? 'Updating…' : 'Update the numbers'}
           </button>
         </div>
-        <p className="mt-2 text-xs text-slate-500">Visits and enquiries come from your own website. Seen and clicks come from Facebook, Instagram and Meta ads once they are connected.</p>
+        <p className="mt-2 text-xs text-slate-500">Visits and message taps come from your own website. A tap opens WhatsApp: it is not a conversation. Conversations are under Enquiries. Seen and clicks come from Facebook, Instagram and Meta ads once they are connected.</p>
       </Card>
 
       {!report ? <Loading /> : (
@@ -137,7 +137,7 @@ export default function ResultsPage() {
               ['Seen', t!.impressions || t!.reach],
               ['Clicks', t!.clicks],
               ['Visits', t!.visits],
-              ['Enquiries', t!.enquiries],
+              ['Message taps', t!.enquiries],
               ['Ad spend', usd(report.spendCents)],
             ].map(([label, value]) => (
               <div key={String(label)} className="card">

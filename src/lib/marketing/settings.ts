@@ -9,7 +9,7 @@ import {
 } from './shop-truth'
 
 export const SETTINGS_FIELDS = [
-  'liveEnabled', 'monthlySpendCapCents', 'metaPixelId', 'productFeedEnabled', 'weeklyPostTarget', 'brandVoice', 'messageDailyCap', 'shopDescription', 'policyDelivery', 'policyReturns', 'policyOrdering',
+  'liveEnabled', 'monthlySpendCapCents', 'metaPixelId', 'productFeedEnabled', 'weeklyPostTarget', 'brandVoice', 'messageDailyCap', 'messageCostCents', 'shopDescription', 'policyDelivery', 'policyReturns', 'policyOrdering',
   // ZP-1106 (MM-01): the shop's truth.
   'market', 'currency', 'timeZone', 'salesMode', 'contactRoute', 'audienceNotes',
   /** Fields whose CURRENT value the owner says is right, without changing it. */
@@ -30,6 +30,7 @@ export async function updateSettings(db: Db, body: unknown, actor: string, now?:
   if ('monthlySpendCapCents' in o) data.monthlySpendCapCents = int(o.monthlySpendCapCents, 'monthlySpendCapCents', 0, 100_000_000)
   if ('weeklyPostTarget' in o) data.weeklyPostTarget = int(o.weeklyPostTarget, 'weeklyPostTarget', 0, 100)
   if ('messageDailyCap' in o) data.messageDailyCap = int(o.messageDailyCap, 'messageDailyCap', 0, 10000)
+  if ('messageCostCents' in o) data.messageCostCents = messageCosts(o.messageCostCents)
   if ('brandVoice' in o) data.brandVoice = text(o.brandVoice, 'brandVoice', 1000)
   if ('shopDescription' in o) data.shopDescription = text(o.shopDescription, 'shopDescription', 200)
   for (const k of ['policyDelivery', 'policyReturns', 'policyOrdering'] as const) if (k in o) data[k] = text(o[k], k, 500)
@@ -95,4 +96,17 @@ export async function siteFacts(db: Db): Promise<SiteFacts> {
 /** What the setup knows and what it still has to ask (MM-01, MM-02-AC1). */
 export async function getSetupState(db: Db): Promise<SetupState> {
   return setupState(await getSettings(db), await siteFacts(db))
+}
+
+/** MM-12-AC3: cost per message by channel, in US cents. A channel left out is "not known". */
+const COST_CHANNELS = ['EMAIL', 'SMS', 'WHATSAPP_CLOUD']
+function messageCosts(v: unknown): Record<string, number> {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) throw new WebsiteError(400, 'Message costs must be a cost for each channel.', { field: 'messageCostCents' })
+  const out: Record<string, number> = {}
+  for (const [k, c] of Object.entries(v)) {
+    if (!COST_CHANNELS.includes(k)) throw new WebsiteError(400, `Unknown channel ${k}.`, { field: 'messageCostCents' })
+    if (typeof c !== 'number' || !Number.isFinite(c) || c < 0 || c > 1000) throw new WebsiteError(400, 'A message cost is between 0 and 1000 US cents.', { field: 'messageCostCents' })
+    out[k] = Math.round(c * 100) / 100
+  }
+  return out
 }
