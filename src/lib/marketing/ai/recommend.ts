@@ -13,6 +13,7 @@ import { writeAudit, type Db } from '../audit'
 import { budgetSummary } from '../budget'
 import { getChannel } from '../channels'
 import { hararedayString, resultsReport, ymd } from '../results'
+import { SAMPLE } from '../results-truth'
 import { getSettings } from '../settings'
 import type { Actor } from '../state'
 import { shopIdentity, type ShopIdentity } from './shop'
@@ -125,20 +126,23 @@ export function ruleRecommendations(f: Facts): Rec[] {
   if (f.postCount === 0) {
     out.push({ kind: 'no_data', title: 'Nothing to learn from yet', body: `No posts have gone out ${win}, so there is nothing to compare. Publish a few posts and sync the results, then ask again.`, data: { window: f.window } })
   }
+  // ZP-1119 (MM-14-AC6): with few visits a leader is an early sign, never a winner.
+  const early = (visits: number) => visits < SAMPLE.visits
+  const tooFew = (visits: number) => ` That is from only ${plural(visits, 'visit')}, too few to be sure: keep trying the others too.`
   if (f.bestChannel) {
     const c = f.bestChannel
     out.push({
-      kind: 'best_channel', title: `${c.label} brings the most visitors`,
-      body: `${c.label} sent ${plural(c.visits, 'visit')} and ${plural(c.enquiries, 'enquiry', 'enquiries')} from ${plural(c.posts, 'post')} ${win}. Put your next posts there first.`,
-      data: { ...c },
+      kind: 'best_channel', title: early(c.visits) ? `${c.label} has brought the most visitors so far` : `${c.label} brings the most visitors`,
+      body: `${c.label} sent ${plural(c.visits, 'visit')} and ${plural(c.enquiries, 'enquiry', 'enquiries')} from ${plural(c.posts, 'post')} ${win}.${early(c.visits) ? tooFew(c.visits) : ' Put your next posts there first.'}`,
+      data: { ...c, smallSample: early(c.visits) },
     })
   }
   if (f.bestProduct) {
     const p = f.bestProduct
     out.push({
-      kind: 'best_product', title: `${p.name} is your best piece to promote`,
-      body: `Posts about ${p.name} brought ${plural(p.visits, 'visit')} and ${plural(p.enquiries, 'enquiry', 'enquiries')} ${win}. Post about it again, maybe with a new photo.`,
-      data: { ...p },
+      kind: 'best_product', title: early(p.visits) ? `${p.name} has had the most interest so far` : `${p.name} is your best piece to promote`,
+      body: `Posts about ${p.name} brought ${plural(p.visits, 'visit')} and ${plural(p.enquiries, 'enquiry', 'enquiries')} ${win}.${early(p.visits) ? tooFew(p.visits) : ' Post about it again, maybe with a new photo.'}`,
+      data: { ...p, smallSample: early(p.visits) },
     })
   }
   if (f.bestDay || f.bestHour) {
@@ -230,6 +234,8 @@ export function inventsNumbers(ai: { title: string; body: string }, rule: { titl
   return numbersIn(`${ai.title} ${ai.body}`).some((n) => !allowed.has(n))
 }
 
+const CERTAINTY = /\b(winners?|wins?|star|proven|guaranteed?|definitely|always works|sure thing)\b/i
+
 /** Pure: merge the model's wording into the rule recommendations, keeping rule text wherever the model strayed. */
 export function mergeAiWording(rules: Rec[], json: unknown): { recs: Rec[]; reworded: number } {
   const items = typeof json === 'object' && json !== null ? (json as { items?: unknown }).items : undefined
@@ -239,6 +245,8 @@ export function mergeAiWording(rules: Rec[], json: unknown): { recs: Rec[]; rewo
     const m = items.find((i) => typeof i === 'object' && i !== null && (i as { kind?: unknown }).kind === r.kind) as { title?: unknown; body?: unknown } | undefined
     const title = typeof m?.title === 'string' ? m.title.trim() : ''
     const body = typeof m?.body === 'string' ? m.body.trim() : ''
+    // MM-14-AC6: an early sign keeps its careful wording, and no rewording may call anything a winner.
+    if (r.data.smallSample === true || CERTAINTY.test(`${title} ${body}`) && !CERTAINTY.test(`${r.title} ${r.body}`)) return r
     if (!title || !body || title.length > 120 || body.length > 600 || inventsNumbers({ title, body }, r) || /[$€£]\s?\d/.test(`${title} ${body}`) && !/[$€£]\s?\d/.test(`${r.title} ${r.body}`)) return r
     reworded++
     return { ...r, title, body }

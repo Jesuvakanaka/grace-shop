@@ -108,6 +108,8 @@ import * as mkContacts from '../src/app/api/marketing/contacts/route';
 import * as mkContactById from '../src/app/api/marketing/contacts/[id]/route';
 import * as mkContactConsent from '../src/app/api/marketing/contacts/[id]/consent/route';
 import * as mkContactsImport from '../src/app/api/marketing/contacts/import/route';
+import * as mkResultsTruth from '../src/app/api/marketing/results/truth/route';
+import * as mkResultsAdvice from '../src/app/api/marketing/results/advice/route';
 import * as mkEnquiries from '../src/app/api/marketing/enquiries/route';
 import * as mkEnquiryById from '../src/app/api/marketing/enquiries/[id]/route';
 import * as mkEnquiryStatus from '../src/app/api/marketing/enquiries/[id]/status/route';
@@ -281,6 +283,9 @@ const cases: Case[] = [
   { method: 'PATCH', path: `/api/marketing/contacts/${MISSING_ID}`, handler: h(mkContactById.PATCH), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'POST', path: `/api/marketing/contacts/${MISSING_ID}/consent`, handler: h(mkContactConsent.POST), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'POST', path: '/api/marketing/contacts/import', handler: h(mkContactsImport.POST), policy: 'OWNER' },
+  // ZP-1119 (MM-14): results meaning and advice are OWNER only.
+  { method: 'GET', path: '/api/marketing/results/truth', handler: h(mkResultsTruth.GET), policy: 'OWNER' },
+  { method: 'POST', path: '/api/marketing/results/advice', handler: h(mkResultsAdvice.POST), policy: 'OWNER' },
   // ZP-1116 (MM-11): enquiries are OWNER only.
   { method: 'GET', path: '/api/marketing/enquiries', handler: h(mkEnquiries.GET), policy: 'OWNER' },
   { method: 'POST', path: '/api/marketing/enquiries', handler: h(mkEnquiries.POST), policy: 'OWNER' },

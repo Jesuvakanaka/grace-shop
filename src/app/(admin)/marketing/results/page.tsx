@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { mk } from '@/components/marketing/api';
 import { Card, ErrorNote, Loading } from '@/components/marketing/parts';
+import { TruthPanel } from '@/components/marketing/TruthPanel';
 import { getChannel } from '@/lib/marketing/channels';
 import { defaultRange, enquiryRate, REC_STATUS_LABELS, usd } from '@/lib/marketing/ui';
 
@@ -106,7 +107,6 @@ export default function ResultsPage() {
 
   const fresh = recs?.filter((r) => r.status === 'NEW') ?? [];
   const older = recs?.filter((r) => r.status !== 'NEW') ?? [];
-  const t = report?.totals;
 
   return (
     <div className="space-y-6">
@@ -132,20 +132,8 @@ export default function ResultsPage() {
 
       {!report ? <Loading /> : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5" data-testid="results-totals">
-            {[
-              ['Seen', t!.impressions || t!.reach],
-              ['Clicks', t!.clicks],
-              ['Visits', t!.visits],
-              ['Message taps', t!.enquiries],
-              ['Ad spend', usd(report.spendCents)],
-            ].map(([label, value]) => (
-              <div key={String(label)} className="card">
-                <p className="text-xs uppercase text-slate-500">{label}</p>
-                <p className="text-2xl font-semibold text-slate-900">{value}</p>
-              </div>
-            ))}
-          </div>
+          {/* ZP-1119 (MM-14): totals with their meaning; unknown is never shown as 0. */}
+          <TruthPanel from={range.from} to={range.to} />
           <Table title="By channel" rows={report.perChannel} labelOf={(r) => channelName(r.key)} testId="results-channels" />
           <Table title="By post" rows={report.perPost} labelOf={(r) => `${r.label} · ${channelName((r as Report['perPost'][number]).channelKind)}`} testId="results-posts" />
           <Table title="By product" rows={report.perProduct} testId="results-products" />
