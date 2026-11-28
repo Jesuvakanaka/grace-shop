@@ -1,5 +1,7 @@
 import { prisma } from '@/lib/db';
 import { receiptKey } from '@/lib/sales';
+import { ensureCashPosition } from '@/lib/cash-position';
+import { format, startOfDay } from 'date-fns';
 import { parseWorkbook, parseSheet, getSheetNames } from './parser';
 import { detectDocumentType, DOCUMENT_TYPES } from './detector';
 import { mapProductListRow } from './mappers/product-list';
@@ -231,19 +233,26 @@ export async function confirmImport(importDocumentId: number, exchangeRate?: num
               skippedRows++;
               continue;
             }
+            // ZP-1126: the sales mapper stores `amount` and `date`; rows saved before then may hold the sale's own names.
+            const sale = importedSaleFields(mapped);
+            if (sale.cashAmount > 0) {
+              const closing = await tx.dayClosing.findUnique({ where: { closingDate: startOfDay(sale.saleDate) } });
+              if (closing?.status === 'CLOSED') throw new Error(`${format(sale.saleDate, 'yyyy-MM-dd')} is already closed, so its cash cannot change. Reopen the day or record the sale by hand.`);
+            }
             await tx.sale.create({
               data: {
                 externalRef,
-                saleDate: mapped.saleDate ? new Date(mapped.saleDate) : new Date(),
-                paymentType: mapped.paymentType || 'CASH',
+                ...sale,
                 customerName: mapped.customerName,
                 customerPhone: mapped.customerPhone,
-                totalAmount: mapped.totalAmount || 0,
-                cashAmount: mapped.cashAmount || 0,
-                creditAmount: mapped.creditAmount || 0,
                 notes: mapped.notes
               }
             });
+            // The cash part goes into that day's till, as a sale typed in the daily log does.
+            if (sale.cashAmount > 0) {
+              const pos = await ensureCashPosition(tx, sale.saleDate);
+              await tx.cashPosition.update({ where: { id: pos.id }, data: { cashSales: { increment: sale.cashAmount }, expectedClosingCash: { increment: sale.cashAmount } } });
+            }
           } else if (row.detectedRecordType === 'EXPENSE') {
             await tx.expense.create({
               data: {
@@ -322,4 +331,21 @@ export async function getImportDetail(importDocumentId: number) {
       }
     }
   });
+}
+
+/**
+ * ZP-1126: the sale fields of an imported sales row. The mapper writes `amount` and `date`; older stored rows may use
+ * `totalAmount` and `saleDate`. A row with no payment split is a cash sale of its whole amount. No date means today.
+ */
+export function importedSaleFields(mapped: Record<string, any>, now = new Date()) {
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : Number(v) || 0);
+  const totalAmount = num(mapped.amount ?? mapped.totalAmount);
+  const dateRaw = mapped.date ?? mapped.saleDate;
+  const parsed = dateRaw ? new Date(dateRaw) : null;
+  const saleDate = parsed && !isNaN(parsed.getTime()) ? parsed : now;
+  const split = mapped.cashAmount !== undefined || mapped.creditAmount !== undefined;
+  const cashAmount = split ? num(mapped.cashAmount) : totalAmount;
+  const creditAmount = split ? num(mapped.creditAmount) : 0;
+  const paymentType = mapped.paymentType || (creditAmount > 0 ? (cashAmount > 0 ? 'MIXED' : 'CREDIT') : 'CASH');
+  return { saleDate, totalAmount, cashAmount, creditAmount, paymentType };
 }
