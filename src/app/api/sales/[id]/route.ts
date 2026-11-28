@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getSaleById } from '@/lib/sales';
+import { saleWithMoney } from '@/lib/sale-refunds';
+import prisma from '@/lib/db';
 import { authorize } from '@/lib/api-auth';
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -7,7 +8,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!auth.ok) return auth.response;
   try {
     const { id } = await params;
-    const sale = await getSaleById(Number(id));
+    // ZP-1118: with its refunds and money (collected, refunded, still owed).
+    const n = Number(id);
+    const sale = Number.isInteger(n) && n > 0 ? await saleWithMoney(prisma, n) : null;
     if (!sale) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     return NextResponse.json(sale);
   } catch (error: any) {

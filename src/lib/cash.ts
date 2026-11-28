@@ -6,7 +6,14 @@ export async function getOrCreateCashPosition(date: Date) {
   return ensureCashPosition(prisma, date)
 }
 
+/**
+ * ZP-1118: the figures a person types on the cash screen. Everything else (cash sales, debtor and creditor payments,
+ * expenses, refunds paid) is written by its own record and must not be overwritten here.
+ */
+export const EDITABLE_CASH_FIELDS = ['openingCash', 'otherCashIn', 'actualCountedCash'] as const
+
 export async function updateCashPosition(date: Date, field: string, amount: number) {
+  if (!(EDITABLE_CASH_FIELDS as readonly string[]).includes(field)) throw new Error(`${field} cannot be edited here: it comes from its own records.`)
   const pos = await getOrCreateCashPosition(date)
   const data: any = { [field]: amount }
   
@@ -23,7 +30,8 @@ export async function recalculateCashPosition(date: Date) {
   const pos = await prisma.cashPosition.findUnique({ where: { cashDate } })
   if (!pos) throw new Error('Cash position not found')
 
-  const expectedClosingCash = pos.openingCash + pos.cashSales + pos.debtorPaymentsReceived + pos.otherCashIn - pos.expensesPaid - pos.creditorPaymentsMade
+  // ZP-1118: cash refunds paid out that day leave the till too.
+  const expectedClosingCash = pos.openingCash + pos.cashSales + pos.debtorPaymentsReceived + pos.otherCashIn - pos.expensesPaid - pos.creditorPaymentsMade - pos.refundsPaid
   const variance = pos.actualCountedCash !== null ? pos.actualCountedCash - expectedClosingCash : null
 
   return prisma.cashPosition.update({

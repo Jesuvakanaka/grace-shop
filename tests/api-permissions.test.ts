@@ -42,6 +42,11 @@ import * as products from '../src/app/api/products/route';
 import * as productById from '../src/app/api/products/[id]/route';
 import * as saleById from '../src/app/api/sales/[id]/route';
 import * as sales from '../src/app/api/sales/route';
+import * as saleRefunds from '../src/app/api/sales/[id]/refunds/route';
+import * as saleCancel from '../src/app/api/sales/[id]/cancel/route';
+import * as refundVoid from '../src/app/api/sale-refunds/[id]/void/route';
+import * as mkSales from '../src/app/api/marketing/sales/route';
+import * as mkSaleAttribution from '../src/app/api/marketing/sales/[id]/attribution/route';
 import * as stockAdjust from '../src/app/api/stock-movements/adjust/route';
 import * as stockMovements from '../src/app/api/stock-movements/route';
 import * as upload from '../src/app/api/upload/route';
@@ -177,6 +182,10 @@ const cases: Case[] = [
   { method: 'GET', path: '/api/sales', handler: h(sales.GET), policy: 'SESSION' },
   { method: 'POST', path: '/api/sales', handler: h(sales.POST), policy: 'SESSION' },
   { method: 'GET', path: `/api/sales/${MISSING_ID}`, handler: h(saleById.GET), policy: 'SESSION', params: { id: MISSING_ID } },
+  // ZP-1118: refunds, cancellations and corrections pay money out or change what is owed: OWNER only.
+  { method: 'POST', path: `/api/sales/${MISSING_ID}/refunds`, handler: h(saleRefunds.POST), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: `/api/sales/${MISSING_ID}/cancel`, handler: h(saleCancel.POST), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: `/api/sale-refunds/${MISSING_ID}/void`, handler: h(refundVoid.POST), policy: 'OWNER', params: { id: MISSING_ID } },
 
   { method: 'GET', path: '/api/stock-movements', handler: h(stockMovements.GET), policy: 'SESSION' },
   { method: 'POST', path: '/api/stock-movements/adjust', handler: h(stockAdjust.POST), policy: 'OWNER' },
@@ -233,6 +242,9 @@ const cases: Case[] = [
   { method: 'GET', path: '/api/marketing/products', handler: h(mkProducts.GET), policy: 'OWNER' },
   // ZP-1106: the catalogue's truth and confirming a selling profile.
   { method: 'GET', path: '/api/marketing/catalogue', handler: h(mkCatalogue.GET), policy: 'OWNER' },
+  { method: 'GET', path: '/api/marketing/sales?from=2000-01-01&to=2000-01-02', handler: h(mkSales.GET), policy: 'OWNER' },
+  { method: 'GET', path: `/api/marketing/sales/${MISSING_ID}/attribution`, handler: h(mkSaleAttribution.GET), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'PUT', path: `/api/marketing/sales/${MISSING_ID}/attribution`, handler: h(mkSaleAttribution.PUT), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'POST', path: `/api/marketing/products/${MISSING_ID}/profile/confirm`, handler: h(mkProfileConfirm.POST), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'POST', path: `/api/marketing/content/${MISSING_ID}/posts`, handler: h(mkContentPosts.POST), policy: 'OWNER', params: { id: MISSING_ID } },
   // ZP-1200: ads, audiences, budget (OWNER only) and the public product feed (PUBLIC: no sign-in; 404 until switched on).

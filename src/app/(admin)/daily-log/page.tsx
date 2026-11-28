@@ -22,6 +22,7 @@ export default function DailyLogPage() {
   const [saleCustomerName, setSaleCustomerName] = useState('');
   const [saleCustomerPhone, setSaleCustomerPhone] = useState('');
   const [saleNotes, setSaleNotes] = useState('');
+  const [saleReceipt, setSaleReceipt] = useState('');
 
   // Expenses Form State
   const [expenseCategory, setExpenseCategory] = useState('Transport');
@@ -88,6 +89,7 @@ export default function DailyLogPage() {
         cashAmount: isCredit ? 0 : totalAmount,
         creditAmount: isCredit ? totalAmount : 0,
         notes: saleNotes || null,
+        receiptRef: saleReceipt.trim() || null,
         items: [
           {
             productId: prod.id,
@@ -111,6 +113,7 @@ export default function DailyLogPage() {
       setSaleCustomerName('');
       setSaleCustomerPhone('');
       setSaleNotes('');
+      setSaleReceipt('');
       fetchFormData();
     } catch (err: any) {
       setError(err.message);
@@ -324,6 +327,18 @@ export default function DailyLogPage() {
                 </div>
               </div>
             )}
+
+            <div>
+              <label className="label" htmlFor="sale-receipt">Receipt number (optional, never recorded twice)</label>
+              <input
+                id="sale-receipt"
+                className="input w-full"
+                value={saleReceipt}
+                onChange={e => setSaleReceipt(e.target.value)}
+                placeholder="e.g. 0042"
+                data-testid="sale-receipt"
+              />
+            </div>
 
             <div>
               <label className="label">Notes</label>

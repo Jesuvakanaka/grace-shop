@@ -9,6 +9,8 @@ export async function resetDatabase() {
   // Disable foreign keys checks if needed, but in SQLite we can just delete in topological order
   await prisma.$transaction([
     prisma.stockMovement.deleteMany(),
+    prisma.saleRefund.deleteMany(),
+    prisma.marketingSaleAttribution.deleteMany(),
     prisma.saleItem.deleteMany(),
     prisma.sale.deleteMany(),
     prisma.expense.deleteMany(),

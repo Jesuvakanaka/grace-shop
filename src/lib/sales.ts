@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import prisma from '@/lib/db'
 import { ensureCashPosition } from '@/lib/cash-position'
 import { startOfDay, endOfDay } from 'date-fns'
@@ -12,7 +13,40 @@ export async function createSale(data: {
   creditAmount?: number
   notes?: string
   createdBy?: string
+  /** ZP-1118 (MM-13-AC1): the receipt number. The same receipt is never recorded twice. */
+  receiptRef?: string | null
 }) {
+  const externalRef = receiptKey(data.receiptRef)
+  if (externalRef) {
+    const seen = await prisma.sale.findUnique({ where: { externalRef }, select: { id: true } })
+    if (seen) throw new DuplicateSaleError(seen.id)
+  }
+  try {
+    return await recordSale(data, externalRef)
+  } catch (e) {
+    // Two identical requests at once: the second loses on the unique receipt key.
+    if (externalRef && e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+      const seen = await prisma.sale.findUnique({ where: { externalRef }, select: { id: true } })
+      if (seen) throw new DuplicateSaleError(seen.id)
+    }
+    throw e
+  }
+}
+
+/** The stored key of a receipt number (trimmed, case kept), or null when none was given. */
+export function receiptKey(ref: unknown): string | null {
+  if (typeof ref !== 'string') return null
+  const r = ref.replace(/\s+/g, ' ').trim()
+  return r ? `receipt:${r.slice(0, 64)}` : null
+}
+
+export class DuplicateSaleError extends Error {
+  constructor(public readonly saleId: number) {
+    super(`This receipt is already recorded as sale ${saleId}.`)
+  }
+}
+
+async function recordSale(data: Parameters<typeof createSale>[0], externalRef: string | null) {
   return prisma.$transaction(async (tx) => {
     let totalAmount = 0
 
@@ -41,6 +75,7 @@ export async function createSale(data: {
         creditAmount: data.creditAmount || 0,
         notes: data.notes,
         createdBy: data.createdBy,
+        externalRef,
         items: {
           create: data.items.map(item => ({
             productId: item.productId,
@@ -148,7 +183,8 @@ export async function getSales(date?: Date) {
   }
   return prisma.sale.findMany({
     where,
-    include: { items: { include: { product: true } } },
+    // ZP-1118: refunds show with their sale (voided ones too: history).
+    include: { items: { include: { product: true } }, refunds: { orderBy: { id: 'asc' } } },
     orderBy: { saleDate: 'desc' }
   })
 }

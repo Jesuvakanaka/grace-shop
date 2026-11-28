@@ -24,7 +24,8 @@ export async function getDashboardData() {
   const end = endOfDay(today)
 
   const todaySalesRecords = await prisma.sale.findMany({
-    where: { saleDate: { gte: start, lte: end } }
+    // ZP-1118: a cancelled sale counts nowhere.
+    where: { saleDate: { gte: start, lte: end }, status: { not: 'CANCELLED' } }
   })
   const todaySales = todaySalesRecords.reduce((sum, s) => sum + s.totalAmount, 0)
   const todayCreditSales = todaySalesRecords.reduce((sum, s) => sum + s.creditAmount, 0)
@@ -56,6 +57,8 @@ export async function getDashboardData() {
     creditorsOutstanding: totalCreditorsOutstanding,
     estimatedGrossProfit,
     lowStockItems,
-    todayCreditSales
+    todayCreditSales,
+    // ZP-1118: cash paid back to customers today.
+    todayRefunds: todayCashPosition.refundsPaid ?? 0
   }
 }

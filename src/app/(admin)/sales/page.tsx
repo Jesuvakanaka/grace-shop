@@ -1,17 +1,19 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import SaleActions from '@/components/sales/SaleActions';
 
 export default function SalesPage() {
   const [sales, setSales] = useState<any[]>([]);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     fetch('/api/sales?date=' + date)
       .then(r => r.json())
-      .then(d => setSales(d || []))
+      .then(d => setSales(Array.isArray(d) ? d : []))
       .catch(() => {});
   }, [date]);
+  useEffect(() => { load(); }, [load]);
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val || 0);
 
@@ -52,7 +54,8 @@ export default function SalesPage() {
                   </div>
                 ))}
               </div>
-              <p className="text-right font-bold font-mono text-brand-olive">{formatCurrency(s.totalAmount)}</p>
+              <p className={`text-right font-bold font-mono ${s.status === 'CANCELLED' ? 'text-slate-400 line-through' : 'text-brand-olive'}`}>{formatCurrency(s.totalAmount)}</p>
+              <SaleActions sale={s} onChange={load} />
             </div>
           ))}
           {!sales.length && (
@@ -86,6 +89,7 @@ export default function SalesPage() {
                       </div>
                     ))}
                   </div>
+                  <div className="mt-1"><SaleActions sale={s} onChange={load} /></div>
                 </td>
                 <td className="p-2 text-center">
                   <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${
@@ -94,7 +98,7 @@ export default function SalesPage() {
                     {s.paymentType}
                   </span>
                 </td>
-                <td className="p-2 text-right text-brand-olive font-bold font-mono" data-testid="sales-log-row-total">
+                <td className={`p-2 text-right font-bold font-mono ${s.status === 'CANCELLED' ? 'text-slate-400 line-through' : 'text-brand-olive'}`} data-testid="sales-log-row-total">
                   {formatCurrency(s.totalAmount)}
                 </td>
               </tr>

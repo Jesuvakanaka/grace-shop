@@ -27,7 +27,7 @@ export async function findOrCreateDebtor(customerName: string, phoneNumber?: str
   return debtor
 }
 
-export async function recordDebtorPayment(debtorId: number, amount: number, notes?: string, createdBy?: string) {
+export async function recordDebtorPayment(debtorId: number, amount: number, notes?: string, createdBy?: string, paidAt: Date = new Date()) {
   return prisma.$transaction(async (tx) => {
     const debtor = await tx.debtor.findUnique({ where: { id: debtorId } })
     if (!debtor) throw new Error('Debtor not found')
@@ -46,7 +46,7 @@ export async function recordDebtorPayment(debtorId: number, amount: number, note
     await tx.debtorTransaction.create({
       data: {
         debtorId,
-        transactionDate: new Date(),
+        transactionDate: paidAt,
         transactionType: 'PAYMENT',
         amount,
         notes,
@@ -54,7 +54,7 @@ export async function recordDebtorPayment(debtorId: number, amount: number, note
       }
     })
 
-    const cashPos = await ensureCashPosition(tx, new Date())
+    const cashPos = await ensureCashPosition(tx, paidAt)
     await tx.cashPosition.update({
       where: { id: cashPos.id },
       data: {

@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db';
+import { receiptKey } from '@/lib/sales';
 import { parseWorkbook, parseSheet, getSheetNames } from './parser';
 import { detectDocumentType, DOCUMENT_TYPES } from './detector';
 import { mapProductListRow } from './mappers/product-list';
@@ -222,8 +223,17 @@ export async function confirmImport(importDocumentId: number, exchangeRate?: num
           }
         } else if (document.documentType === DOCUMENT_TYPES.BUSINESS_CONTROL) {
           if (row.detectedRecordType === 'SALE') {
+            // ZP-1118 (MM-13-AC1): a sale with a receipt number already recorded (typed in or imported before)
+            // is not imported again; without one, the import row itself is the key, so re-running it adds nothing.
+            const externalRef = receiptKey(mapped.receiptRef) ?? `import-row:${row.id}`;
+            if (await tx.sale.findUnique({ where: { externalRef }, select: { id: true } })) {
+              await tx.importRow.update({ where: { id: row.id }, data: { status: 'SKIPPED', errorMessage: 'Already recorded (same receipt).' } });
+              skippedRows++;
+              continue;
+            }
             await tx.sale.create({
               data: {
+                externalRef,
                 saleDate: mapped.saleDate ? new Date(mapped.saleDate) : new Date(),
                 paymentType: mapped.paymentType || 'CASH',
                 customerName: mapped.customerName,
