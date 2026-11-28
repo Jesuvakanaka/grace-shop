@@ -17,11 +17,12 @@ interface Truth {
     roas: Metric; costPerCreditedSale: Metric; contribution: Metric & { missing: string[] };
     notes: string[];
   };
-  records: { creditedSaleIds: number[]; creditedSales: { id: number; saleDate: string; total: number; customerName: string | null }[]; adIds: number[]; postIds: number[]; broadcastIds: number[] };
+  campaignId: number | null;
+  records: { creditedSaleIds: number[]; creditedSales: { id: number; saleDate: string; total: number; customerName: string | null }[]; adIds: number[]; postIds: number[]; posts: { id: number; contentId: number; title: string }[]; broadcastIds: number[] };
 }
 interface Advice { key: string; kind: 'MARKETING' | 'NOT_MARKETING' | 'TOO_EARLY'; title: string; evidence: string[]; draft: { name: string; productIds: number[] } | null }
 
-const MONEY = new Set(['All-shop takings', 'Takings credited to campaigns', 'Marketing cost', 'Marketing cost per credited sale', 'Contribution after costs']);
+const MONEY = new Set(['All-shop takings', 'Takings credited to campaigns', 'Takings credited to this campaign', 'Marketing cost', 'Marketing cost per credited sale', 'Contribution after costs']);
 const KIND_LABEL: Record<Advice['kind'], string> = { MARKETING: 'Marketing', NOT_MARKETING: 'Not a marketing problem', TOO_EARLY: 'Too early to tell' };
 
 function show(m: Metric, money = false): string {
@@ -43,16 +44,23 @@ function Tile({ m, testId }: { m: Metric; testId?: string }) {
   );
 }
 
-export function TruthPanel({ from, to }: { from: string; to: string }) {
+export function TruthPanel({ from, to, campaignId: fixedCampaign }: { from: string; to: string; campaignId?: number }) {
   const [d, setD] = useState<{ truth: Truth; advice: Advice[] } | null>(null);
+  const [campaigns, setCampaigns] = useState<{ id: number; name: string }[]>([]);
+  const [chosen, setChosen] = useState<number | null>(fixedCampaign ?? null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    mk<{ truth: Truth; advice: Advice[] }>(`/api/marketing/results/truth?from=${from}&to=${to}`).then(setD).catch((e) => setError(e instanceof Error ? e.message : 'Could not load.'));
-  }, [from, to]);
+    const q = chosen ? `&campaignId=${chosen}` : '';
+    mk<{ truth: Truth; advice: Advice[] }>(`/api/marketing/results/truth?from=${from}&to=${to}${q}`).then(setD).catch((e) => setError(e instanceof Error ? e.message : 'Could not load.'));
+  }, [from, to, chosen]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (fixedCampaign) return;
+    mk<{ campaigns: { id: number; name: string }[] }>('/api/marketing/campaigns').then((x) => setCampaigns(x.campaigns)).catch(() => setCampaigns([]));
+  }, [fixedCampaign]);
 
   const accept = async (a: Advice) => {
     setBusy(a.key); setError(null); setNote(null);
@@ -71,6 +79,15 @@ export function TruthPanel({ from, to }: { from: string; to: string }) {
     <div className="space-y-6" data-testid="truth-panel">
       <ErrorNote message={error} />
       {note ? <p className="rounded-lg border border-brand-olive-200 bg-brand-olive-50 px-4 py-3 text-sm text-brand-olive-700" role="status" data-testid="truth-note">{note}</p> : null}
+      {!fixedCampaign ? (
+        <div className="max-w-sm">
+          <label className="label" htmlFor="truth-campaign">Show</label>
+          <select id="truth-campaign" className="input" value={chosen ?? ''} onChange={(e) => setChosen(e.target.value ? Number(e.target.value) : null)} data-testid="truth-campaign">
+            <option value="">The whole shop</option>
+            {campaigns.map((c) => <option key={c.id} value={c.id}>Campaign: {c.name}</option>)}
+          </select>
+        </div>
+      ) : null}
       <p className="text-xs text-slate-500">All money in {d.truth.currency}. Platform numbers last brought in: {d.truth.syncedAt ? new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Harare' }).format(new Date(d.truth.syncedAt)) : 'never'}.</p>
 
       <section>
@@ -91,12 +108,13 @@ export function TruthPanel({ from, to }: { from: string; to: string }) {
         <p className="mt-2 text-xs text-slate-500">{r.conversations.note}</p>
         <p className="mt-1 text-xs text-slate-600" data-testid="truth-records">
           Behind these numbers: <Link className="underline" href="/marketing/enquiries">enquiries</Link>
-          {rec.postIds.length ? <> · {rec.postIds.length} posts</> : null}
-          {rec.adIds.length ? <> · ads {rec.adIds.map((id, i) => <React.Fragment key={id}>{i ? ', ' : ''}<Link className="underline" href="/marketing/ads">{id}</Link></React.Fragment>)}</> : null}
+          {rec.posts.length ? <> · posts {rec.posts.map((p, i) => <React.Fragment key={p.id}>{i ? ', ' : ''}<Link className="underline" href={`/marketing/content/${p.contentId}`}>{p.title}</Link></React.Fragment>)}</> : null}
+          {rec.adIds.length ? <> · ads {rec.adIds.map((id, i) => <React.Fragment key={id}>{i ? ', ' : ''}<Link className="underline" href="/marketing/ads">ad {id}</Link></React.Fragment>)}</> : null}
           {rec.broadcastIds.length ? <> · messages {rec.broadcastIds.map((id, i) => <React.Fragment key={id}>{i ? ', ' : ''}<Link className="underline" href={`/marketing/messages/${id}`}>{id}</Link></React.Fragment>)}</> : null}
         </p>
         <details className="mt-2" data-testid="truth-credited-sales">
           <summary className="cursor-pointer text-sm text-slate-700">Credited sales ({rec.creditedSales.length})</summary>
+          <p className="mt-1 text-xs text-slate-500">Listed by the day of the sale. Credited takings count money on the day it came in or went out, so a later payment or refund can make the two differ.</p>
           {rec.creditedSales.length === 0 ? <p className="mt-1 text-sm text-slate-500">None in these dates.</p> : (
             <ul className="mt-1 divide-y divide-slate-100 text-sm">
               {rec.creditedSales.map((s) => <li key={s.id} className="py-1">Sale {s.id} · {new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeZone: 'Africa/Harare' }).format(new Date(s.saleDate))} · US${s.total.toFixed(2)}{s.customerName ? ` · ${s.customerName}` : ''}</li>)}
@@ -116,7 +134,7 @@ export function TruthPanel({ from, to }: { from: string; to: string }) {
         <ul className="mt-2 list-disc pl-5 text-xs text-slate-500">{r.notes.map((n) => <li key={n}>{n}</li>)}</ul>
       </section>
 
-      <Card>
+      {d.truth.campaignId ? null : <Card>
         <h2 className="font-semibold text-slate-900 mb-1">What to do next</h2>
         <p className="text-xs text-slate-500 mb-3">From your campaigns, stock, waiting customers and budget. Advice never changes your shop. Making a draft only creates a campaign for you to plan.</p>
         {d.advice.length === 0 ? <p className="text-sm text-slate-500">Nothing stands out right now.</p> : null}
@@ -130,7 +148,7 @@ export function TruthPanel({ from, to }: { from: string; to: string }) {
             </li>
           ))}
         </ul>
-      </Card>
+      </Card>}
     </div>
   );
 }

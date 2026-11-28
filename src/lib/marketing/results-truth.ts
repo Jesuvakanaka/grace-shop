@@ -24,6 +24,7 @@ export function rate(top: Metric, bottom: Metric, label: string): Metric {
 export const REACH_LABEL = 'Summed reported reach'
 export const REACH_NOTE = 'Added up from each platform. The same person can be counted on more than one platform or post, so this is not the number of different people.'
 export const ATTRIBUTION_LIMITS = 'Only sales you credited to a campaign count. Credit shows a link, not proof that the campaign caused the sale, and sales nobody credited are left out.'
+export const DATE_BASIS = 'Dates are shop days in Harare. Platform numbers, visits and conversations count on the day they happened. Takings count on the day money came in or went out, so a payment or refund on a later day lands in that day. Sales are counted on the day of the sale.'
 export const PROFIT_NOTE = 'Takings minus marketing cost is not profit. Profit also needs what the pieces cost you and what delivery and packing cost.'
 
 /** How many records a judgement needs before it is more than a hint. */
@@ -36,6 +37,8 @@ export interface TruthInput {
   conversations: { ownerRecorded: number; providerObserved: number; won: number }
   sales: { allShopNetCents: number; allShopCount: number; creditedNetCents: number; creditedCount: number }
   costs: { adSpendCents: number; adSpendKnown: boolean; messageCostCents: number | null; messagesSent: number }
+  /** Set when the numbers are for one campaign. Messages are not tied to a campaign, so their cost is left out. */
+  campaignId?: number | null
   /** Cost of goods for the credited sales, when every sold piece has a unit cost. */
   goodsCostCents: number | null
   /** Delivery and packing cost: the shop does not record it yet. */
@@ -72,16 +75,22 @@ export function truthReport(i: TruthInput): TruthReport {
   const tapRate = rate(taps, visits, 'Visits that tapped "Message us"')
 
   const ad = i.costs.adSpendKnown ? known(money(i.costs.adSpendCents), 'Ad spend (reported by Meta)') : unknown('Ad spend', 'No ad has reported its spend.')
-  const msg = i.costs.messageCostCents === null
+  const msg: Metric = i.campaignId
+    ? { value: null, state: 'NOT_AVAILABLE', label: 'Messages sent', note: 'Messages are not tied to a campaign, so their cost is not counted here.' }
+    : i.costs.messageCostCents === null
     ? (i.costs.messagesSent > 0 ? unknown('Messages sent', `${i.costs.messagesSent} sent, but the cost per message is not set.`) : known(0, 'Messages sent', 'No messages were sent.'))
     : known(money(i.costs.messageCostCents), 'Messages sent (estimated)', `${i.costs.messagesSent} messages at the cost per message you set.`)
   const items = [ad, msg]
-  const allKnown = items.every((m) => m.state === 'KNOWN')
-  const total = allKnown ? known(items.reduce((s, m) => s + (m.value ?? 0), 0), 'Marketing cost') : unknown('Marketing cost', 'At least one cost is not known, so there is no total.')
-  const scope = 'Ad spend and message costs only. Your time, photos and samples are not included.'
+  // One campaign's cost is its ads only (messages belong to no campaign).
+  const counted = i.campaignId ? [ad] : items
+  const allKnown = counted.every((m) => m.state === 'KNOWN')
+  const total = allKnown ? known(counted.reduce((s, m) => s + (m.value ?? 0), 0), 'Marketing cost') : unknown('Marketing cost', 'At least one cost is not known, so there is no total.')
+  const scope = i.campaignId
+    ? 'This campaign\'s ad spend only. Messages are not tied to a campaign. Your time, photos and samples are not included.'
+    : 'Ad spend and message costs only. Your time, photos and samples are not included.'
 
-  const creditedNet = known(money(i.sales.creditedNetCents), 'Takings credited to campaigns')
-  const creditedCount = known(i.sales.creditedCount, 'Sales credited to campaigns')
+  const creditedNet = known(money(i.sales.creditedNetCents), i.campaignId ? 'Takings credited to this campaign' : 'Takings credited to campaigns')
+  const creditedCount = known(i.sales.creditedCount, i.campaignId ? 'Sales credited to this campaign' : 'Sales credited to campaigns')
   const roas = ad.state !== 'KNOWN'
     ? unknown('Credited takings per dollar of ads', 'Ad spend is not known.')
     : !ad.value
@@ -116,7 +125,7 @@ export function truthReport(i: TruthInput): TruthReport {
     },
     costs: { items, total, scope },
     roas, costPerCreditedSale, contribution,
-    notes: [REACH_NOTE, PROFIT_NOTE, ATTRIBUTION_LIMITS],
+    notes: [DATE_BASIS, REACH_NOTE, PROFIT_NOTE, ATTRIBUTION_LIMITS],
   }
 }
 

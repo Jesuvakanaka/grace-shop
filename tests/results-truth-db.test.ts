@@ -4,6 +4,7 @@
 import { describe, test, before, after } from 'node:test'
 import assert from 'node:assert'
 import prisma from '../src/lib/db'
+import { resultsReport } from '../src/lib/marketing/results'
 import { acceptAdvice, loadAdvice, loadTruth } from '../src/lib/marketing/results-truth-db'
 import { WebsiteError } from '../src/lib/website/http'
 
@@ -52,6 +53,29 @@ describe('MM-14 against the real ledger', () => {
     assert.strictEqual(t.currency, 'USD')
   })
 
+  test('AC1 and AC3 on the tables: a row with only website numbers has no reported platform days, so the page shows Unknown, not 0', async () => {
+    // The analytics rollup writes visits onto the post's daily row with no platform payload (raw stays null).
+    await prisma.marketingMetric.create({ data: { entity: 'POST', entityId: ids.post, day: new Date('2034-05-10T00:00:00Z'), visits: 40, enquiries: 4 } })
+    const r = await resultsReport(prisma, range)
+    const row = r.perPost.find((p) => p.postId === ids.post)!
+    assert.deepStrictEqual([row.visits, row.reportedDays, row.reach, row.impressions, row.clicks], [40, 0, 0, 0, 0])
+    const campaignRow = r.perCampaign.find((c) => c.key === String(ids.campaign))!
+    assert.strictEqual(campaignRow.reportedDays, 0)
+    // The panel for the same campaign agrees: unknown.
+    assert.strictEqual((await loadTruth(prisma, range, { campaignId: ids.campaign })).report.reach.state, 'UNKNOWN')
+  })
+
+  test('one campaign: messages are not tied to it, so its cost is its ad spend only; posts link to their content', async () => {
+    const t = await loadTruth(prisma, range, { campaignId: ids.campaign })
+    const msg = t.report.costs.items.find((m) => m.label === 'Messages sent')!
+    assert.strictEqual(msg.state, 'NOT_AVAILABLE')
+    assert.match(msg.note ?? '', /not tied to a campaign/)
+    assert.doesNotMatch(JSON.stringify(t.report.costs), /No messages were sent/)
+    assert.deepStrictEqual([t.report.costs.total.state, t.report.costs.total.value], ['KNOWN', 0])
+    assert.deepStrictEqual(t.records.posts, [{ id: ids.post, contentId: ids.content, title: 'ZP1119 content' }])
+    assert.ok(t.report.notes.some((n) => /day money came in/.test(n)))
+  })
+
   test('AC1 and AC6: once a platform reports, reach is summed reported reach; the records behind the numbers are listed', async () => {
     await prisma.marketingMetric.create({ data: { entity: 'POST', entityId: ids.post, day: new Date('2034-05-11T00:00:00Z'), reach: 300, impressions: 500, clicks: 9, raw: { lifetime: { reach: 300 } } } })
     const t = await loadTruth(prisma, range, { campaignId: ids.campaign })
@@ -59,6 +83,9 @@ describe('MM-14 against the real ledger', () => {
     assert.deepStrictEqual(t.records.creditedSaleIds, [ids.sale])
     assert.deepStrictEqual(t.records.postIds, [ids.post])
     assert.ok(t.syncedAt)
+    // The tables now count that reported day, and show the same reach as the panel.
+    const row = (await resultsReport(prisma, range)).perPost.find((p) => p.postId === ids.post)!
+    assert.deepStrictEqual([row.reportedDays, row.reach, row.impressions, row.clicks], [1, 300, 500, 9])
   })
 
   test('AC4: a sold piece with no cost on file keeps contribution unavailable; fulfilment is never on file', async () => {
@@ -77,12 +104,18 @@ describe('MM-14 against the real ledger', () => {
     const advice = await loadAdvice(prisma, range, at('2034-05-20'))
     const idle = advice.find((a) => a.key.startsWith('idle-stock') && a.draft?.productIds.includes(ids.products[1]))
     assert.ok(idle, 'piece 2 is in stock and in no live campaign')
-    const before = { posts: await prisma.marketingPost.count(), ads: await prisma.marketingAd.count(), stock: (await prisma.product.findUniqueOrThrow({ where: { id: ids.products[1] } })).currentQuantity }
+    const stockBefore = (await prisma.product.findUniqueOrThrow({ where: { id: ids.products[1] } })).currentQuantity
     const c = await acceptAdvice(prisma, range, idle!.key, OWNER, at('2034-05-20'))
     ids.extraCampaigns.push(c.id)
     assert.strictEqual(c.status, 'DRAFT')
     assert.ok(c.productIds.includes(ids.products[1]))
-    assert.deepStrictEqual({ posts: await prisma.marketingPost.count(), ads: await prisma.marketingAd.count(), stock: (await prisma.product.findUniqueOrThrow({ where: { id: ids.products[1] } })).currentQuantity }, before)
+    // Nothing hangs off the draft and stock is untouched. Counted for this campaign only, because other test files
+    // running at the same time add and remove their own posts and ads.
+    assert.deepStrictEqual({
+      content: await prisma.marketingContent.count({ where: { campaignId: c.id } }),
+      ads: await prisma.marketingAd.count({ where: { campaignId: c.id } }),
+      stock: (await prisma.product.findUniqueOrThrow({ where: { id: ids.products[1] } })).currentQuantity,
+    }, { content: 0, ads: 0, stock: stockBefore })
     await assert.rejects(() => acceptAdvice(prisma, range, 'idle-stock-0', OWNER), (e: unknown) => e instanceof WebsiteError && e.status === 409)
     const forOwner = advice.find((a) => a.draft === null)
     if (forOwner) await assert.rejects(() => acceptAdvice(prisma, range, forOwner.key, OWNER, at('2034-05-20')), (e: unknown) => e instanceof WebsiteError && e.status === 409)

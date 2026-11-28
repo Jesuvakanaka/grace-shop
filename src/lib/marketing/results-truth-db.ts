@@ -20,6 +20,8 @@ export interface TruthRecords {
   creditedSales: { id: number; saleDate: string; total: number; customerName: string | null }[]
   adIds: number[]
   postIds: number[]
+  /** The posts behind the numbers, with the content page each one belongs to. */
+  posts: { id: number; contentId: number; title: string }[]
   broadcastIds: number[]
 }
 
@@ -99,9 +101,12 @@ export async function loadTruth(db: Db, range: { from: string; to: string }, opt
     conversations: { ownerRecorded: conv.ownerRecorded, providerObserved: conv.providerObserved, won: conv.won },
     sales: { allShopNetCents: cents(sales.allShop.net), allShopCount: sales.allShop.salesCount, creditedNetCents, creditedCount },
     costs: { adSpendCents: sum(adRows, 'spendCents'), adSpendKnown, messageCostCents, messagesSent: sent.length },
+    campaignId,
     goodsCostCents: creditedSales.length ? goodsCostCents : 0,
     fulfilmentCostCents: null,
   })
+  const postIdsWithNumbers = [...new Set(metrics.filter((m) => m.entity === 'POST').map((m) => m.entityId))].sort((a, b) => a - b)
+  const postRows = await db.marketingPost.findMany({ where: { id: { in: postIdsWithNumbers } }, select: { id: true, contentId: true, content: { select: { title: true } } }, orderBy: { id: 'asc' } })
   const last = await db.marketingMetric.findFirst({ where: { NOT: { raw: { equals: Prisma.AnyNull } } }, orderBy: { updatedAt: 'desc' }, select: { updatedAt: true } })
   return {
     from: range.from, to: range.to, campaignId, currency: 'USD',
@@ -111,7 +116,8 @@ export async function loadTruth(db: Db, range: { from: string; to: string }, opt
       creditedSaleIds: creditedSales.map((s) => s.id).sort((a, b) => a - b),
       creditedSales: creditedSales.map((s) => ({ id: s.id, saleDate: s.saleDate.toISOString(), total: s.totalAmount, customerName: s.customerName })).sort((a, b) => a.id - b.id),
       adIds: [...new Set(adRows.filter((m) => m.spendCents > 0).map((m) => m.entityId))].sort((a, b) => a - b),
-      postIds: [...new Set(metrics.filter((m) => m.entity === 'POST').map((m) => m.entityId))].sort((a, b) => a - b),
+      postIds: postIdsWithNumbers,
+      posts: postRows.map((p) => ({ id: p.id, contentId: p.contentId, title: p.content.title })),
       broadcastIds: [...new Set(sent.map((r) => r.broadcast.id))].sort((a, b) => a - b),
     },
   }

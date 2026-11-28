@@ -50,6 +50,19 @@ describe('MM-14-AC3: unknown is not zero; nothing over zero', () => {
     assert.strictEqual(r.costs.total.state, 'UNKNOWN')
     assert.strictEqual(r.costPerCreditedSale.state, 'UNKNOWN')
   })
+  test('one campaign: messages are "not tied to a campaign", never "No messages were sent"; the cost is ad spend only', () => {
+    const r = truthReport(base({ campaignId: 7, costs: { adSpendCents: 5000, adSpendKnown: true, messageCostCents: 0, messagesSent: 0 } }))
+    assert.deepStrictEqual([r.costs.items[1].state, r.costs.items[1].note], ['NOT_AVAILABLE', 'Messages are not tied to a campaign, so their cost is not counted here.'])
+    assert.deepStrictEqual([r.costs.total.state, r.costs.total.value], ['KNOWN', 50])
+    assert.match(r.costs.scope, /ad spend only/)
+    assert.doesNotMatch(JSON.stringify(r), /No messages were sent/)
+  })
+  test('the date basis is stated: shop days, money on the day it moved, sales on the day of the sale', () => {
+    const notes = truthReport(base()).notes.join(' ')
+    assert.match(notes, /shop days in Harare/)
+    assert.match(notes, /day money came in or went out/)
+    assert.match(notes, /day of the sale/)
+  })
 })
 
 describe('MM-14-AC4: never profit; contribution needs every cost', () => {
