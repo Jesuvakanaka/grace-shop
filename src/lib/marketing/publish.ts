@@ -8,6 +8,7 @@ import { primaryStorefrontHost } from '@/lib/storefront/public-url'
 import { WebsiteError } from '@/lib/website/http'
 import { writeAudit, type Db } from './audit'
 import { campaignBlockReason, campaignHasEnded, shopDayLabel } from './campaign-window'
+import { assertContentProductMarketable, contentProductBlockReason } from './catalogue'
 import { getChannel } from './channels'
 import { updateCredentials } from './connect'
 import { getConnector } from './connectors'
@@ -74,6 +75,7 @@ export async function publishPost(db: Db, postId: number, actorIn: Actor | strin
   const gate = { settings, channel, post }
   assertCanGoLive(gate) // before anything changes or any request is made
   await assertInCampaignWindow(db, post.contentId, now) // ZP-1124: never outside the campaign's dates, never while it is paused
+  await assertContentProductMarketable(db, post.contentId) // ZP-1106: never for a withdrawn or sold-out product
 
   // Moves to PUBLISHING (compare-and-set), checks the gate again and writes the audit row.
   await transitionPost(db, postId, action, actor, { now })
@@ -257,7 +259,7 @@ export async function runDuePosts(db: Db, now: Date, deps: PublishDeps, opts: { 
     for (const p of due) {
       if (tried >= max) break
       out.checked++
-      const outside = campaignBlockReason(await campaignOfPost(db, p.contentId), now)
+      const outside = campaignBlockReason(await campaignOfPost(db, p.contentId), now) ?? (await contentProductBlockReason(db, p.contentId))
       if (outside) {
         out.blocked.push({ postId: p.id, reason: outside })
         continue

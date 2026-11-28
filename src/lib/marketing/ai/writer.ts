@@ -12,8 +12,9 @@ import { getChannel, type ChannelDef } from '../channels'
 import { callJson, hasAiKey, type AiFns } from './call'
 import { checkDrafts } from './check'
 import { shopIdentity, type ShopIdentity } from './shop'
+import { truthProblems, type TruthFacts } from '../product-truth'
 
-export const PLACEHOLDERS = ['{price}', '{sizes}', '{link}'] as const
+export const PLACEHOLDERS = ['{price}', '{sizes}', '{link}', '{wholesale}'] as const
 
 export interface DraftProduct {
   productName: string
@@ -26,6 +27,15 @@ export interface DraftProduct {
   fitNote?: string | null
   sellingPriceUsd: number
   priceDisplay: PriceDisplayValue | string
+  /** ZP-1106: the wholesale offer as code words it ("$12 each when you buy 6 or more"), only when it may be said. */
+  wholesaleText?: string | null
+}
+
+/** ZP-1106 (MM-01): the product's truth for the writer and the code check (see product-truth.ts). */
+export interface DraftTruth {
+  facts: TruthFacts
+  /** Availability, known policies and "never mention" lines, added to the product facts. */
+  lines: string[]
 }
 
 export interface DraftInput {
@@ -45,6 +55,8 @@ export interface DraftInput {
   links?: Record<string, string | null | undefined>
   /** false skips the second AI pass (the code checks always run). Default true. */
   check?: boolean
+  /** ZP-1106: availability, policies and wholesale terms. Without it nothing is said about them (older callers). */
+  truth?: DraftTruth | null
 }
 
 export interface DraftedPost {
@@ -197,6 +209,7 @@ export function factsBlock(input: DraftInput): string {
     ...facts.map((f) => `- ${f}`),
     priceOk ? 'The price may be shown: use {price} if you mention it.' : 'The price is NOT public for this product: never use {price} and never mention cost or price.',
     p.sizes?.trim() ? 'Sizes are on file: use {sizes} if you mention them.' : 'There are no sizes on file: never use {sizes} and never mention sizes.',
+    ...(input.truth ? input.truth.lines : ['Delivery, returns, stock and wholesale terms are not given: never mention them.']),
   ].join('\n')
 }
 
@@ -236,7 +249,7 @@ export function parseModelOutput(json: unknown): ModelPost[] {
 
 /** A model that wrote its own money amount broke the rule: never accept it. */
 const INVENTED_PRICE = /(?:[$£€]\s?\d|\b\d+(?:[.,]\d+)?\s?(?:usd|dollars?|zwl|rand|zar)\b|\busd\b)/i
-const UNKNOWN_PLACEHOLDER = /\{(?!price\}|sizes\}|link\})[^{}\s]*\}/
+const UNKNOWN_PLACEHOLDER = /\{(?!price\}|sizes\}|link\}|wholesale\})[^{}\s]*\}/
 
 /** Drop the sentence or line holding a placeholder we cannot fill. */
 function stripSentencesWith(text: string, token: string): string {
@@ -267,6 +280,8 @@ export function fillPlaceholders(template: string, product: DraftProduct): strin
   t = price === null ? stripSentencesWith(t, '{price}') : t.replace(/\{price\}/g, money(price))
   const sizes = product.sizes?.trim()
   t = sizes ? t.replace(/\{sizes\}/g, sizes) : stripSentencesWith(t, '{sizes}')
+  const wholesale = product.wholesaleText?.trim()
+  t = wholesale ? t.replace(/\{wholesale\}/g, wholesale) : stripSentencesWith(t, '{wholesale}')
   return t.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
 }
 
@@ -346,7 +361,7 @@ export interface SoftProblems {
  * and no first line that opens on the shop, the product or "Introducing".
  * `allowed` is everything the model was told that it may repeat.
  */
-export function softProblems(mp: Pick<ModelPost, 'text' | 'headline' | 'description' | 'subject'>, ctx: { urgency: string | null; allowed: string; names: string[] }): SoftProblems {
+export function softProblems(mp: Pick<ModelPost, 'text' | 'headline' | 'description' | 'subject'>, ctx: { urgency: string | null; allowed: string; names: string[]; truth?: TruthFacts | null; truthAllowed?: string }): SoftProblems {
   const raw = [mp.text, mp.headline, mp.description, mp.subject].filter(Boolean).join('\n')
   const allowed = ctx.allowed.toLowerCase()
   const truth: string[] = []
@@ -357,6 +372,9 @@ export function softProblems(mp: Pick<ModelPost, 'text' | 'headline' | 'descript
   }
   const known = new Set(allowed.match(NUMBER) ?? [])
   const made = [...new Set(raw.match(NUMBER) ?? [])].filter((n) => !known.has(n))
+  // ZP-1106 (MM-01-AC2/AC4/AC5): unknown policies, pre-order stock claims and wholesale terms, checked by code.
+  // Only the owner's own words count as allowed here, never the "never mention" instructions themselves.
+  if (ctx.truth) truth.push(...truthProblems(raw, ctx.truth, ctx.truthAllowed ?? ''))
   if (made.length > 0) truth.push(`It uses ${made.length === 1 ? 'a figure' : 'figures'} (${made.join(', ')}) that ${made.length === 1 ? 'is' : 'are'} not in the brief or the product facts. Remove ${made.length === 1 ? 'it' : 'them'}.`)
   const first = (mp.text.split('\n').find((l) => l.trim()) ?? '').trim().toLowerCase()
   const opener = [...ctx.names.map((n) => n.trim().toLowerCase()).filter((n) => n.length >= 3), ...OPENERS].find((o) => first.startsWith(o))
@@ -367,7 +385,7 @@ export function softProblems(mp: Pick<ModelPost, 'text' | 'headline' | 'descript
 }
 
 /** Other first lines, with placeholders filled. Anything untrue or unusable is dropped, never shown. */
-function usableOpenings(mp: ModelPost, product: DraftProduct, ctx: { urgency: string | null; allowed: string; names: string[] }): string[] {
+function usableOpenings(mp: ModelPost, product: DraftProduct, ctx: { urgency: string | null; allowed: string; names: string[]; truth?: TruthFacts | null; truthAllowed?: string }): string[] {
   const first = (mp.text.split('\n').find((l) => l.trim()) ?? '').trim()
   const out: string[] = []
   for (const o of mp.openings) {
@@ -411,6 +429,8 @@ export async function draftPosts(input: DraftInput, fns: Fns = {}): Promise<Draf
     urgency: plan.urgency,
     allowed: [briefText, factsText, input.brandVoice ?? ''].join('\n'),
     names: [shop.name, displayName(input.product)],
+    truth: input.truth?.facts ?? null,
+    truthAllowed: [briefText, input.brandVoice ?? '', input.product.publicDescription ?? '', input.product.fabric ?? '', input.product.care ?? '', input.product.fitNote ?? ''].join('\n'),
   }
   let costCents = 0
   let writer: 'claude' | 'openai' = 'claude'

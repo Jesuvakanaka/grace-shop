@@ -32,7 +32,7 @@ before(async () => {
   ownerToken = await createToken(900201, owner.username, 'OWNER')
   staffToken = await createToken(900202, 'zp1200ai-staff', 'STAFF')
   const p = await prisma.product.create({
-    data: { itemNumber: `ZP1200AI-${Date.now()}`, productName: 'ZP1200AI Dress', slug: `zp1200ai-dress-${Date.now()}`, sellingPriceUsd: 45, priceDisplay: 'SHOW_PRICE', sizes: '4-8 years', published: true },
+    data: { itemNumber: `ZP1200AI-${Date.now()}`, productName: 'ZP1200AI Dress', slug: `zp1200ai-dress-${Date.now()}`, sellingPriceUsd: 45, priceDisplay: 'SHOW_PRICE', sizes: '4-8 years', published: true, currentQuantity: 5 },
   })
   productId = p.id
 })

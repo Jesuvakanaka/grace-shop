@@ -12,7 +12,7 @@ import { ASK, PROFILE_LIMITS, cleanProfile, type SellingProfile } from './profil
 
 export * from './profile-model'
 
-export type SellingProfileDto = SellingProfile & { productId: number; aiGenerated: boolean; updatedBy: string | null; updatedAt: Date }
+export type SellingProfileDto = SellingProfile & { productId: number; aiGenerated: boolean; updatedBy: string | null; updatedAt: Date; /** ZP-1106 (MM-01-AC3) */ confirmedBy: string | null; confirmedAt: Date | null }
 
 const toDto = (row: MarketingSellingProfile): SellingProfileDto => ({
   ...cleanProfile(row),
@@ -20,6 +20,8 @@ const toDto = (row: MarketingSellingProfile): SellingProfileDto => ({
   aiGenerated: row.aiGenerated,
   updatedBy: row.updatedBy,
   updatedAt: row.updatedAt,
+  confirmedBy: row.confirmedBy,
+  confirmedAt: row.confirmedAt,
 })
 
 export async function getProfile(db: Db, productId: number): Promise<SellingProfileDto | null> {
@@ -48,7 +50,8 @@ export async function generateProfile(
     policies: shopPolicies(settings),
     brandVoice: settings.brandVoice,
   })
-  const data = { ...result.profile, aiGenerated: true, updatedBy: actor } as const
+  // An AI rewrite is not confirmed by anyone until the owner reads it (MM-01-AC3).
+  const data = { ...result.profile, aiGenerated: true, updatedBy: actor, confirmedBy: null, confirmedAt: null } as const
   const row = await db.marketingSellingProfile.upsert({
     where: { productId },
     update: { ...data, aiCostCents: { increment: result.costCents } },
@@ -76,11 +79,21 @@ export async function saveProfile(db: Db, productId: number, body: unknown, acto
     throw new WebsiteError(400, 'Leave prices out of the answers: the shop adds the price itself.', { field: 'doubts' })
   }
   if (!(await db.product.findUnique({ where: { id: productId }, select: { id: true } }))) throw new WebsiteError(404, 'Product not found')
+  // The owner's own corrections are confirmed by them, now (MM-01-AC3). They persist for every later plan.
+  const confirmed = { confirmedBy: actor, confirmedAt: new Date() }
   const row = await db.marketingSellingProfile.upsert({
     where: { productId },
-    update: { ...profile, aiGenerated: false, updatedBy: actor },
-    create: { productId, ...profile, aiGenerated: false, updatedBy: actor },
+    update: { ...profile, aiGenerated: false, updatedBy: actor, ...confirmed },
+    create: { productId, ...profile, aiGenerated: false, updatedBy: actor, ...confirmed },
   })
   await writeAudit(db, { actor, action: 'profile.edit', entity: 'product', entityId: productId, detail: { buyers: profile.buyers.length, reasons: profile.reasons.length, doubts: profile.doubts.length } })
   return toDto(row)
+}
+
+/** The owner says the profile as it stands (for example the AI's) is right. 404 when there is none yet. */
+export async function confirmProfile(db: Db, productId: number, actor: string, now: Date = new Date()): Promise<SellingProfileDto> {
+  const res = await db.marketingSellingProfile.updateMany({ where: { productId }, data: { confirmedBy: actor, confirmedAt: now } })
+  if (res.count === 0) throw new WebsiteError(404, 'This product has no selling profile yet.')
+  await writeAudit(db, { actor, action: 'profile.confirm', entity: 'product', entityId: productId })
+  return (await getProfile(db, productId)) as SellingProfileDto
 }

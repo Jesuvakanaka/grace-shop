@@ -6,6 +6,8 @@ import { toPostDto, type PostDto } from '../posts'
 import { planFromContent, resolveUrgency, urgencyOptions } from '../brief'
 import { buyerLine, getProfile } from '../selling-profile'
 import { getSettings } from '../settings'
+import { productTruth } from '../catalogue'
+import { shopTruth } from '../product-truth'
 import { shopIdentity } from './shop'
 import { draftPosts, type DraftFailure, type DraftInput, type DraftResult } from './writer'
 
@@ -49,6 +51,9 @@ export async function draftContentPosts(
 
   const settings = await getSettings(db)
   const product = content.product
+  // ZP-1106 (MM-01-AC2/AC4/AC5): the product's truth right now. A withdrawn or sold-out piece is not written for.
+  const truth = product ? await productTruth(db, product.id) : null
+  if (truth?.blockReason) throw new WebsiteError(409, truth.blockReason, { blocked: 'product' })
   // The reason to act now is worked out again at writing time: one that stopped being true is dropped.
   const urgency = resolveUrgency(content.urgencyKind, content.urgencyText, urgencyOptions(product, content.campaign, opts.now ?? new Date()))
   const warnings = urgency.stale ? ['The reason to act now you chose is no longer true, so it was left out. Choose another on the brief if you want one.'] : []
@@ -61,7 +66,8 @@ export async function draftContentPosts(
   })
   const write = opts.write ?? ((i: DraftInput) => draftPosts(i))
   const result = await write({
-    product: product ?? { productName: content.title, sellingPriceUsd: 0, priceDisplay: 'ASK_FOR_PRICE' },
+    product: product ? { ...product, wholesaleText: truth?.wholesaleText ?? null } : { productName: content.title, sellingPriceUsd: 0, priceDisplay: 'ASK_FOR_PRICE' },
+    truth: truth ? { facts: truth.facts, lines: truth.lines } : shopTruth({ delivery: settings.policyDelivery, returns: settings.policyReturns, ordering: settings.policyOrdering }),
     plan,
     brief: hasJob || plan.message !== content.brief ? content.brief : null,
     channels: targets.map((p) => p.channelKind),

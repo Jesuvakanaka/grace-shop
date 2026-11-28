@@ -422,6 +422,73 @@ describe('AI ad copy never carries prices or numbers', () => {
   })
 })
 
+describe('ZP-1106 (MM-01-AC2/AC4): ads follow the product truth', () => {
+  const setProduct = (data: { published?: boolean; currentQuantity?: number }) => prisma.product.update({ where: { id: productId }, data })
+
+  test('a sold-out or withdrawn product: no AI copy, no create on Meta, no start, and no request is made', async () => {
+    await setCap(100_000)
+    await live(true)
+    const draft = await newAd()
+    const created = await approved()
+    await act(created.id, 'create_on_platform', fakeMeta().deps())
+    const toCreate = await approved()
+    try {
+      for (const change of [{ currentQuantity: 0 }, { published: false }]) {
+        await setProduct(change)
+        let generated = false
+        await rejects(() => draftAdCopy(prisma, draft.id, owner.username, async () => { generated = true; return { copy: { headline: 'a', primaryText: 'b', description: null }, costCents: 1 } }), 409, /sold out|not on the website/)
+        assert.strictEqual(generated, false, 'the model is not called')
+        const m = fakeMeta()
+        await rejects(() => act(toCreate.id, 'create_on_platform', m.deps()), 409, /sold out|not on the website/)
+        assert.strictEqual((await dbAd(toCreate.id)).status, 'APPROVED')
+        await rejects(() => act(created.id, 'start', m.deps()), 409, /sold out|not on the website/)
+        assert.strictEqual((await dbAd(created.id)).status, 'PAUSED_ON_PLATFORM')
+        assert.strictEqual(m.calls.length, 0, 'no request to Meta')
+        await setProduct({ published: true, currentQuantity: 5 })
+      }
+      assert.strictEqual((await act(created.id, 'start', fakeMeta().deps())).status, 'ACTIVE')
+    } finally {
+      await setProduct({ published: true, currentQuantity: 5 })
+    }
+  })
+
+  test('the generator gets the shop from settings and the truth lines; copy with an unknown policy is thrown away', async () => {
+    const s = await getSettings(prisma)
+    const keep = { shopDescription: s.shopDescription, market: s.market, policyDelivery: s.policyDelivery, policyReturns: s.policyReturns, brandVoice: s.brandVoice }
+    await prisma.marketingSettings.update({ where: { id: 1 }, data: { shopDescription: 'a family clothing shop', market: null, policyDelivery: null, policyReturns: null, brandVoice: null } })
+    try {
+      const ad = await newAd()
+      let seen: Record<string, unknown> | null = null
+      await draftAdCopy(prisma, ad.id, owner.username, async (input) => {
+        seen = input as unknown as Record<string, unknown>
+        return { copy: { headline: 'Pink perfection', primaryText: 'Message us on WhatsApp.', description: null }, costCents: 1 }
+      })
+      assert.deepStrictEqual((seen as unknown as { shop: unknown }).shop, { name: 'VYRA', description: 'a family clothing shop' })
+      assert.strictEqual((seen as unknown as { market: unknown }).market, null)
+      const truth = (seen as unknown as { truth: string[] }).truth
+      assert.ok(truth.some((l) => /Delivery: NOT KNOWN/.test(l)), 'unknown delivery is said as never mention')
+      assert.ok(truth.some((l) => /Returns: NOT KNOWN/.test(l)))
+      assert.ok(truth.some((l) => /Wholesale: NOT OFFERED/.test(l)))
+      for (const bad of [
+        { headline: 'Free delivery', primaryText: 'Our pink dress.', description: null },
+        { headline: 'Pink dress', primaryText: 'Easy returns on every piece.', description: null },
+        { headline: 'Pink dress', primaryText: 'Our pink dress.', description: 'Wholesale welcome' },
+      ]) {
+        await rejects(() => draftAdCopy(prisma, ad.id, owner.username, async () => ({ copy: bad, costCents: 1 })), 502, /thrown away/)
+      }
+      assert.strictEqual((await dbAd(ad.id)).headline, 'Pink perfection', 'a refused draft changes nothing')
+      const refused = await prisma.marketingAuditLog.count({ where: { action: 'ad.ai_draft_refused', entityId: ad.id } })
+      assert.strictEqual(refused, 3)
+      // A policy the owner confirmed may be said.
+      await prisma.marketingSettings.update({ where: { id: 1 }, data: { policyDelivery: 'We deliver in town.' } })
+      const ok = await draftAdCopy(prisma, ad.id, owner.username, async () => ({ copy: { headline: 'Delivered to you', primaryText: 'We deliver in town.', description: null }, costCents: 1 }))
+      assert.strictEqual(ok.headline, 'Delivered to you')
+    } finally {
+      await prisma.marketingSettings.update({ where: { id: 1 }, data: keep })
+    }
+  })
+})
+
 describe('product feed from the real public catalogue', () => {
   const noCache: CacheFn = ((fn: () => Promise<unknown>) => fn) as unknown as CacheFn
   const loadProducts = async () => {

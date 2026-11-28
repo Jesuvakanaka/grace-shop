@@ -1,7 +1,9 @@
 'use client';
 // ZP-1200: Marketing settings. The live switch, spend cap, weekly target, brand voice, pixel and feed (stored for later).
+// ZP-1106: "Your business" (MM-01) at the top: the shop's confirmed facts and the catalogue's truth.
 import React, { useEffect, useState } from 'react';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { BusinessTruth } from '@/components/marketing/BusinessTruth';
 import { useToast } from '@/components/Toast';
 import { mk } from '@/components/marketing/api';
 import { Card, ErrorNote, Loading, useHubStatus } from '@/components/marketing/parts';
@@ -27,6 +29,8 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmLive, setConfirmLive] = useState(false);
+  // ZP-1106: bumped after each save so "Your business" shows the new confirmations.
+  const [version, setVersion] = useState(0);
 
   const apply = (d: { settings: Settings; liveAllowedByEnv: boolean }) => {
     setS(d.settings);
@@ -51,6 +55,7 @@ export default function SettingsPage() {
     try {
       apply(await mk('/api/marketing/settings', { method: 'PUT', body }));
       reload();
+      setVersion((v) => v + 1);
       toast.success(done);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save.');
@@ -73,6 +78,7 @@ export default function SettingsPage() {
   return (
     <div className="space-y-6 max-w-2xl">
       <ErrorNote message={error} />
+      <BusinessTruth key={version} onSaved={reload} />
       <Card className="space-y-3">
         <h2 className="font-serif text-xl font-semibold">Live posting</h2>
         <p className="text-sm text-slate-600">When this is on, approved posts can go out through connected channels. It only works when the server switch is also on.</p>

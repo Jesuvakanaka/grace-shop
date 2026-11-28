@@ -5,6 +5,7 @@ import { writeAudit, type Db } from './audit'
 import { createPostsForContent, toPostDto, type PostDto } from './posts'
 import { JOBS, URGENCY_KINDS } from './brief'
 import { asObject, imageKeys, oneOf, onlyKeys, requiredText, text } from './validate'
+import { assertNewProductsMarketable } from './catalogue'
 
 export type ContentDto = Omit<MarketingContent, 'imageKeys'> & { imageKeys: string[]; posts?: PostDto[] }
 
@@ -74,6 +75,7 @@ export async function createContent(db: Db, body: unknown, actor: string, opts: 
     channels = o.channels as string[]
   }
   await checkRefs(db, campaignId, productId)
+  if (productId) await assertNewProductsMarketable(db, [productId]) // ZP-1106 (MM-01-AC4)
   const plan = briefData(o)
   if (plan.urgencyKind === 'OWN' && !plan.urgencyText) throw new WebsiteError(400, 'Type your reason to act now, or choose "None".', { field: 'urgencyText' })
   const row = await db.marketingContent.create({ data: { title, brief, campaignId, productId, imageKeys: keys, createdBy: actor, ...plan } })
@@ -92,8 +94,11 @@ export async function updateContent(db: Db, id: number, body: unknown, actor: st
   if ('productId' in o) data.productId = refId(o.productId, 'productId')
   if ('imageKeys' in o) data.imageKeys = imageKeys(o.imageKeys, 'imageKeys')
   if (Object.keys(data).length === 0) throw new WebsiteError(400, 'Nothing to change.')
-  if (!(await db.marketingContent.findUnique({ where: { id }, select: { id: true } }))) throw new WebsiteError(404, 'Content not found')
+  const existing = await db.marketingContent.findUnique({ where: { id }, select: { id: true, productId: true } })
+  if (!existing) throw new WebsiteError(404, 'Content not found')
   await checkRefs(db, (data.campaignId as number | null) ?? null, (data.productId as number | null) ?? null)
+  // ZP-1106 (MM-01-AC4): a newly chosen product must be on the website and in stock (or on pre-order).
+  if (typeof data.productId === 'number' && data.productId !== existing.productId) await assertNewProductsMarketable(db, [data.productId])
   await db.marketingContent.update({ where: { id }, data })
   await writeAudit(db, { actor, action: 'content.update', entity: 'content', entityId: id, detail: { fields: Object.keys(o) } })
   return (await getContent(db, id)) as ContentDto

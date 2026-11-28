@@ -989,6 +989,20 @@ model MarketingSettings {
   policyDelivery       String?
   policyReturns        String?
   policyOrdering       String?
+  // ZP-1106 (MM-01): the shop's truth, confirmed by the owner. Never inferred (not from photos, not from
+  // the phone number). v1 supports one currency (USD) and one time zone (Africa/Harare) and refuses others.
+  /// Where the shop sells, in the owner's words. Null until the owner says.
+  market               String?
+  currency             String?
+  timeZone             String?
+  /// RETAIL | WHOLESALE | BOTH. Null until the owner says.
+  salesMode            String?
+  /// How customers reach the shop first: WHATSAPP | PHONE | EMAIL | IN_SHOP.
+  contactRoute         String?
+  /// [string]: who the owner thinks buys. Hypotheses, never facts.
+  audienceNotes        Json     @default("[]")
+  /// { field: { by, at } }: who confirmed each shop fact, and when.
+  confirmations        Json     @default("{}")
   updatedBy            String?
   updatedAt            DateTime @updatedAt
 }
@@ -1129,6 +1143,9 @@ model MarketingSellingProfile {
   aiGenerated Boolean  @default(false)
   aiCostCents Int      @default(0)
   updatedBy   String?
+  /// ZP-1106 (MM-01-AC3): who confirmed this profile as true, and when. Cleared when the AI rewrites it.
+  confirmedBy String?
+  confirmedAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

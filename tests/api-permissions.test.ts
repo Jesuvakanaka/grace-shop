@@ -81,6 +81,8 @@ import * as mkPlan from '../src/app/api/marketing/plan/route';
 import * as mkPlanApply from '../src/app/api/marketing/plan/apply/route';
 import * as mkStatus from '../src/app/api/marketing/status/route';
 import * as mkProducts from '../src/app/api/marketing/products/route';
+import * as mkCatalogue from '../src/app/api/marketing/catalogue/route';
+import * as mkProfileConfirm from '../src/app/api/marketing/products/[id]/profile/confirm/route';
 import * as mkContentPosts from '../src/app/api/marketing/content/[id]/posts/route';
 import * as mkAudiences from '../src/app/api/marketing/audiences/route';
 import * as mkAudienceById from '../src/app/api/marketing/audiences/[id]/route';
@@ -229,6 +231,9 @@ const cases: Case[] = [
   { method: 'POST', path: '/api/marketing/plan/apply', handler: h(mkPlanApply.POST), policy: 'OWNER' },
   { method: 'GET', path: '/api/marketing/status', handler: h(mkStatus.GET), policy: 'OWNER' },
   { method: 'GET', path: '/api/marketing/products', handler: h(mkProducts.GET), policy: 'OWNER' },
+  // ZP-1106: the catalogue's truth and confirming a selling profile.
+  { method: 'GET', path: '/api/marketing/catalogue', handler: h(mkCatalogue.GET), policy: 'OWNER' },
+  { method: 'POST', path: `/api/marketing/products/${MISSING_ID}/profile/confirm`, handler: h(mkProfileConfirm.POST), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'POST', path: `/api/marketing/content/${MISSING_ID}/posts`, handler: h(mkContentPosts.POST), policy: 'OWNER', params: { id: MISSING_ID } },
   // ZP-1200: ads, audiences, budget (OWNER only) and the public product feed (PUBLIC: no sign-in; 404 until switched on).
   { method: 'GET', path: '/api/marketing/audiences', handler: h(mkAudiences.GET), policy: 'OWNER' },
