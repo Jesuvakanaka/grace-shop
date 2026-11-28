@@ -5,6 +5,7 @@
 import React from 'react';
 import { Mark } from '@/components/storefront/Brand';
 import { FORMATS, textLimit, type FormatId } from './catalog';
+import type { Look, Scene } from './types';
 import { Icon } from './ui';
 
 /** Shows {first name} and [add …] placeholders as highlighted chips. */
@@ -33,14 +34,42 @@ function Avatar({ size = 'h-8 w-8' }: { size?: string }) {
   );
 }
 
-function Photo({ src, className = '', alt = '' }: { src: string; className?: string; alt?: string }) {
-  // eslint-disable-next-line @next/next/no-img-element -- fixed local lookbook files in a prototype preview
-  return <img src={src} alt={alt} className={`h-full w-full object-cover ${className}`} loading="lazy" />;
+/** Simulated visual treatments, drawn with CSS on the sample photo. Nothing is generated. */
+export const LOOKS: Record<Look, { label: string; hint: string }> = {
+  original: { label: 'Original photo', hint: 'The lookbook photo as it is.' },
+  warm: { label: 'Warm light', hint: 'Softer, warmer colours.' },
+  studio: { label: 'Studio frame', hint: 'The photo on a clean cream background.' },
+  headline: { label: 'Headline on photo', hint: 'The opening line set on the picture.' },
+};
+
+const LOOK_CLASS: Record<Look, string> = {
+  original: '',
+  warm: '[filter:sepia(0.22)_saturate(1.25)_brightness(1.03)]',
+  studio: 'p-[9%] bg-brand-cream-100 [&>img]:rounded-md [&>img]:shadow-md',
+  headline: '',
+};
+
+function Photo({ src, className = '', alt = '', look = 'original', headline }: { src: string; className?: string; alt?: string; look?: Look; headline?: string }) {
+  return (
+    <span className={`relative block h-full w-full overflow-hidden ${LOOK_CLASS[look]}`}>
+      {/* eslint-disable-next-line @next/next/no-img-element -- fixed local lookbook files in a prototype preview */}
+      <img src={src} alt={alt} className={`h-full w-full object-cover ${className}`} loading="lazy" />
+      {look === 'headline' && headline ? (
+        <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-4 pb-4 pt-14 text-left font-serif text-[22px] leading-tight text-white">{headline}</span>
+      ) : null}
+    </span>
+  );
+}
+
+/** A small swatch of one simulated look, for choosing between them. */
+export function LookSwatch({ src, look }: { src: string; look: Look }) {
+  return <span className="block aspect-[4/5] w-full overflow-hidden rounded-md bg-brand-cream-100"><Photo src={src} look={look} headline={look === 'headline' ? 'Aa' : undefined} className="object-top" /></span>;
 }
 
 const first = (caption: string) => caption.split('\n\n')[0];
 
-export function Preview({ format, caption, images, shop }: { format: FormatId; caption: string; images: string[]; shop: string }) {
+export function Preview({ format, caption, images, look = 'original', scenes, shop }: { format: FormatId; caption: string; images: string[]; look?: Look; scenes?: Scene[]; shop: string }) {
+  const opening = first(caption).replace('{first name}', 'Rudo');
   const handle = (shop || 'vyra').toLowerCase().replace(/[^a-z0-9]/g, '') || 'shop';
   const alt = 'Sample lookbook photo used as demonstration campaign material';
   const body = (() => {
@@ -56,7 +85,7 @@ export function Preview({ format, caption, images, shop }: { format: FormatId; c
                 <p className="text-[11px] text-slate-500">{format === 'ad' ? 'Sponsored' : 'Harare'}</p>
               </div>
             </div>
-            <div className="aspect-square bg-brand-cream-100"><Photo src={images[0]} alt={alt} className="object-top" /></div>
+            <div className="aspect-square bg-brand-cream-100"><Photo src={images[0]} alt={alt} look={look} headline={opening} className="object-top" /></div>
             {format === 'ad' ? (
               <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2 text-[13px] font-semibold">
                 <span>Send WhatsApp message</span><Icon name="arrow" className="h-4 w-4" />
@@ -70,7 +99,7 @@ export function Preview({ format, caption, images, shop }: { format: FormatId; c
       case 'wa_status':
         return (
           <div className="relative mx-auto aspect-[9/16] w-full max-w-[280px] overflow-hidden rounded-2xl bg-black text-white shadow-sm">
-            <Photo src={images[0]} alt={alt} className="object-top" />
+            <Photo src={images[0]} alt={alt} look={look === 'headline' ? 'original' : look} className="object-top" />
             <div className="absolute inset-x-0 top-0 bg-gradient-to-b from-black/60 to-transparent p-3">
               <div className="mb-2 h-0.5 w-full rounded bg-white/40"><div className="h-0.5 w-1/3 rounded bg-white" /></div>
               <div className="flex items-center gap-2 text-[12px] font-semibold"><Avatar size="h-7 w-7" />{format === 'wa_status' ? 'My status' : handle}</div>
@@ -90,19 +119,19 @@ export function Preview({ format, caption, images, shop }: { format: FormatId; c
         return (
           <div className="mx-auto w-full max-w-[280px]">
             <div className="relative aspect-[9/16] overflow-hidden rounded-2xl bg-black text-white shadow-sm">
-              <Photo src={images[0]} alt={alt} className="object-top" />
+              <Photo src={(scenes?.[0]?.image) ?? images[0]} alt={alt} look={look} headline={scenes?.[0]?.text} className="object-top" />
               <span className="absolute left-1/2 top-1/2 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/50"><Icon name="play" className="h-7 w-7 fill-white" /></span>
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-3 pt-12 text-[12px]">
                 <p className="font-semibold">@{handle}</p>
                 <p className="line-clamp-2 text-white/90"><RichText text={caption} /></p>
               </div>
             </div>
-            <p className="mt-3 text-xs font-medium uppercase tracking-wider text-slate-500">Video plan, 3 short scenes</p>
+            <p className="mt-3 text-xs font-medium uppercase tracking-wider text-slate-500">Storyboard, {(scenes ?? []).length} scenes · {(scenes ?? []).reduce((a, b) => a + b.secs, 0)} seconds</p>
             <div className="mt-1.5 grid grid-cols-3 gap-1.5">
-              {['Wedding: with heels', 'Church: with flats', 'Dinner: with a jacket'].map((label, i) => (
-                <div key={label} className="overflow-hidden rounded-md border border-slate-200 bg-white">
-                  <div className="aspect-[3/4]"><Photo src={images[i % images.length]} alt="" className="object-top" /></div>
-                  <p className="px-1.5 py-1 text-[10.5px] leading-tight text-slate-700">{label}</p>
+              {(scenes ?? []).map((sc, i) => (
+                <div key={i} className="overflow-hidden rounded-md border border-slate-200 bg-white">
+                  <div className="aspect-[3/4]"><Photo src={sc.image} alt="" look={look === 'headline' ? 'original' : look} className="object-top" /></div>
+                  <p className="px-1.5 py-1 text-[10.5px] leading-tight text-slate-700">{i + 1}. {sc.text} <span className="text-slate-500">· {sc.secs}s</span></p>
                 </div>
               ))}
             </div>
@@ -120,7 +149,7 @@ export function Preview({ format, caption, images, shop }: { format: FormatId; c
               </div>
             </div>
             <p className="px-3 pb-2"><RichText text={caption} /></p>
-            <div className="aspect-[4/5] bg-brand-cream-100"><Photo src={images[0]} alt={alt} className="object-top" /></div>
+            <div className="aspect-[4/5] bg-brand-cream-100"><Photo src={images[0]} alt={alt} look={look} headline={opening} className="object-top" /></div>
             <div className="flex justify-around border-t border-slate-200 py-2 text-[13px] text-slate-600"><span>Like</span><span>Comment</span><span>Share</span></div>
           </div>
         );
@@ -134,7 +163,7 @@ export function Preview({ format, caption, images, shop }: { format: FormatId; c
             </div>
             <div className="bg-[#efeae2] p-3">
               <div className="max-w-[88%] overflow-hidden rounded-lg bg-white text-[13.5px] text-slate-900 shadow-sm">
-                <div className="aspect-[4/3]"><Photo src={images[0]} alt={alt} className="object-top" /></div>
+                <div className="aspect-[4/3]"><Photo src={images[0]} alt={alt} look={look} headline={opening} className="object-top" /></div>
                 <p className="px-2.5 py-2"><RichText text={caption} /></p>
                 <p className="px-2.5 pb-1.5 text-right text-[10.5px] text-slate-500">10:00</p>
               </div>
@@ -150,7 +179,7 @@ export function Preview({ format, caption, images, shop }: { format: FormatId; c
     <figure>
       {body}
       <figcaption className="mt-3 space-y-1 text-center text-xs text-slate-500">
-        <p>Demonstration material · sample lookbook photo · not posted anywhere</p>
+        <p>Demonstration material · sample lookbook photo{look !== 'original' ? ` · ${LOOKS[look].label.toLowerCase()} (simulated)` : ''} · not posted anywhere</p>
         {limit !== null ? (
           <p className={over ? 'font-medium text-rose-700' : ''}>
             {caption.length.toLocaleString('en-US')} of {limit.toLocaleString('en-US')} characters{over ? ': too long for this channel' : ''}

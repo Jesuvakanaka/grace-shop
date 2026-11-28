@@ -5,12 +5,13 @@
 import React, { useState } from 'react';
 import { FORMATS, channelById, type FormatId } from '../catalog';
 import { fmtDay, fmtShort, money, relDay } from '../dates';
-import { SHOWN_LABEL, activeCampaign, campaignProgress, currentVersion, shownState, totals, type ShownState } from '../engine';
+import { SHOWN_LABEL, campaignProgress, currentVersion, liveCampaigns, shownState, totals, type ShownState } from '../engine';
 import { GOALS } from '../plan';
 import { useDemo } from '../store';
-import type { Placement } from '../types';
+import type { Campaign, Placement } from '../types';
 import { Dialog, Empty, Icon, Note, PageTitle, Pill, SectionTitle } from '../ui';
-import { CampaignJourney, DemoClock, StatePill } from './shared';
+import { LookSwatch } from '../previews';
+import { AutoPill, CampaignJourney, DemoClock, StatePill, automation } from './shared';
 
 const SHARE_STEPS: Partial<Record<FormatId, string[]>> = {
   wa_status: ['Save the photo to your phone (press and hold it).', 'Open WhatsApp, go to Updates and add a Status with the photo.', 'Paste the caption and post it.', 'Come back here and mark it as shared.'],
@@ -24,14 +25,26 @@ const FILTERS: ShownState[] = ['awaiting', 'scheduled', 'published', 'manual', '
 
 export function CampaignsScreen() {
   const { state } = useDemo();
-  const c = activeCampaign(state);
+  const live = liveCampaigns(state);
+  const [pick, setPick] = useState<string | null>(null);
+  const c = live.find((x) => x.id === pick) ?? live[0];
   const ended = state.campaigns.filter((x) => x.status === 'ended').sort((a, b) => b.endDate.localeCompare(a.endDate));
   return (
     <div>
-      {c ? <ActiveCampaign /> : (
+      {live.length > 1 ? (
+        <div className="mb-4 flex gap-1.5 overflow-x-auto pb-1" role="tablist" aria-label="Live campaigns">
+          {live.map((x) => (
+            <button key={x.id} type="button" role="tab" aria-selected={x.id === c?.id} onClick={() => setPick(x.id)}
+              className={`min-h-10 shrink-0 rounded-full border px-3 text-sm ${x.id === c?.id ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-300 bg-white'}`}>
+              {x.name} · {x.startDate > state.today ? `starts ${fmtShort(x.startDate)}` : 'running'}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {c ? <ActiveCampaign key={c.id} c={c} /> : (
         <>
           <PageTitle eyebrow="Campaigns" title="Nothing running right now" />
-          <Empty icon="megaphone" title="No active campaign" text="Set a goal, accept a plan and approve its items. Then you can schedule it here." action={<a href="#/plan" className="btn btn-primary">Set a goal</a>} />
+          <Empty icon="megaphone" title="No active campaign" text={state.draft?.plan ? 'A plan is ready for you to review. Accept it and approve its items, then schedule it here.' : 'Accept a plan and approve its items. Then you can schedule it here.'} action={<a href="#/plan" className="btn btn-primary">{state.draft?.plan ? 'Review the plan' : 'Go to My plan'}</a>} />
         </>
       )}
       {ended.length ? (
@@ -58,9 +71,8 @@ export function CampaignsScreen() {
   );
 }
 
-function ActiveCampaign() {
+function ActiveCampaign({ c }: { c: Campaign }) {
   const { state, dispatch, toast, go } = useDemo();
-  const c = activeCampaign(state)!;
   const prog = campaignProgress(state, c);
   const [filter, setFilter] = useState<ShownState | 'all'>('all');
   const [share, setShare] = useState<Placement | null>(null);
@@ -71,8 +83,9 @@ function ActiveCampaign() {
   const rows = prog.pls
     .map((p) => ({ p, st: shownState(state, p), m: state.materials.find((x) => x.id === p.materialId)! }))
     .sort((a, b) => a.p.date.localeCompare(b.p.date) || a.m.id.localeCompare(b.m.id));
-  const count = (st: ShownState) => rows.filter((r) => (st === 'awaiting' ? r.st === 'awaiting' || r.st === 'ready' : r.st === st)).length;
-  const shown = filter === 'all' ? rows : rows.filter((r) => (filter === 'awaiting' ? r.st === 'awaiting' || r.st === 'ready' : r.st === filter));
+  const waits = (st: ShownState) => st === 'awaiting' || st === 'ready' || st === 'spend';
+  const count = (st: ShownState) => rows.filter((r) => (st === 'awaiting' ? waits(r.st) : r.st === st)).length;
+  const shown = filter === 'all' ? rows : rows.filter((r) => (filter === 'awaiting' ? waits(r.st) : r.st === filter));
   const status = !c.scheduled ? 'Not scheduled yet' : c.paused ? 'Paused' : state.today < c.startDate ? `Starts ${relDay(c.startDate, state.today).toLowerCase()}` : prog.finished ? 'Finished' : `Running · day ${prog.day} of ${c.plan.days}`;
 
   const retry = (p: Placement) => {
@@ -98,6 +111,7 @@ function ActiveCampaign() {
             </div>
             <div className="flex flex-wrap gap-2">
               {prog.awaiting ? <a href="#/approvals" className="btn btn-secondary">Review items</a> : null}
+              {c.startDate > state.today && liveCampaigns(state)[0]?.id !== c.id ? <Pill tone="sky" className="self-center">Starts after your current campaign</Pill> : null}
               <button type="button" className="btn btn-primary" disabled={prog.awaiting === prog.mats.length} onClick={() => { dispatch({ type: 'campaign/schedule', id: c.id }); toast('Scheduled. Items go out on their planned days.'); }}>
                 <Icon name="calendar" className="h-4 w-4" /> Schedule approved items
               </button>
@@ -141,23 +155,24 @@ function ActiveCampaign() {
             return (
               <li key={p.id} className={`card !p-4 ${st === 'failed' ? 'border-rose-300' : ''}`}>
                 <div className="flex gap-3">
-                  {/* eslint-disable-next-line @next/next/no-img-element -- fixed local lookbook file */}
-                  <img src={m.images[0]} alt="" className="h-16 w-12 shrink-0 rounded object-cover object-top" />
+                  <span className="w-12 shrink-0"><LookSwatch src={currentVersion(m).scenes?.[0]?.image ?? currentVersion(m).images[0]} look={currentVersion(m).look} /></span>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <StatePill st={st} />
                       <span className="text-sm text-slate-600">{FORMATS[p.format].label} · {relDay(p.date, state.today)}</span>
+                      {st !== 'published' ? <AutoPill f={p.format} /> : null}
                     </div>
                     <p className="mt-1 font-medium">{m.title}</p>
                     {st === 'published' ? <p className="text-sm text-slate-600">{p.sharedByOwner ? 'You shared it yourself and marked it in the demo.' : `Published in the demo only. Nothing was posted to ${ch.name}.`} Version {p.publishedVersion ?? currentVersion(m).n}.</p> : null}
                     {st === 'awaiting' ? <p className="text-sm text-slate-600">{m.status === 'changes' ? 'Sent back for changes.' : m.reapproval ? 'Changed after approval.' : 'Waiting for your approval.'} It will not go out until approved.</p> : null}
+                    {st === 'spend' ? <p className="text-sm text-slate-600">The ad&apos;s content is approved. It will not run or spend until you approve the paid ad settings.</p> : null}
                     {st === 'ready' ? <p className="text-sm text-slate-600">Approved. Schedule the campaign to set it going.</p> : null}
-                    {st === 'scheduled' ? <p className="text-sm text-slate-600">{FORMATS[p.format].auto ? `Will be posted on ${ch.name} on ${fmtDay(p.date)}.` : `On ${fmtDay(p.date)} a share pack will be ready for you.`}</p> : null}
+                    {st === 'scheduled' ? <p className="text-sm text-slate-600">{fmtDay(p.date)}: {automation(state.connections[ch.id], p.format).label}</p> : null}
                     {st === 'paused' ? <p className="text-sm text-slate-600">Paused with the campaign.</p> : null}
                     {st === 'manual' ? <p className="text-sm text-slate-600">{ch.name} needs you to post this yourself. The words and photo are ready.</p> : null}
                     {st === 'failed' ? <p className="text-sm text-rose-800" role="alert">{p.failReason}{(p.failures ?? 0) > 1 ? ` Tried ${p.failures} times.` : ''}</p> : null}
                     <div className="mt-2 flex flex-wrap gap-2">
-                      {st === 'awaiting' ? <a href={`#/approvals/${m.id}`} className="btn btn-secondary btn-sm">Review</a> : null}
+                      {st === 'awaiting' || st === 'spend' ? <a href={`#/approvals/${m.id}`} className="btn btn-secondary btn-sm">{st === 'spend' ? 'Review ad settings' : 'Review'}</a> : null}
                       {st === 'manual' ? <button type="button" className="btn btn-primary btn-sm" onClick={() => setShare(p)}><Icon name="copy" className="h-4 w-4" /> Open share pack</button> : null}
                       {st === 'failed' ? (
                         <>
@@ -194,7 +209,7 @@ function ActiveCampaign() {
       </Dialog>
 
       <Dialog open={confirmEnd} onClose={() => setConfirmEnd(false)} title="End this campaign?"
-        footer={<><button type="button" className="btn btn-secondary" onClick={() => setConfirmEnd(false)}>Keep it running</button><button type="button" className="btn btn-primary" onClick={() => { dispatch({ type: 'campaign/end', id: c.id }); setConfirmEnd(false); go('#/results'); toast('Campaign ended. Here are its results.', 'info'); }}>End campaign</button></>}>
+        footer={<><button type="button" className="btn btn-secondary" onClick={() => setConfirmEnd(false)}>Keep it running</button><button type="button" className="btn btn-primary" onClick={() => { const others = liveCampaigns(state).length > 1; dispatch({ type: 'campaign/end', id: c.id }); setConfirmEnd(false); go(`#/results/${c.id}`); toast(others ? 'Campaign ended. Here are its results.' : 'Campaign ended. Here are its results, and a recommended next plan is ready for you.', 'info'); }}>End campaign</button></>}>
         <p>Items that have not gone out are withdrawn and the ad stops. What already happened stays in your results.</p>
       </Dialog>
     </div>
@@ -205,7 +220,8 @@ function SharePack({ placement, onClose }: { placement: Placement | null; onClos
   const { state, dispatch, toast } = useDemo();
   const m = placement ? state.materials.find((x) => x.id === placement.materialId) : null;
   if (!placement || !m) return null;
-  const caption = currentVersion(m).caption.replaceAll('{first name}', '').replace(/^Hi ,\s*/, 'Hi, ');
+  const v = currentVersion(m);
+  const caption = v.caption.replaceAll('{first name}', '').replace(/^Hi ,\s*/, 'Hi, ');
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(caption);
@@ -222,9 +238,12 @@ function SharePack({ placement, onClose }: { placement: Placement | null; onClos
       footer={<><button type="button" className="btn btn-secondary" onClick={onClose}>Not yet</button><button type="button" className="btn btn-primary" onClick={() => { dispatch({ type: 'placement/shared', id: placement.id }); onClose(); toast('Marked as shared in the demo.'); }}><Icon name="check" className="h-4 w-4" /> I shared it, mark as shared</button></>}>
       <div className="grid gap-5 sm:grid-cols-[180px_1fr]">
         <div>
-          {/* eslint-disable-next-line @next/next/no-img-element -- fixed local lookbook file */}
-          <img src={m.images[0]} alt="Sample lookbook photo for this item" className="w-full rounded-lg object-cover" />
-          <p className="mt-1 text-center text-xs text-slate-500">Sample photo</p>
+          {v.scenes ? (
+            <ol className="grid grid-cols-3 gap-1.5 sm:grid-cols-1">
+              {v.scenes.map((sc, i) => <li key={i}><LookSwatch src={sc.image} look="original" /><p className="mt-0.5 text-[11px] leading-tight text-slate-600">{i + 1}. {sc.text} · {sc.secs}s</p></li>)}
+            </ol>
+          ) : <LookSwatch src={v.images[0]} look={v.look} />}
+          <p className="mt-1 text-center text-xs text-slate-500">{v.scenes ? 'Approved storyboard' : 'Approved picture'} (version {m.approvedVersion ?? v.n})</p>
         </div>
         <div className="space-y-4">
           <div>

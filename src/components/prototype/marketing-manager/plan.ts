@@ -6,7 +6,7 @@ import {
   productById, type ChannelId, type FormatId,
 } from './catalog';
 import { addDays, r2 } from './dates';
-import type { Business, Customer, GoalId, GoalInput, Material, Plan, PlanChannel, Stage } from './types';
+import type { Business, Customer, GoalId, GoalInput, Material, Plan, PlanChannel, Scene, Stage } from './types';
 
 export const GOALS: Record<GoalId, { label: string; hint: string }> = {
   reach: { label: 'Bring more suitable shoppers', hint: 'Get your pieces in front of new people who are likely to buy.' },
@@ -330,29 +330,60 @@ function copyFor(stage: Stage, plan: Plan, b: Business, productId: string): Copy
   }
 }
 
+const noTags = (body: string) => body.split('\n\n').filter((x) => !x.trim().startsWith('#')).join('\n\n');
+const firstSentence = (body: string) => (body.split('\n\n')[0] ?? '').split(/(?<=\.)\s/)[0];
+
+/** Each channel format gets words that suit it: stories are short, ads are direct, Facebook has no hashtags. */
+export function captionFor(format: FormatId, opening: string, body: string): string {
+  switch (format) {
+    case 'ig_post': return `${opening}\n\n${body}`;
+    case 'fb_post': case 'fb_group': case 'wa_channel': return `${opening}\n\n${noTags(body)}`;
+    case 'ad': return `${opening}\n\n${firstSentence(noTags(body))} Tap "Send message" to check your size on WhatsApp.`;
+    case 'ig_story': case 'wa_status': return `${opening}\n\nAsk us on WhatsApp.`;
+    case 'ig_reel': case 'tiktok_video': return `${opening}\n\n${firstSentence(noTags(body))}\n\n#WearDifferent #OccasionWear`;
+    case 'wa_message': return `${opening}\n\n${body}`;
+  }
+}
+
+export const VIDEO_FORMATS: FormatId[] = ['ig_reel', 'tiktok_video'];
+
+export const SCENE_TEXT = ['Wedding: with heels', 'Church: with flats', 'Dinner: with a light jacket'];
+
+export function scenesFor(images: string[]): Scene[] {
+  return SCENE_TEXT.map((text, i) => ({ image: images[i % images.length], text, secs: 4 }));
+}
+
 export function buildMaterials(plan: Plan, b: Business, campaignId: string, startSeq: number): Material[] {
-  return planSteps(plan).map((step, i) => {
+  const out: Material[] = [];
+  for (const step of planSteps(plan)) {
     const c = copyFor(step.stage, plan, b, step.productId);
     const images = step.stage === 'demo'
       ? plan.productIds.slice(0, 3).map((id) => productById(id).image)
       : [productById(step.productId).image];
-    return {
-      id: `m${startSeq + i}`,
-      campaignId,
-      stage: step.stage,
-      title: c.title,
-      purpose: c.purpose,
-      productId: step.productId,
-      images,
-      formats: step.formats,
-      versions: [{ n: 1, caption: `${c.openings[0]}\n\n${c.body}`, by: 'manager', why: 'Prepared by your marketing manager (simulated)' }],
-      openings: c.openings,
-      status: 'awaiting',
-      approvedVersion: null,
-      reapproval: false,
-      date: step.date,
-    };
-  });
+    for (const format of step.formats) {
+      const video = VIDEO_FORMATS.includes(format);
+      out.push({
+        id: `m${startSeq + out.length}`,
+        campaignId,
+        stage: step.stage,
+        title: c.title,
+        purpose: c.purpose,
+        productId: step.productId,
+        formats: [format],
+        versions: [{
+          n: 1, caption: captionFor(format, c.openings[0], c.body), images, look: 'original',
+          scenes: video ? scenesFor(images) : undefined,
+          by: 'manager', why: 'Prepared by your marketing manager (simulated)',
+        }],
+        openings: c.openings,
+        status: 'awaiting',
+        approvedVersion: null,
+        reapproval: false,
+        date: step.date,
+      });
+    }
+  }
+  return out;
 }
 
 export type RevisionStyle = 'shorter' | 'warmer' | 'direct';
@@ -370,7 +401,9 @@ export function revise(caption: string, style: RevisionStyle): string {
       const keep = [paras[0], paras[1]].filter(Boolean);
       const firstSentence = (keep[1] ?? '').split(/(?<=\.)\s/)[0];
       const stop = paras.find((x) => x.startsWith('Reply STOP'));
-      return [keep[0], firstSentence, stop].filter(Boolean).join('\n\n');
+      const short = [keep[0], firstSentence, stop].filter(Boolean).join('\n\n');
+      // Already short: keep just the opening (and the opt-out line) rather than change nothing.
+      return short !== caption ? short : [paras[0], stop].filter(Boolean).join('\n\n');
     }
     case 'warmer':
       return [...paras.slice(0, 1), 'We would love to help you find a look you feel wonderful in.', ...paras.slice(1)].join('\n\n');

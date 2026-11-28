@@ -3,7 +3,7 @@
 // Opened at /prototype/marketing-manager. Sample data only; see docs/marketing/ai-manager-prototype.md.
 import React, { useState, useSyncExternalStore } from 'react';
 import { Mark } from '@/components/storefront/Brand';
-import { activeCampaign, campaignProgress, waitingCustomers } from './engine';
+import { adNeedsApproval, campaignProgress, liveCampaigns, waitingCustomers } from './engine';
 import { DemoProvider, useDemo } from './store';
 import { DemoClock } from './screens/shared';
 import { Dialog, Icon } from './ui';
@@ -60,8 +60,7 @@ function Shell() {
   const section = route[0] ?? 'home';
   const onboarding = state.onboarding === 'pending' || section === 'welcome';
 
-  const c = activeCampaign(state);
-  const approvals = c ? campaignProgress(state, c).awaiting : 0;
+  const approvals = liveCampaigns(state).reduce((n, c) => n + campaignProgress(state, c).awaiting + (adNeedsApproval(state, c) ? 1 : 0), 0);
   const waiting = waitingCustomers(state).length;
   const badge = (key: string) => (key === 'approvals' ? approvals : key === 'customers' ? waiting : 0);
 

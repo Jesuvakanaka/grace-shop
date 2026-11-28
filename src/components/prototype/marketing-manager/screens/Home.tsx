@@ -2,8 +2,8 @@
 // "My marketing": answers the owner's five questions at a glance.
 import React from 'react';
 import { fmtDay, money, num, relDay } from '../dates';
-import { activeCampaign, campaignProgress, dueFollowUps, goalLabel, managerUpdate, nextStep, totals, waitingCustomers } from '../engine';
-import { productById } from '../catalog';
+import { activeCampaign, adNeedsApproval, campaignProgress, dueFollowUps, goalLabel, liveCampaigns, managerUpdate, nextStep, totals, waitingCustomers } from '../engine';
+import { FORMATS, productById } from '../catalog';
 import { useDemo } from '../store';
 import { Icon, Simulated } from '../ui';
 import { CampaignJourney } from './shared';
@@ -28,7 +28,11 @@ export function HomeScreen() {
   const lastEnded = [...state.campaigns].filter((x) => x.status === 'ended').sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
   const scope = c && c.scheduled ? c : lastEnded;
   const t = scope ? totals(state, scope.id) : null;
-  const pendingMats = c ? state.materials.filter((m) => m.campaignId === c.id && m.status !== 'approved') : [];
+  const live = liveCampaigns(state);
+  const liveIds = new Set(live.map((x) => x.id));
+  const pendingMats = state.materials.filter((m) => liveIds.has(m.campaignId) && m.status !== 'approved');
+  const adWaiting = live.filter((x) => adNeedsApproval(state, x));
+  const following = live.filter((x) => x.id !== c?.id);
 
   return (
     <div>
@@ -40,13 +44,16 @@ export function HomeScreen() {
 
       {/* The one next action. */}
       <section className="mb-5 overflow-hidden rounded-2xl bg-brand-olive-700 text-white shadow-md" aria-labelledby="next-title">
-        <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+        <div className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between sm:p-6">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-lime-200">What to do next</p>
             <h2 id="next-title" className="mt-1 font-serif text-2xl sm:text-3xl">{step.title}</h2>
             <p className="mt-1 max-w-xl text-brand-olive-50">{step.detail}</p>
           </div>
-          <a href={step.href} className="btn shrink-0 bg-brand-cream text-brand-ink hover:bg-white">{step.cta} <Icon name="arrow" className="h-4 w-4" /></a>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <a href={step.href} className="btn bg-brand-cream text-brand-ink hover:bg-white">{step.cta} <Icon name="arrow" className="h-4 w-4" /></a>
+            {step.also ? <a href={step.also.href} className="btn border border-brand-cream/70 text-brand-cream hover:bg-brand-olive-800">{step.also.cta}</a> : null}
+          </div>
         </div>
       </section>
 
@@ -62,27 +69,31 @@ export function HomeScreen() {
       </section>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <QCard q="What is it doing for me?" href={c ? '#/campaigns' : '#/plan'} link={c ? 'See the campaign' : 'Set a goal'}>
+        <QCard q="What is it doing for me?" href={c ? '#/campaigns' : '#/plan'} link={c ? 'See the campaign' : state.draft?.plan ? 'Review the plan' : 'Go to My plan'}>
           {c && prog ? (
             <div className="space-y-3">
               <p><span className="text-slate-500">Current goal:</span> <strong>{goalLabel(c.goal)}</strong></p>
               <p><span className="text-slate-500">Campaign:</span> {c.name} · {c.scheduled ? (state.today < c.startDate ? `starts ${relDay(c.startDate, state.today).toLowerCase()}` : prog.finished ? 'finished' : `day ${prog.day} of ${c.plan.days}`) : 'not scheduled yet'}{c.paused ? ' · paused' : ''}</p>
               <CampaignJourney campaign={c} compact />
+              {following.map((x) => <p key={x.id} className="text-slate-600"><span className="text-slate-500">Next:</span> {x.name} starts {fmtDay(x.startDate)}, after this one.</p>)}
             </div>
           ) : (
-            <p>No campaign is running. {state.draft?.plan ? 'A new plan is waiting for you to review.' : 'Choose a goal and your marketing manager prepares a plan.'}</p>
+            <p>No campaign is running. {state.draft?.plan ? `Your marketing manager prepared "${state.draft.plan.name}" for you to review. You can also choose a different goal.` : 'Ask for a recommended plan, or choose a goal yourself.'}</p>
           )}
         </QCard>
 
         <QCard q="What needs my approval?" href="#/approvals" link="Go to approvals">
-          {pendingMats.length ? (
+          {pendingMats.length || adWaiting.length || state.draft?.plan ? (
             <ul className="space-y-1.5">
+              {state.draft?.plan ? <li className="flex items-center justify-between gap-2"><span className="truncate">Plan: {state.draft.plan.name}</span><span className="shrink-0 text-xs text-slate-500">To review</span></li> : null}
+              {adWaiting.map((x) => <li key={x.id} className="flex items-center justify-between gap-2"><span className="truncate">Paid ad spending for {x.name}</span><span className="shrink-0 text-xs text-amber-800">Not approved</span></li>)}
               {pendingMats.slice(0, 4).map((m) => (
                 <li key={m.id} className="flex items-center justify-between gap-2">
-                  <span className="truncate">{m.title}</span>
+                  <span className="truncate">{FORMATS[m.formats[0]].label}: {m.title}</span>
                   <span className={`shrink-0 text-xs ${m.status === 'changes' ? 'text-rose-700' : m.reapproval ? 'text-amber-800' : 'text-slate-500'}`}>{m.status === 'changes' ? 'Sent back' : m.reapproval ? 'Changed, approve again' : 'Waiting'}</span>
                 </li>
               ))}
+              {pendingMats.length > 4 ? <li className="text-slate-500">and {pendingMats.length - 4} more</li> : null}
             </ul>
           ) : (
             <p>Nothing is waiting for you. Nothing goes out without your approval.</p>
@@ -110,7 +121,7 @@ export function HomeScreen() {
             <div>
               <p className="mb-3 text-slate-600">{scope.status === 'active' ? 'This campaign so far' : `Last campaign: ${scope.name}`}</p>
               <dl className="grid grid-cols-3 gap-2 text-center">
-                <div className="rounded-lg bg-slate-50 px-2 py-2"><dt className="text-xs text-slate-500">Conversations</dt><dd className="font-serif text-2xl">{num(t.enquiries)}</dd></div>
+                <div className="rounded-lg bg-slate-50 px-2 py-2"><dt className="text-xs text-slate-500">Recorded conversations</dt><dd className="font-serif text-2xl">{num(t.enquiries)}</dd></div>
                 <div className="rounded-lg bg-slate-50 px-2 py-2"><dt className="text-xs text-slate-500">Recorded sales</dt><dd className="font-serif text-2xl">{num(t.sales)}</dd></div>
                 <div className="rounded-lg bg-slate-50 px-2 py-2"><dt className="text-xs text-slate-500">Spent</dt><dd className="font-serif text-2xl">{money(t.costs.total)}</dd></div>
               </dl>

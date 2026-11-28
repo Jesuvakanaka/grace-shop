@@ -42,7 +42,7 @@ export function normaliseBusiness(b: Business): Business {
 }
 
 export function OnboardingScreen() {
-  const { state, dispatch, go, toast } = useDemo();
+  const { state, dispatch, go } = useDemo();
   const [b, setB] = useState<Business>(state.business);
   const [step, setStep] = useState(0);
   const [helping, setHelping] = useState<string | null>(null);
@@ -172,12 +172,10 @@ export function OnboardingScreen() {
   const finish = () => {
     dispatch({ type: 'onboarding/finish', business: normaliseBusiness(b) });
     go('#/');
-    toast('Thanks. Your marketing manager now knows your business.');
   };
   const skip = () => {
     dispatch({ type: 'onboarding/skip' });
     go('#/');
-    toast('You are exploring the prepared demo with example answers.', 'info');
   };
   const current = steps[step];
 

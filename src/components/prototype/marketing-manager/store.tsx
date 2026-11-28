@@ -30,7 +30,9 @@ function load(): { state: DemoState; ok: boolean } {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const s = JSON.parse(raw) as DemoState;
-      if (s && s.version === 1 && Array.isArray(s.materials)) return { state: s, ok: true };
+      // Saved by the first prototype round (one caption per item, no visuals): start fresh instead.
+      const current = s && s.version === 1 && Array.isArray(s.materials) && s.materials.every((m) => Array.isArray(m.versions?.[0]?.images));
+      if (current) return { state: s, ok: true };
     }
     window.localStorage.setItem(`${STORAGE_KEY}-probe`, '1');
     window.localStorage.removeItem(`${STORAGE_KEY}-probe`);
@@ -67,22 +69,26 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     window.scrollTo({ top: 0 });
   }, []);
 
+  // One brief notification at a time: a new one replaces the last. Warnings that matter
+  // are also shown beside the item they concern, so nothing is lost when this one goes.
   const toast = useCallback((text: string, tone: Toast['tone'] = 'ok') => {
     const id = nextToast.current++;
-    setToasts((t) => [...t.slice(-2), { id, text, tone }]);
-    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4500);
+    setToasts([{ id, text, tone }]);
+    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), tone === 'warn' ? 6000 : 3500);
   }, []);
+  const dismiss = (id: number) => setToasts((t) => t.filter((x) => x.id !== id));
 
   return (
     <DemoCtx.Provider value={{ state, dispatch, route, go, toast, storageOk: initial.ok }}>
       {children}
-      <div className="pointer-events-none fixed inset-x-0 bottom-24 z-[60] flex flex-col items-center gap-2 px-4 lg:bottom-8" aria-live="polite" role="status">
+      <div className="pointer-events-none fixed bottom-[4.75rem] right-3 z-[60] flex w-[min(22rem,calc(100vw-1.5rem))] justify-end lg:bottom-5 lg:right-5" aria-live="polite" role="status">
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`pointer-events-auto max-w-md rounded-lg px-4 py-3 text-sm shadow-lg ${t.tone === 'warn' ? 'bg-amber-50 text-amber-900 border border-amber-200' : t.tone === 'info' ? 'bg-white text-slate-800 border border-slate-200' : 'bg-brand-olive-900 text-brand-olive-50'}`}
+            className={`pointer-events-auto flex w-full items-start gap-2 rounded-lg py-2.5 pl-3.5 pr-1.5 text-[13px] leading-snug shadow-lg ${t.tone === 'warn' ? 'bg-amber-50 text-amber-900 border border-amber-200' : t.tone === 'info' ? 'bg-white text-slate-800 border border-slate-200' : 'bg-brand-olive-900 text-brand-olive-50'}`}
           >
-            {t.text}
+            <span className="min-w-0 flex-1 py-0.5">{t.text}</span>
+            <button type="button" onClick={() => dismiss(t.id)} aria-label="Dismiss notification" className="shrink-0 rounded px-1.5 text-base leading-none opacity-70 hover:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-current">×</button>
           </div>
         ))}
       </div>

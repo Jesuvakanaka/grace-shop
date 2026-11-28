@@ -66,7 +66,8 @@ export function Pill({ tone = 'slate', children, className = '' }: { tone?: Tone
 }
 
 export const STATE_TONE: Record<ShownState, Tone> = {
-  awaiting: 'amber', ready: 'sky', scheduled: 'sky', published: 'olive', manual: 'violet', failed: 'rose', paused: 'slate',
+  awaiting: 'amber',
+  spend: 'amber', ready: 'sky', scheduled: 'sky', published: 'olive', manual: 'violet', failed: 'rose', paused: 'slate',
 };
 
 /** Marks anything the prototype pretends an AI wrote or decided. */

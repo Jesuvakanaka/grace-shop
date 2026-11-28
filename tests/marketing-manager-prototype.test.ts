@@ -1,7 +1,7 @@
 // AI Marketing Manager prototype: the pure demo engine. No browser, no network, no database.
 import { describe, test } from 'node:test'
 import assert from 'node:assert'
-import { reducer, shownState, totals, type Action } from '../src/components/prototype/marketing-manager/engine'
+import { economics, liveCampaigns, nextStep, reducer, review, shownState, totals, type Action } from '../src/components/prototype/marketing-manager/engine'
 import { planCosts, planSteps, recipientsFor, reshapePlan, buildPlan } from '../src/components/prototype/marketing-manager/plan'
 import { EXAMPLE_BUSINESS, seedState } from '../src/components/prototype/marketing-manager/seed'
 import { addDays } from '../src/components/prototype/marketing-manager/dates'
@@ -79,6 +79,93 @@ describe('approvals', () => {
   })
 })
 
+describe('review revisions', () => {
+  test('the manager prepares a recommended plan, and the goal can still be changed', () => {
+    const s = reducer(seedState(TODAY), { type: 'onboarding/skip' })
+    assert.ok(s.draft?.plan, 'a plan is ready without choosing a goal')
+    assert.ok(s.draft?.recommended && s.draft.recommended.length > 20, 'with a reason')
+    const step = nextStep(s)
+    assert.equal(step.cta, 'Review replies')
+    assert.equal(step.also?.cta, 'Review recommended plan')
+    assert.match(step.title, /customers need your reply\. I've also prepared your next campaign for review\./)
+    const changed = run(s, { type: 'draft/start', input: { goal: 'repeat', weeks: 1, budget: 50 } }, { type: 'draft/plan', variant: 0 })
+    assert.equal(changed.draft?.plan?.goal, 'repeat')
+    assert.equal(changed.draft?.recommended, undefined)
+  })
+
+  test('accepting a new plan keeps the running campaign unless replacing is chosen', () => {
+    let s = accepted()
+    const first = active(s)
+    s = run(s, { type: 'material/approveAll', campaignId: first.id }, { type: 'campaign/schedule', id: first.id }, { type: 'day/advance' })
+    const firstPlacements = s.placements.filter((p) => p.campaignId === first.id).length
+    const plan2 = (x: DemoState) => run(x, { type: 'draft/start', input: { goal: 'repeat', weeks: 1, budget: 50 } }, { type: 'draft/plan', variant: 0 })
+    const kept = reducer(plan2(s), { type: 'draft/accept', mode: 'after' })
+    assert.equal(liveCampaigns(kept).length, 2)
+    assert.equal(kept.campaigns.find((c) => c.id === first.id)!.status, 'active')
+    assert.equal(kept.placements.filter((p) => p.campaignId === first.id).length, firstPlacements, 'nothing withdrawn')
+    const second = liveCampaigns(kept)[1]
+    assert.equal(second.startDate, addDays(first.endDate, 1))
+    assert.ok(kept.materials.filter((m) => m.campaignId === second.id).every((m) => m.date >= second.startDate))
+    const replaced = reducer(plan2(s), { type: 'draft/accept', mode: 'replace' })
+    assert.equal(replaced.campaigns.find((c) => c.id === first.id)!.status, 'ended')
+    assert.equal(liveCampaigns(replaced).length, 1)
+  })
+
+  test('each channel format has its own material and approval', () => {
+    let s = accepted()
+    const c = active(s)
+    const discovery = s.materials.filter((m) => m.campaignId === c.id && m.stage === 'discovery')
+    assert.ok(discovery.length > 1)
+    assert.ok(discovery.every((m) => m.formats.length === 1))
+    assert.equal(new Set(discovery.map((m) => m.versions[0].caption)).size, discovery.length, 'words differ per format')
+    const [a, b] = discovery
+    s = reducer(s, { type: 'material/approve', id: a.id, version: 1 })
+    assert.equal(s.materials.find((m) => m.id === a.id)!.status, 'approved')
+    assert.equal(s.materials.find((m) => m.id === b.id)!.status, 'awaiting', 'approving one format does not approve another')
+    // A batch approval covers only the listed versions; a stale version is skipped.
+    s = reducer(s, { type: 'material/caption', id: b.id, caption: 'Changed', why: 'edit' })
+    s = reducer(s, { type: 'material/approveMany', items: [{ id: b.id, version: 1 }] })
+    assert.equal(s.materials.find((m) => m.id === b.id)!.status, 'awaiting')
+    s = reducer(s, { type: 'material/approveMany', items: [{ id: b.id, version: 2 }] })
+    assert.equal(s.materials.find((m) => m.id === b.id)!.approvedVersion, 2)
+  })
+
+  test('approving the ad content does not start spending', () => {
+    let s = accepted()
+    const c = active(s)
+    const ad = s.materials.find((m) => m.campaignId === c.id && m.formats[0] === 'ad')!
+    assert.ok(c.plan.adDaily > 0 && ad)
+    s = reducer(s, { type: 'campaign/approveAds', id: c.id, approved: true })
+    assert.equal(s.campaigns.find((x) => x.id === c.id)!.adApproved, false, 'spending cannot be approved before the ad itself')
+    s = run(s, { type: 'material/approveAll', campaignId: c.id }, { type: 'campaign/schedule', id: c.id }, { type: 'day/advance' }, { type: 'day/advance' })
+    const pl = s.placements.find((p) => p.materialId === ad.id)!
+    assert.equal(shownState(s, pl), 'spend')
+    assert.equal(totals(s, c.id).costs.ads, 0)
+    s = run(s, { type: 'campaign/approveAds', id: c.id, approved: true }, { type: 'day/advance' })
+    assert.equal(s.placements.find((p) => p.id === pl.id)!.state, 'published')
+    assert.equal(totals(s, c.id).costs.ads, c.plan.adDaily)
+  })
+
+  test('changing a picture, look or storyboard is a new version that needs approval', () => {
+    let s = run(accepted(), { type: 'material/approveAll', campaignId: active(accepted()).id })
+    const post = s.materials.find((m) => m.formats[0] === 'ig_post' && m.campaignId === active(s).id)!
+    s = reducer(s, { type: 'material/visual', id: post.id, patch: { look: 'warm' }, why: 'look' })
+    const p2 = s.materials.find((m) => m.id === post.id)!
+    assert.equal(p2.versions.length, 2)
+    assert.equal(p2.versions[1].look, 'warm')
+    assert.equal(p2.versions[1].caption, p2.versions[0].caption, 'words carried forward')
+    assert.equal(p2.reapproval, true)
+    const reel = s.materials.find((m) => m.formats[0] === 'ig_reel' && m.campaignId === active(s).id)!
+    assert.equal(reel.versions[0].scenes?.length, 3)
+    const scenes = reel.versions[0].scenes!.map((x, i) => (i === 0 ? { ...x, secs: 6 } : x))
+    s = reducer(s, { type: 'material/visual', id: reel.id, patch: { scenes }, why: 'storyboard' })
+    assert.equal(s.materials.find((m) => m.id === reel.id)!.status, 'awaiting')
+    // The same patch again changes nothing.
+    const again = reducer(s, { type: 'material/visual', id: reel.id, patch: { scenes }, why: 'storyboard' })
+    assert.equal(again.materials.find((m) => m.id === reel.id)!.versions.length, 2)
+  })
+})
+
 describe('running the campaign', () => {
   test('connected channels publish, the expired one fails, manual ones wait, and a retry needs a fix', () => {
     let s = accepted()
@@ -97,8 +184,9 @@ describe('running the campaign', () => {
   test('paused campaigns publish nothing and the ad stops spending', () => {
     let s = accepted()
     const c = active(s)
-    s = run(s, { type: 'material/approveAll', campaignId: c.id }, { type: 'campaign/schedule', id: c.id }, { type: 'day/advance' })
+    s = run(s, { type: 'material/approveAll', campaignId: c.id }, { type: 'campaign/approveAds', id: c.id, approved: true }, { type: 'campaign/schedule', id: c.id }, { type: 'day/advance' })
     const spent = totals(s, c.id).costs.ads
+    assert.ok(spent > 0, 'the approved ad spent on its first day')
     s = run(s, { type: 'campaign/pause', id: c.id }, { type: 'day/advance' }, { type: 'day/advance' }, { type: 'day/advance' })
     assert.equal(totals(s, c.id).costs.ads, spent)
     assert.ok(!s.placements.some((p) => p.campaignId === c.id && p.state === 'scheduled'))
@@ -107,7 +195,7 @@ describe('running the campaign', () => {
   test('running the whole period spends exactly the planned ad budget', () => {
     let s = accepted()
     const c = active(s)
-    s = run(s, { type: 'material/approveAll', campaignId: c.id }, { type: 'campaign/schedule', id: c.id }, { type: 'connection/set', channel: 'facebook', status: 'connected' })
+    s = run(s, { type: 'material/approveAll', campaignId: c.id }, { type: 'campaign/approveAds', id: c.id, approved: true }, { type: 'campaign/schedule', id: c.id }, { type: 'connection/set', channel: 'facebook', status: 'connected' })
     for (let i = 0; i < c.plan.days + 3; i++) s = reducer(s, { type: 'day/advance' })
     const t = totals(s, c.id)
     const planned = planCosts(c.plan, recipientsFor(s.customers))
@@ -149,6 +237,17 @@ describe('customers and results', () => {
     assert.equal(s.enquiries.find((e) => e.id === 'e-memory')!.followUp, undefined)
     s = reducer(s, { type: 'enquiry/followUp', id: 'e-memory', followUp: { date: TODAY, kind: 'service', note: 'x' } })
     assert.equal(s.enquiries.find((e) => e.id === 'e-memory')!.followUp?.kind, 'service')
+  })
+
+  test('the review does not call missing conversations a leak, and the money line is plain', () => {
+    const s = accepted()
+    const t = totals(s, 'c-prev')
+    const rv = review(s, t, 'c-prev')
+    assert.ok(!rv.dropOff.some((x) => /biggest leak/i.test(x)))
+    assert.ok(rv.dropOff.some((x) => x.includes('Check whether enquiries were recorded before changing the campaign.')))
+    const line = economics(s, t, 'c-prev')
+    assert.match(line, /before product costs|not profit/)
+    assert.match(line, /may not have been recorded/)
   })
 
   test('the seeded policies stay unknown and no caption promises them', () => {

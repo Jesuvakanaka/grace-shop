@@ -1,21 +1,25 @@
 'use client';
-// "My plan": choose a goal, period and budget, then review, edit, swap or accept a simulated plan.
+// "My plan": the manager's recommended plan (or one from the owner's goal), led by a compact
+// decision summary with the reasoning, channels, schedule, costs and outcomes one tap away.
+// Accepting never ends a running campaign unless the owner explicitly chooses to replace it.
 import React, { useState } from 'react';
 import { FORMATS, WHATSAPP_RATE, channelById, productById, type ChannelId } from '../catalog';
 import { addDays, fmtDay, fmtShort, money, num } from '../dates';
-import { activeCampaign, planCostsFor } from '../engine';
+import { liveCampaigns, planCostsFor, shownState } from '../engine';
 import { GOALS, GOAL_ORDER, OPTIONAL_CHANNELS, STAGE_INFO, planEstimate, planSteps, recipientsFor, reshapePlan, roundRange } from '../plan';
 import { useDemo } from '../store';
-import type { GoalId, GoalInput, Plan } from '../types';
+import type { Campaign, GoalId, GoalInput, Plan } from '../types';
 import { Dialog, Field, Icon, Note, PageTitle, Pill, SectionTitle, Simulated, Working } from '../ui';
+import { AutoPill } from './shared';
 
 const PREP_STEPS = ['Reading your business answers', 'Choosing products and the right customers', 'Picking channels that suit the goal', 'Scheduling the steps and checking the budget'];
 
 export function PlanScreen() {
   const { state, dispatch, toast } = useDemo();
   const [preparing, setPreparing] = useState<string | null>(null);
+  const [changing, setChanging] = useState(false);
   const draft = state.draft;
-  const c = activeCampaign(state);
+  const live = liveCampaigns(state);
 
   const prepare = (variant: number, label: string) => {
     setPreparing(label);
@@ -27,29 +31,49 @@ export function PlanScreen() {
   };
 
   const start = (input: GoalInput) => {
+    setChanging(false);
     dispatch({ type: 'draft/start', input });
     prepare(0, 'Preparing your plan');
   };
 
+  const recommend = () => {
+    setPreparing('Preparing a recommended plan');
+    window.setTimeout(() => { dispatch({ type: 'draft/recommend' }); setPreparing(null); toast('A recommended plan is ready to review.'); }, 2200);
+  };
+
+  const title = draft?.plan && !changing ? (draft.recommended ? 'Recommended next campaign' : 'Your proposed plan') : changing ? 'Choose a different goal' : live.length ? 'Your plan' : 'Plan your next campaign';
+  const hint = draft?.plan && !changing
+    ? `${draft.recommended ? 'Your marketing manager prepared this on its own.' : 'Prepared from the goal you chose.'} Check the summary, open any detail, change what you like, then accept it. Nothing goes out until you also approve each item.`
+    : 'Tell your marketing manager what you want to achieve, or ask it to recommend a plan.';
+
   return (
     <div>
-      <PageTitle eyebrow="My plan" title={draft?.plan ? 'Your proposed plan' : c ? 'Your plan' : 'Set a goal'} hint={draft?.plan ? 'Check it, change anything you like, then accept it. Nothing goes out until you also approve each item.' : 'Tell your marketing manager what you want to achieve. You get a plan in a minute.'} />
+      <PageTitle eyebrow="My plan" title={title} hint={hint} />
 
       {preparing ? (
         <Working label={`${preparing}…`} steps={PREP_STEPS} />
-      ) : draft?.plan ? (
-        <ProposedPlan plan={draft.plan} onAlternative={() => prepare(draft.plan!.variant + 1, 'Preparing an alternative')} />
+      ) : draft?.plan && !changing ? (
+        <ProposedPlan plan={draft.plan} recommended={draft.recommended} onAlternative={() => prepare(draft.plan!.variant + 1, 'Preparing an alternative')} onChangeGoal={() => setChanging(true)} />
       ) : (
         <>
-          {c ? <CurrentPlan /> : null}
-          <GoalForm key={draft ? 'd' : 'n'} initial={draft?.input} onSubmit={start} hasActive={!!c} />
+          {live.map((c) => <CurrentPlan key={c.id} c={c} />)}
+          {!draft?.plan && !changing ? (
+            <section className="card mb-5 flex flex-col gap-3 border-brand-olive-200 bg-brand-olive-50/60 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-medium text-slate-900">Not sure what to aim for?</p>
+                <p className="text-sm text-slate-600">Your marketing manager can look at your results and customers and recommend the next campaign.</p>
+              </div>
+              <button type="button" className="btn btn-primary shrink-0" onClick={recommend}><Icon name="sparkle" className="h-4 w-4" /> Recommend a plan</button>
+            </section>
+          ) : null}
+          <GoalForm key={draft ? 'd' : 'n'} initial={draft?.input} onSubmit={start} hasActive={live.length > 0} onCancel={changing ? () => setChanging(false) : undefined} />
         </>
       )}
     </div>
   );
 }
 
-function GoalForm({ initial, onSubmit, hasActive }: { initial?: GoalInput; onSubmit: (i: GoalInput) => void; hasActive: boolean }) {
+function GoalForm({ initial, onSubmit, hasActive, onCancel }: { initial?: GoalInput; onSubmit: (i: GoalInput) => void; hasActive: boolean; onCancel?: () => void }) {
   const { state } = useDemo();
   const [goal, setGoal] = useState<GoalId | null>(initial?.goal ?? null);
   const [weeks, setWeeks] = useState<1 | 2 | 4>(initial?.weeks ?? 2);
@@ -61,8 +85,9 @@ function GoalForm({ initial, onSubmit, hasActive }: { initial?: GoalInput; onSub
   };
   return (
     <section className="card" aria-labelledby="goal-title">
-      {hasActive ? <SectionTitle title="Plan what comes next" hint="Accepting a new plan ends the current campaign. Its results stay in your reports." /> : null}
-      {initial?.fromRecommendation ? <Note tone="ok" className="mb-4">Started from the recommendation: <strong>{initial.fromRecommendation}</strong>. Change anything before preparing the plan.</Note> : null}
+      {hasActive ? <SectionTitle title="Plan what comes next" hint="Your current campaign keeps running. When you accept a new plan, you choose whether it starts after the current one or replaces it." /> : null}
+      {onCancel ? <Note className="mb-4">Preparing a plan for a different goal replaces the recommended plan. You can ask for a recommendation again later.</Note> : null}
+      {initial?.fromRecommendation && !onCancel ? <Note tone="ok" className="mb-4">Started from the recommendation: <strong>{initial.fromRecommendation}</strong>. Change anything before preparing the plan.</Note> : null}
       <fieldset>
         <legend id="goal-title" className="mb-2 font-medium text-slate-900">1. What do you want to achieve?</legend>
         <div className="grid gap-2 sm:grid-cols-2">
@@ -84,7 +109,7 @@ function GoalForm({ initial, onSubmit, hasActive }: { initial?: GoalInput; onSub
             </button>
           ))}
         </div>
-        <p className="mt-1.5 text-sm text-slate-500">Starts tomorrow in the demo ({fmtDay(addDays(state.today, 1))}).</p>
+        <p className="mt-1.5 text-sm text-slate-500">{hasActive ? `Starts after your current campaign, or tomorrow (${fmtDay(addDays(state.today, 1))}) if you choose to replace it.` : `Starts tomorrow in the demo (${fmtDay(addDays(state.today, 1))}).`}</p>
       </fieldset>
 
       <div className="mt-6">
@@ -97,25 +122,26 @@ function GoalForm({ initial, onSubmit, hasActive }: { initial?: GoalInput; onSub
       </div>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
-        <button type="button" className="btn btn-primary" disabled={!goal} onClick={() => goal && onSubmit({ goal, weeks, budget, fromRecommendation: initial?.fromRecommendation })}>
+        <button type="button" className="btn btn-primary" disabled={!goal} onClick={() => goal && onSubmit({ goal, weeks, budget, fromRecommendation: onCancel ? undefined : initial?.fromRecommendation })}>
           <Icon name="sparkle" className="h-4 w-4" /> Prepare my plan
         </button>
+        {onCancel ? <button type="button" className="btn btn-ghost" onClick={onCancel}>Back to the recommended plan</button> : null}
         {!goal ? <span className="text-sm text-slate-500">Choose a goal first.</span> : <Simulated>The plan is simulated from templates</Simulated>}
       </div>
     </section>
   );
 }
 
-function CurrentPlan() {
+function CurrentPlan({ c }: { c: Campaign }) {
   const { state } = useDemo();
-  const c = activeCampaign(state)!;
   const costs = planCostsFor(state, c.plan);
+  const later = c.startDate > state.today;
   return (
-    <section className="card mb-5" aria-labelledby="cur-plan">
+    <section className="card mb-5" aria-label={`Accepted plan: ${c.name}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-brand-olive-700">Current plan · accepted</p>
-          <h2 id="cur-plan" className="font-serif text-2xl">{c.name}</h2>
+          <p className="text-xs font-semibold uppercase tracking-wider text-brand-olive-700">Accepted plan · {later ? `starts ${fmtShort(c.startDate)}` : 'running'}</p>
+          <h2 className="font-serif text-2xl">{c.name}</h2>
           <p className="text-sm text-slate-600">{GOALS[c.goal].label} · {fmtShort(c.startDate)} to {fmtShort(c.endDate)} · estimated {money(costs.total)} of {money(c.plan.budget)}</p>
         </div>
         <a href="#/campaigns" className="btn btn-secondary btn-sm">See campaign</a>
@@ -125,7 +151,25 @@ function CurrentPlan() {
   );
 }
 
-function ProposedPlan({ plan, onAlternative }: { plan: Plan; onAlternative: () => void }) {
+/** A collapsed detail section with a one-line summary, so the plan leads with the decision. */
+function Details({ title, summary, children, id }: { title: string; summary: React.ReactNode; children: React.ReactNode; id: string }) {
+  return (
+    <details className="card group !p-0" id={id}>
+      <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-5 py-3.5 [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0">
+          <span className="block font-serif text-xl text-slate-900">{title}</span>
+          <span className="block text-sm text-slate-600">{summary}</span>
+        </span>
+        <span className="shrink-0 rounded-full border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 group-open:bg-slate-800 group-open:text-white">
+          <span className="group-open:hidden">Show</span><span className="hidden group-open:inline">Hide</span>
+        </span>
+      </summary>
+      <div className="border-t border-slate-100 px-5 pb-5 pt-4">{children}</div>
+    </details>
+  );
+}
+
+function ProposedPlan({ plan, recommended, onAlternative, onChangeGoal }: { plan: Plan; recommended?: string; onAlternative: () => void; onChangeGoal: () => void }) {
   const { state, dispatch, go, toast } = useDemo();
   const [editing, setEditing] = useState(false);
   const [confirmAlt, setConfirmAlt] = useState(false);
@@ -136,51 +180,62 @@ function ProposedPlan({ plan, onAlternative }: { plan: Plan; onAlternative: () =
   const est = planEstimate(plan, recipients);
   const steps = planSteps(plan);
   const end = addDays(plan.startDate, plan.days - 1);
-  const active = activeCampaign(state);
+  const live = liveCampaigns(state);
+  const lastLive = [...live].sort((a, b) => a.endDate.localeCompare(b.endDate)).at(-1);
+  const afterStart = lastLive ? addDays(lastLive.endDate, 1) : plan.startDate;
   const unknown = (['delivery', 'returns', 'payment'] as const).filter((k) => state.business[k] === null);
   const edit = (patch: Partial<Plan>) => dispatch({ type: 'draft/edit', plan: reshapePlan(plan, patch, recipients, state.business.areas) });
   const [convLo, convHi] = roundRange(Math.max(2, est.clicks * 0.35), 0.6, 1.3);
+  const formats = steps.flatMap((s) => s.formats);
+  const manual = formats.filter((f) => !FORMATS[f].auto).length;
+  const hasAds = costs.adDays > 0;
+  const unsent = live.flatMap((c) => state.placements.filter((p) => p.campaignId === c.id && shownState(state, p) !== 'published')).length;
 
-  const accept = () => {
-    dispatch({ type: 'draft/accept' });
+  const accept = (mode: 'after' | 'replace') => {
+    dispatch({ type: 'draft/accept', mode });
     setConfirmAccept(false);
     go('#/approvals');
-    toast('Plan accepted. Your campaign items are ready for approval.');
+    toast(mode === 'after' && live.length ? `Plan accepted. It starts on ${fmtShort(afterStart)}, after your current campaign. Its items are ready for approval.` : 'Plan accepted. Your campaign items are ready for approval.');
   };
 
   return (
-    <div className="space-y-5">
-      {plan.fromRecommendation ? <Note tone="ok">Prepared from the recommendation: <strong>{plan.fromRecommendation}</strong></Note> : null}
-
+    <div className="space-y-4">
+      {/* The decision, in one card. */}
       <section className="card">
         <div className="flex flex-wrap items-center gap-2">
           <Pill tone="lime">{GOALS[plan.goal].label}</Pill>
-          <Simulated>Simulated plan</Simulated>
+          <Simulated>{recommended ? 'Recommended by your marketing manager (simulated)' : 'Simulated plan'}</Simulated>
           {plan.variant > 0 ? <Pill>Alternative {plan.variant + 1}</Pill> : null}
           {plan.edited ? <Pill tone="sky">Edited by you</Pill> : null}
         </div>
         <h2 className="mt-2 font-serif text-3xl">{plan.name}</h2>
-        <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div><dt className="text-xs uppercase tracking-wider text-slate-500">Period</dt><dd className="font-medium">{fmtShort(plan.startDate)} to {fmtShort(end)}</dd></div>
-          <div><dt className="text-xs uppercase tracking-wider text-slate-500">Length</dt><dd className="font-medium">{plan.days} days</dd></div>
-          <div><dt className="text-xs uppercase tracking-wider text-slate-500">Your budget</dt><dd className="font-medium">{money(plan.budget)}</dd></div>
-          <div><dt className="text-xs uppercase tracking-wider text-slate-500">Estimated cost</dt><dd className={`font-medium ${over ? 'text-rose-700' : ''}`}>{money(costs.total)}</dd></div>
+        <p className="mt-1 text-slate-700">Promote <strong>{plan.collectionName}</strong> with the message <span className="font-serif text-lg text-brand-olive-800">&ldquo;{plan.message}&rdquo;</span></p>
+        {recommended ? <p className="mt-3 rounded-lg bg-brand-olive-50 px-3.5 py-2.5 text-sm text-brand-olive-900"><strong>Why this plan:</strong> {recommended}</p> : plan.fromRecommendation ? <p className="mt-3 text-sm text-slate-600">Prepared from the recommendation: <strong>{plan.fromRecommendation}</strong></p> : null}
+        <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+          <div><dt className="text-xs uppercase tracking-wider text-slate-500">When</dt><dd className="font-medium">{fmtShort(live.length ? afterStart : plan.startDate)} to {fmtShort(addDays(live.length ? afterStart : plan.startDate, plan.days - 1))}</dd><dd className="text-xs text-slate-500">{plan.days} days{live.length ? ', after your current campaign' : ''}</dd></div>
+          <div><dt className="text-xs uppercase tracking-wider text-slate-500">Cost</dt><dd className={`font-medium ${over ? 'text-rose-700' : ''}`}>{money(costs.total)} of {money(plan.budget)}</dd><dd className="text-xs text-slate-500">{hasAds ? `${money(costs.ads)} of it paid ads` : 'No paid ads'}</dd></div>
+          <div><dt className="text-xs uppercase tracking-wider text-slate-500">Channels</dt><dd className="font-medium">{plan.channels.length}</dd><dd className="text-xs text-slate-500">{plan.channels.map((c) => channelById(c.id).name).join(', ')}</dd></div>
+          <div><dt className="text-xs uppercase tracking-wider text-slate-500">You approve</dt><dd className="font-medium">{formats.length} items</dd><dd className="text-xs text-slate-500">{manual ? `${manual} you share yourself` : 'All posted for you'}{hasAds ? ', plus ad spending' : ''}</dd></div>
         </dl>
         <div className="mt-5 flex flex-wrap gap-2">
-          <button type="button" className="btn btn-primary" disabled={over || editing} onClick={() => (active ? setConfirmAccept(true) : accept())}><Icon name="check" className="h-4 w-4" /> Accept plan</button>
+          <button type="button" className="btn btn-primary" disabled={over || editing} onClick={() => (live.length ? setConfirmAccept(true) : accept('after'))}><Icon name="check" className="h-4 w-4" /> Accept plan</button>
           <button type="button" className={`btn ${editing ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setEditing(!editing)}><Icon name="edit" className="h-4 w-4" /> {editing ? 'Done editing' : 'Edit plan'}</button>
           <button type="button" className="btn btn-secondary" onClick={() => (plan.edited ? setConfirmAlt(true) : onAlternative())}><Icon name="sparkle" className="h-4 w-4" /> Show me an alternative</button>
+          <button type="button" className="btn btn-secondary" onClick={onChangeGoal}>Change the goal</button>
           <button type="button" className="btn btn-ghost" onClick={() => { dispatch({ type: 'draft/discard' }); toast('Plan discarded.', 'info'); }}>Discard</button>
         </div>
         {over ? <Note tone="error" className="mt-3">This plan costs {money(costs.total - plan.budget)} more than your budget. Lower the daily ad amount, remove a channel or raise the budget.</Note> : null}
+        {unknown.length ? (
+          <p className="mt-3 text-sm text-amber-800">
+            Your {unknown.length > 1 ? `${unknown.slice(0, -1).join(', ')} and ${unknown[unknown.length - 1]}` : unknown[0]} {unknown.length === 1 ? 'policy is' : 'policies are'} unknown, so no material mentions {unknown.length === 1 ? 'it' : 'them'}. <a className="underline" href="#/settings">Add them in Business settings</a>.
+          </p>
+        ) : null}
       </section>
 
       {editing ? <EditPanel plan={plan} edit={edit} /> : null}
 
-      <div className="grid gap-5 lg:grid-cols-2">
-        <section className="card">
-          <SectionTitle title="What we will promote" />
-          <p className="mb-3 font-medium">{plan.collectionName}</p>
+      <Details id="plan-audience" title="Who it is for and why" summary={`${plan.productIds.length} pieces from ${plan.collectionName}, for ${plan.audience.split('.')[0].replace(/^./, (x) => x.toLowerCase())}.`}>
+        <div className="grid gap-5 lg:grid-cols-2">
           <ul className="grid grid-cols-3 gap-2">
             {plan.productIds.map((id) => {
               const p = productById(id);
@@ -193,32 +248,36 @@ function ProposedPlan({ plan, onAlternative }: { plan: Plan; onAlternative: () =
               );
             })}
           </ul>
-        </section>
-        <section className="card space-y-4">
-          <div><SectionTitle title="Who it is for" /><p className="text-slate-700">{plan.audience}</p></div>
-          <div><SectionTitle title="Main message" /><p className="font-serif text-2xl leading-snug text-brand-olive-800">&ldquo;{plan.message}&rdquo;</p></div>
-          <div><SectionTitle title="Reason to buy" /><p className="text-slate-700">{plan.reason}</p></div>
-        </section>
-      </div>
+          <div className="space-y-3">
+            <div><p className="label">Who it is for</p><p className="text-slate-700">{plan.audience}</p></div>
+            <div><p className="label">Reason to buy</p><p className="text-slate-700">{plan.reason}</p></div>
+          </div>
+        </div>
+      </Details>
 
-      <section className="card">
-        <SectionTitle title="Channels and why they suit this goal" />
+      <Details id="plan-channels" title="Channels and how each item goes out" summary={`${formats.length - manual} posted for you, ${manual} shared by you. Shown the same way on approvals and the schedule.`}>
         <ul className="divide-y divide-slate-200">
           {plan.channels.map((ch) => {
             const info = channelById(ch.id);
+            const fs = [...new Set(formats.filter((f) => FORMATS[f].channel === ch.id))];
             return (
-              <li key={ch.id} className="flex flex-col gap-1 py-3 sm:flex-row sm:items-start sm:gap-4">
-                <div className="flex min-w-48 items-center gap-2 font-medium">{info.name}</div>
-                <p className="flex-1 text-sm text-slate-700">{ch.why}</p>
-                <Pill tone={info.depiction === 'automatic' ? 'sky' : 'violet'}>{info.depiction === 'automatic' ? 'Posted for you' : 'You share it'}</Pill>
+              <li key={ch.id} className="flex flex-col gap-1.5 py-3 sm:flex-row sm:items-start sm:gap-4">
+                <div className="min-w-44 font-medium">{info.name}</div>
+                <div className="flex-1">
+                  <p className="text-sm text-slate-700">{ch.why}</p>
+                  {fs.length ? (
+                    <ul className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1.5 text-sm text-slate-600">
+                      {fs.map((f) => <li key={f} className="flex items-center gap-1.5">{FORMATS[f].label} <AutoPill f={f} /></li>)}
+                    </ul>
+                  ) : <p className="mt-1 text-xs text-slate-500">Runs the paid ad; see the schedule.</p>}
+                </div>
               </li>
             );
           })}
         </ul>
-      </section>
+      </Details>
 
-      <section className="card">
-        <SectionTitle title="Campaign steps and schedule" hint="From being discovered to following up after a sale." />
+      <Details id="plan-schedule" title="Schedule" summary={`${steps.length} steps from discovery to follow-up, ${fmtShort(plan.startDate)} to ${fmtShort(end)}${live.length ? ' (moves later if it follows your current campaign)' : ''}.`}>
         <ol className="space-y-3">
           {steps.map((s, i) => (
             <li key={s.stage} className="flex gap-3">
@@ -230,53 +289,57 @@ function ProposedPlan({ plan, onAlternative }: { plan: Plan; onAlternative: () =
                 <p className="text-xs font-semibold uppercase tracking-wider text-brand-olive-700">{i + 1}. {STAGE_INFO[s.stage].journey}</p>
                 <p className="font-medium">{STAGE_INFO[s.stage].label}: {productById(s.productId).name}</p>
                 <p className="text-sm text-slate-600">{STAGE_INFO[s.stage].what}</p>
-                <p className="mt-1 text-sm text-slate-500">{s.formats.map((f) => FORMATS[f].label).join(' · ')}</p>
+                <ul className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1.5 text-sm text-slate-600">
+                  {s.formats.map((f) => <li key={f} className="flex items-center gap-1.5">{FORMATS[f].label} <AutoPill f={f} /></li>)}
+                </ul>
               </div>
             </li>
           ))}
         </ol>
-        {plan.channels.some((c) => c.id === 'meta_ads') ? <p className="mt-2 text-sm text-slate-600">The ad runs every day from {fmtShort(plan.startDate)} to {fmtShort(end)}.</p> : null}
-      </section>
+        {hasAds ? <p className="mt-2 text-sm text-slate-600">If you approve the ad and its spending, it runs every day of the campaign, up to {money(costs.ads)} in total.</p> : null}
+      </Details>
 
-      <div className="grid gap-5 lg:grid-cols-2">
-        <section className="card">
-          <SectionTitle title="Estimated costs" hint="Pretend money in this prototype." />
-          <table className="w-full text-sm">
-            <tbody className="divide-y divide-slate-200">
-              <tr><th scope="row" className="py-2 pr-3 text-left font-normal">Advertising<br /><span className="text-xs text-slate-500">{costs.adDays ? `${money(plan.adDaily)} a day for ${costs.adDays} days` : 'No paid ads in this plan'}</span></th><td className="py-2 text-right font-medium">{money(costs.ads)}</td></tr>
-              <tr><th scope="row" className="py-2 pr-3 text-left font-normal">Messaging<br /><span className="text-xs text-slate-500">{costs.messaging ? `1 WhatsApp follow-up to ${costs.recipients} people who agreed, at an example ${money(WHATSAPP_RATE)} each` : 'No paid messages'}</span></th><td className="py-2 text-right font-medium">{money(costs.messaging)}</td></tr>
-              <tr><th scope="row" className="py-2 pr-3 text-left font-normal">Content creation<br /><span className="text-xs text-slate-500">{plan.content.map((x) => `${x.label}${x.cost ? '' : ' (included)'}`).join('; ')}</span></th><td className="py-2 text-right font-medium">{money(costs.content)}</td></tr>
-              <tr className="font-semibold"><th scope="row" className="py-2 pr-3 text-left">Total</th><td className="py-2 text-right">{money(costs.total)}</td></tr>
-              <tr className="text-slate-600"><th scope="row" className="py-2 pr-3 text-left font-normal">Left from your {money(plan.budget)} budget</th><td className={`py-2 text-right ${over ? 'text-rose-700' : ''}`}>{money(plan.budget - costs.total)}</td></tr>
-            </tbody>
-          </table>
-          <p className="mt-2 text-xs text-slate-500">Rates are examples, not checked with Meta or WhatsApp.</p>
-        </section>
-        <section className="card">
-          <SectionTitle title="What success would look like" hint="Rough ranges based on the sample data. Not a promise." />
-          <ul className="space-y-2 text-slate-700">
-            <li>About <strong>{num(roundRange(est.reach)[0])} to {num(roundRange(est.reach)[1])}</strong> people see something from the campaign.</li>
-            <li>About <strong>{num(roundRange(est.visits)[0])} to {num(roundRange(est.visits)[1])}</strong> shop visits.</li>
-            <li>About <strong>{num(roundRange(est.clicks)[0])} to {num(roundRange(est.clicks)[1])}</strong> taps on &ldquo;Ask on WhatsApp&rdquo;.</li>
-            <li>A good result would be <strong>{convLo} to {convHi} real WhatsApp conversations</strong>, some of which may become sales.</li>
-          </ul>
-          <Note className="mt-3">Sales are not guaranteed. Success means learning which channel and message bring real conversations for the money spent.</Note>
-        </section>
-      </div>
+      <Details id="plan-costs" title="Costs" summary={`${money(costs.total)} in total: ${money(costs.ads)} ads, ${money(costs.messaging)} messaging, ${money(costs.content)} content. ${money(plan.budget - costs.total)} left.`}>
+        <table className="w-full text-sm">
+          <tbody className="divide-y divide-slate-200">
+            <tr><th scope="row" className="py-2 pr-3 text-left font-normal">Advertising<br /><span className="text-xs text-slate-500">{costs.adDays ? `${money(plan.adDaily)} a day for ${costs.adDays} days, only once you approve the spending` : 'No paid ads in this plan'}</span></th><td className="py-2 text-right font-medium">{money(costs.ads)}</td></tr>
+            <tr><th scope="row" className="py-2 pr-3 text-left font-normal">Messaging<br /><span className="text-xs text-slate-500">{costs.messaging ? `1 WhatsApp follow-up to ${costs.recipients} people who agreed, at an example ${money(WHATSAPP_RATE)} each` : 'No paid messages'}</span></th><td className="py-2 text-right font-medium">{money(costs.messaging)}</td></tr>
+            <tr><th scope="row" className="py-2 pr-3 text-left font-normal">Content creation<br /><span className="text-xs text-slate-500">{plan.content.map((x) => `${x.label}${x.cost ? '' : ' (included)'}`).join('; ')}</span></th><td className="py-2 text-right font-medium">{money(costs.content)}</td></tr>
+            <tr className="font-semibold"><th scope="row" className="py-2 pr-3 text-left">Total</th><td className="py-2 text-right">{money(costs.total)}</td></tr>
+            <tr className="text-slate-600"><th scope="row" className="py-2 pr-3 text-left font-normal">Left from your {money(plan.budget)} budget</th><td className={`py-2 text-right ${over ? 'text-rose-700' : ''}`}>{money(plan.budget - costs.total)}</td></tr>
+          </tbody>
+        </table>
+        <p className="mt-2 text-xs text-slate-500">Pretend money. Rates are examples, not checked with Meta or WhatsApp.</p>
+      </Details>
 
-      {unknown.length ? (
-        <Note tone="warn">
-          Your {unknown.length > 1 ? `${unknown.slice(0, -1).join(', ')} and ${unknown[unknown.length - 1]}` : unknown[0]} {unknown.length === 1 ? 'policy is' : 'policies are'} unknown, so no material mentions {unknown.length === 1 ? 'it' : 'them'}. <a className="underline" href="#/settings">Add them in Business settings</a> if you want them included.
-        </Note>
-      ) : null}
+      <Details id="plan-outcomes" title="Illustrative demo outcomes" summary="Example numbers from the prototype's sample data. Not a forecast.">
+        <Note tone="warn" className="mb-3">These ranges come from the fixed sample numbers this prototype uses. They are illustrative demo outcomes, not a forecast for your shop.</Note>
+        <ul className="space-y-2 text-slate-700">
+          <li><strong>{num(roundRange(est.reach)[0])} to {num(roundRange(est.reach)[1])}</strong> combined reported reach. The same person can be counted more than once.</li>
+          <li><strong>{num(roundRange(est.visits)[0])} to {num(roundRange(est.visits)[1])}</strong> shop visits.</li>
+          <li><strong>{num(roundRange(est.clicks)[0])} to {num(roundRange(est.clicks)[1])}</strong> taps on &ldquo;Ask on WhatsApp&rdquo;.</li>
+          <li><strong>{convLo} to {convHi}</strong> WhatsApp conversations would be a good demo result. Some may become sales.</li>
+        </ul>
+        <p className="mt-3 text-sm text-slate-600">Sales are not guaranteed. Success means learning which channel and message bring real conversations for the money spent.</p>
+      </Details>
 
       <Dialog open={confirmAlt} onClose={() => setConfirmAlt(false)} title="Replace your edits?"
         footer={<><button type="button" className="btn btn-secondary" onClick={() => setConfirmAlt(false)}>Keep this plan</button><button type="button" className="btn btn-primary" onClick={() => { setConfirmAlt(false); onAlternative(); }}>Show alternative</button></>}>
         <p>You changed this plan. An alternative replaces it, including your changes.</p>
       </Dialog>
-      <Dialog open={confirmAccept} onClose={() => setConfirmAccept(false)} title="End the current campaign?"
-        footer={<><button type="button" className="btn btn-secondary" onClick={() => setConfirmAccept(false)}>Not yet</button><button type="button" className="btn btn-primary" onClick={accept}>Accept new plan</button></>}>
-        <p>&ldquo;{active?.name}&rdquo; is still active. Accepting this plan ends it: anything that has not gone out yet is withdrawn. What already happened stays in your results.</p>
+      <Dialog open={confirmAccept} onClose={() => setConfirmAccept(false)} title="You already have a live campaign" wide
+        footer={<button type="button" className="btn btn-ghost" onClick={() => setConfirmAccept(false)}>Cancel</button>}>
+        <p className="mb-4 text-slate-700">{live.map((c) => `"${c.name}"`).join(' and ')} {live.length === 1 ? 'is' : 'are'} still live. Choose what happens to {live.length === 1 ? 'it' : 'them'}.</p>
+        <div className="space-y-3">
+          <button type="button" className="w-full rounded-xl border-2 border-brand-olive-600 bg-brand-olive-50 p-4 text-left hover:bg-brand-olive-100" onClick={() => accept('after')}>
+            <span className="flex flex-wrap items-center gap-2 font-medium text-slate-900">Keep it, and start this plan afterwards <Pill tone="olive">Recommended</Pill></span>
+            <span className="mt-1 block text-sm text-slate-700">Nothing changes in the current campaign. &ldquo;{plan.name}&rdquo; starts on {fmtDay(afterStart)} and runs {plan.days} days. You can approve its items now.</span>
+          </button>
+          <button type="button" className="w-full rounded-xl border border-slate-300 bg-white p-4 text-left hover:border-rose-300 hover:bg-rose-50" onClick={() => accept('replace')}>
+            <span className="block font-medium text-slate-900">Replace it now</span>
+            <span className="mt-1 block text-sm text-slate-700">The current campaign ends today. {unsent ? `${unsent} item${unsent === 1 ? '' : 's'} that ${unsent === 1 ? 'has' : 'have'} not gone out ${unsent === 1 ? 'is' : 'are'} withdrawn` : 'Nothing is left to withdraw'}{live.some((c) => c.adApproved) ? ' and its paid ads stop' : ''}. What already happened stays in your results. The new plan starts tomorrow.</span>
+          </button>
+        </div>
       </Dialog>
     </div>
   );

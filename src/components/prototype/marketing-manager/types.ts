@@ -55,9 +55,22 @@ export interface Plan {
   edited?: boolean;
 }
 
+/** Simulated visual treatments. Real image generation is out of scope. */
+export type Look = 'original' | 'warm' | 'studio' | 'headline';
+
+export interface Scene {
+  image: string;
+  text: string;
+  secs: number;
+}
+
 export interface Version {
   n: number;
   caption: string;
+  images: string[];
+  look: Look;
+  /** Video items only: the simulated storyboard. */
+  scenes?: Scene[];
   by: 'manager' | 'owner' | 'revision';
   /** Short reason shown in the history ("You edited the caption"). */
   why: string;
@@ -72,7 +85,7 @@ export interface Material {
   title: string;
   purpose: string;
   productId: string;
-  images: string[];
+  /** Exactly one format: each channel format has its own words, visuals and approval. */
   formats: FormatId[];
   versions: Version[];
   openings: string[];
@@ -110,6 +123,8 @@ export interface Campaign {
   endDate: string;
   scheduled: boolean;
   paused: boolean;
+  /** Paid ads need their own approval to start spending, separate from approving the ad's content. */
+  adApproved?: boolean;
 }
 
 export interface ActivityRecord {
@@ -198,7 +213,8 @@ export interface DemoState {
   today: string;
   business: Business;
   connections: Record<ChannelId, DemoConnection>;
-  draft: { input: GoalInput; plan: Plan | null } | null;
+  /** `recommended` is set when the marketing manager prepared the draft on its own, with its reason. */
+  draft: { input: GoalInput; plan: Plan | null; recommended?: string } | null;
   campaigns: Campaign[];
   materials: Material[];
   placements: Placement[];

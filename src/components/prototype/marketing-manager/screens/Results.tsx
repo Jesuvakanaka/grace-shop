@@ -4,7 +4,7 @@
 // recommendations that become the next draft plan.
 import React, { useState } from 'react';
 import { fmtShort, money, num } from '../dates';
-import { activeCampaign, review, totals, type Recommendation } from '../engine';
+import { activeCampaign, economics, liveCampaigns, review, totals, type Recommendation } from '../engine';
 import { useDemo } from '../store';
 import { Dialog, Empty, Icon, Note, PageTitle, SectionTitle, Simulated } from '../ui';
 
@@ -14,7 +14,7 @@ export function ResultsScreen() {
   const { state, route, dispatch, go, toast } = useDemo();
   const active = activeCampaign(state);
   const scopes = [
-    ...(active ? [{ id: active.id, label: `${active.name} (current)` }] : []),
+    ...liveCampaigns(state).map((c) => ({ id: c.id, label: `${c.name} (${c.startDate > state.today ? `starts ${fmtShort(c.startDate)}` : 'current'})` })),
     ...state.campaigns.filter((c) => c.status === 'ended').sort((a, b) => b.endDate.localeCompare(a.endDate)).map((c) => ({ id: c.id, label: c.name })),
     { id: 'all', label: 'All sample activity' },
   ];
@@ -34,10 +34,10 @@ export function ResultsScreen() {
   };
 
   const funnel = [
-    { label: 'People reached', value: t.reach, help: 'People who saw at least one post, ad or message. Platforms estimate this.' },
+    { label: 'Combined reported reach', value: t.reach, help: 'Each channel’s reported reach, added up. It may include the same people more than once, so it is not a count of different people.' },
     { label: 'Shop visits', value: t.visits, help: 'Visits to your online shop.' },
     { label: 'Enquiry clicks', value: t.clicks, help: 'Taps on "Ask on WhatsApp". A tap only opens WhatsApp; it is not a conversation yet.' },
-    { label: 'Confirmed enquiries', value: t.enquiries, help: 'People who actually sent you a WhatsApp message.' },
+    { label: 'Recorded conversations', value: t.enquiries, help: 'WhatsApp conversations recorded here. Any that were not recorded are missing from this number.' },
     { label: 'Recorded sales', value: t.sales, help: 'Sales you recorded after the customer confirmed.' },
   ];
 
@@ -84,6 +84,7 @@ export function ResultsScreen() {
                   <tr><th scope="row" className="py-2 text-left font-normal">Marketing costs</th><td className="py-2 text-right font-semibold">{money(t.costs.total)}</td></tr>
                 </tbody>
               </table>
+              <p className={`mt-3 rounded-lg px-3 py-2 text-sm ${t.revenue < t.costs.total ? 'bg-amber-50 text-amber-900' : 'bg-slate-50 text-slate-800'}`}>{economics(state, t, scope)}</p>
               <p className="mt-2 text-xs text-slate-500">Revenue is not profit: it does not take off what the clothes cost you.</p>
             </section>
 
@@ -100,10 +101,10 @@ export function ResultsScreen() {
           </div>
 
           <section className="card">
-            <SectionTitle title="By channel" hint="The rows add up to the totals." />
+            <SectionTitle title="By channel" hint="The rows add up to the totals. Reach is as each channel reports it, so people seen on two channels count twice." />
             <div className="table-container">
               <table className="table">
-                <thead><tr><th>Channel</th><th className="text-right">Reached</th><th className="text-right">Visits</th><th className="text-right">Enquiry clicks</th><th className="text-right">Conversations</th><th className="text-right">Sales</th></tr></thead>
+                <thead><tr><th>Channel</th><th className="text-right">Reported reach</th><th className="text-right">Visits</th><th className="text-right">Enquiry clicks</th><th className="text-right">Conversations</th><th className="text-right">Sales</th></tr></thead>
                 <tbody>
                   {t.rows.map((r) => (
                     <tr key={r.key}>
