@@ -372,7 +372,8 @@ export function buildMaterials(plan: Plan, b: Business, campaignId: string, star
         formats: [format],
         versions: [{
           n: 1, caption: captionFor(format, c.openings[0], c.body), images, look: 'original',
-          scenes: video ? scenesFor(images) : undefined,
+          // One product per storyboard, so every scene shows the piece the words describe.
+          scenes: video ? scenesFor([productById(step.productId).image]) : undefined,
           by: 'manager', why: 'Prepared by your marketing manager (simulated)',
         }],
         openings: c.openings,
@@ -398,14 +399,17 @@ export function revise(caption: string, style: RevisionStyle): string {
   const paras = caption.split('\n\n');
   switch (style) {
     case 'shorter': {
-      const keep = [paras[0], paras[1]].filter(Boolean);
+      const body = paras.slice(1).filter((x) => !x.startsWith('#') && !x.startsWith('Reply STOP'));
+      const keep = [paras[0], body[0]].filter(Boolean);
       const firstSentence = (keep[1] ?? '').split(/(?<=\.)\s/)[0];
       const stop = paras.find((x) => x.startsWith('Reply STOP'));
-      const short = [keep[0], firstSentence, stop].filter(Boolean).join('\n\n');
-      // Already short: keep just the opening (and the opt-out line) rather than change nothing.
-      return short !== caption ? short : [paras[0], stop].filter(Boolean).join('\n\n');
+      const tags = paras.find((x) => x.startsWith('#'));
+      const short = [keep[0], firstSentence, tags, stop].filter(Boolean).join('\n\n');
+      // Already short: keep just the opening (with hashtags and the opt-out line). If that is all there is, nothing changes.
+      return short !== caption ? short : [paras[0], tags, stop].filter(Boolean).join('\n\n');
     }
     case 'warmer':
+      if (caption.includes('We would love to help you find a look you feel wonderful in.')) return caption;
       return [...paras.slice(0, 1), 'We would love to help you find a look you feel wonderful in.', ...paras.slice(1)].join('\n\n');
     case 'direct': {
       const ask = 'Message us on WhatsApp today and we will check your size for you.';

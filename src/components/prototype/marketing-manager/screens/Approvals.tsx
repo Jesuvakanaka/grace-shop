@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import { FORMATS, PRODUCTS } from '../catalog';
 import { relDay } from '../dates';
-import { currentVersion, liveCampaigns } from '../engine';
+import { currentVersion, liveCampaigns, reducer, type Action } from '../engine';
 import { REVISION_LABEL, SCENE_TEXT, STAGE_INFO, VIDEO_FORMATS, openingOf, styleFromNote, type RevisionStyle } from '../plan';
 import { LOOKS, LookSwatch, Preview } from '../previews';
 import { useDemo } from '../store';
@@ -152,12 +152,20 @@ function ItemDetail({ m }: { m: Material }) {
   const auto = automation(state.connections[FORMATS[format].channel], format);
   const busy = !!revising;
 
-  const simulate = (label: string, run: () => void, done: string) => {
+  // Shows the result only if the change made a new version; otherwise says nothing changed.
+  const simulate = (label: string, action: Action, done: string) => {
     setRevising(label);
-    window.setTimeout(() => { run(); setRevising(null); toast(done); }, 1500);
+    window.setTimeout(() => {
+      const before = state.materials.find((x) => x.id === m.id)?.versions.length ?? 0;
+      const after = reducer(state, action).materials.find((x) => x.id === m.id)?.versions.length ?? 0;
+      dispatch(action);
+      setRevising(null);
+      if (after > before) toast(done);
+      else toast('No further change of this kind is possible, so no new version was made. Try another option or edit the words yourself.', 'info');
+    }, 1500);
   };
   const runRevision = (style: RevisionStyle, why: string) =>
-    simulate(REVISION_LABEL[style], () => dispatch({ type: 'material/revise', id: m.id, style, why }), 'A revised version is ready. Check it before approving.');
+    simulate(REVISION_LABEL[style], { type: 'material/revise', id: m.id, style, why }, 'A revised version is ready. Check it before approving.');
 
   return (
     <div>
@@ -275,7 +283,7 @@ function ItemDetail({ m }: { m: Material }) {
   );
 }
 
-type Simulate = (label: string, run: () => void, done: string) => void;
+type Simulate = (label: string, action: Action, done: string) => void;
 
 const LOOK_ORDER: Look[] = ['original', 'warm', 'studio', 'headline'];
 
@@ -288,7 +296,7 @@ function VisualPicker({ m, busy, simulate }: { m: Material; busy: boolean; simul
     const nextLook = LOOK_ORDER[(LOOK_ORDER.indexOf(v.look) + 1) % LOOK_ORDER.length];
     const pool = PRODUCTS.map((p) => p.image);
     const nextImg = pool[(pool.indexOf(v.images[0]) + 1) % pool.length];
-    simulate('a new visual', () => dispatch({ type: 'material/visual', id: m.id, by: 'revision', patch: { images: [nextImg], look: nextLook }, why: 'New visual prepared (simulated)' }), 'A new visual is ready. Check it before approving.');
+    simulate('a new visual', { type: 'material/visual', id: m.id, by: 'revision', patch: { images: [nextImg], look: nextLook }, why: 'New visual prepared (simulated)' }, 'A new visual is ready. Check it before approving.');
   };
   return (
     <div className="card space-y-4">
@@ -343,7 +351,7 @@ function StoryboardEditor({ m, busy, simulate }: { m: Material; busy: boolean; s
     const shift = (v.n % (pool.length - 1)) + 1;
     const alt = ['Morning wedding: with block heels', 'Sunday service: with flats and a scarf', 'Evening out: with a cropped jacket'];
     const next = (v.scenes ?? []).map((sc, i) => ({ image: pool[(pool.indexOf(sc.image) + shift) % pool.length], text: sc.text === alt[i] ? SCENE_TEXT[i] : alt[i] ?? sc.text, secs: sc.secs }));
-    simulate('a new storyboard', () => dispatch({ type: 'material/visual', id: m.id, by: 'revision', patch: { scenes: next }, why: 'New storyboard prepared (simulated)' }), 'A new storyboard is ready. Check it before approving.');
+    simulate('a new storyboard', { type: 'material/visual', id: m.id, by: 'revision', patch: { scenes: next }, why: 'New storyboard prepared (simulated)' }, 'A new storyboard is ready. Check it before approving.');
   };
   return (
     <div className="card space-y-3">

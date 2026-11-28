@@ -45,7 +45,7 @@ All code is in `src/components/prototype/marketing-manager/`. The page is `src/a
 - **Results** are created only by events: an item going out adds an activity record with fixed sample numbers, ads add one record and one cost per running day, the WhatsApp follow-up adds a messaging cost per opted-in recipient, scheduling adds content costs, and recording a sale adds a sale. Scripted enquiries arrive when certain items go out.
 - **Rules enforced in the reducer**, not only in the UI: approval must match the shown version, a sale is recorded once per enquiry, promo follow-ups are blocked for opted-out customers, unknown-source sales never get a campaign, and there is no ad spend while paused or beyond the plan's days.
 
-Tests: `tests/marketing-manager-prototype.test.ts` (18 tests) covers budget and schedule consistency for every goal, period and variant, versioned approval, unapproved items never going out, failure and recovery, pause, the full period spending exactly the planned costs, sales counted once and totals reconciling, unknown-source attribution, opt-outs, unknown policies never appearing in captions, and from the review round: the recommended plan and changing its goal, keeping or replacing a live campaign, one material and approval per format with version-checked batch approval, ad spending needing its own approval, visual and storyboard changes creating versions, and the honest results wording.
+Tests: `tests/marketing-manager-prototype.test.ts` (26 tests) covers budget and schedule consistency for every goal, period and variant, versioned approval, unapproved items never going out, failure and recovery, pause, the full period spending exactly the planned costs, sales counted once and totals reconciling, unknown-source attribution, opt-outs, unknown policies never appearing in captions, and from the review round: the recommended plan and changing its goal, keeping or replacing a live campaign, one material and approval per format with version-checked batch approval, ad spending needing its own approval, visual and storyboard changes creating versions, and the honest results wording.
 
 ## Mapping to existing reusable code
 
@@ -109,3 +109,24 @@ What changed, and what was already handled or done differently:
 | Results labels | "People reached"; ranges called success estimates. | "Combined reported reach (may include the same people more than once)", "Recorded conversations", a plain revenue-vs-costs sentence before product costs, and ranges labelled "Illustrative demo outcomes", not a forecast. |
 
 Checks for this round: `tsc` clean apart from the existing `xlsx` error; ESLint clean; 18 of 18 prototype tests and 31 of 31 host-routing tests pass; a Playwright journey (desktop 1366×900 and iPhone 13) ran 22 checks covering each point above with no console errors and no horizontal overflow on mobile.
+
+## Independent review round
+
+Each finding was checked in the code first. All were confirmed except where noted.
+
+| Finding | Now |
+| --- | --- |
+| Recommends the campaign already running | The recommendation looks at live and past campaigns, never repeats a goal that is live or the Occasion Edit once it has run, says when it would start ("It would start after X ends"), and says so if there is nothing new. The budget sentence was removed from the reason. |
+| Campaigns never finish | A campaign ends on its own after its last day. Items that never went out are withdrawn, the manager update says it ended "yesterday" or "N days ago", and a next plan is recommended. Planned start dates are never before tomorrow. |
+| Unknown-source sale invisible | Still not credited to a campaign (on purpose). Results and the home card now show "N other recorded sales in this campaign's dates ... not credited to this campaign", and the sale message says where it was counted. |
+| "Only N people actually sent a message" | Reworded: taps tracked and conversations recorded, and some conversations may not have been recorded. The plan's "20 to 60 conversations" became the number of scripted conversations this demo actually produces. |
+| Opt-out kept a promotional suggestion | Opting out swaps the promotional suggestion for a service reply, with a note; opting in restores it. |
+| Unsupported statements | Ties are named as ties; the styling-video recommendation is written from the data; the budget sentence on alternative plans is gone. |
+| Queue edge cases | Ending a campaign early moves the queued one forward to tomorrow. Replacing a campaign that has not started marks it "Cancelled before it started" and keeps its dates. |
+| Revisions wear out | Warmer is not added twice, Shorter keeps hashtags and stops when nothing is left to cut, and the message says when nothing changed. |
+| Smaller points | "Awaiting approval" counts only items waiting; "Ad spending not approved" and "Approved, not scheduled" have their own filters. Home warns to reconnect before an upcoming post on an expired channel. Resume runs items due today. Home says "and N more waiting", and the approvals card links to the plan when only a plan waits. The Follow-up due tab shows only due items and marks overdue ones. The mobile hero is smaller. Each storyboard uses one product's photo. |
+| Found by reading the code | A published ad stops spending when its content is edited or sent back. Policy gaps in seeded replies are filled once the policy is entered. `material/approveAll` stays because the tests use it; the screens use the version-checked batch approval. |
+
+Decisions left for Michael: whether campaigns queue (the prototype's default) or overlap; where unconnected sales should show; whether the ad's daily amount can change after a plan is accepted (today it is fixed by the plan).
+
+Checks for this round: `tsc` clean apart from the existing `xlsx` error; ESLint clean; 26 of 26 prototype tests and 31 of 31 host-routing tests pass; the earlier 22-check Playwright journey still passes, plus 16 new browser checks for this round (desktop and iPhone 13), with no console errors and no mobile overflow.

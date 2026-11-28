@@ -21,7 +21,9 @@ const SHARE_STEPS: Partial<Record<FormatId, string[]>> = {
   wa_channel: ['Open your WhatsApp Channel in the Updates tab.', 'Post the photo and paste the caption.', 'Come back here and mark it as shared.'],
 };
 
-const FILTERS: ShownState[] = ['awaiting', 'scheduled', 'published', 'manual', 'failed', 'paused'];
+const FILTERS: ShownState[] = ['awaiting', 'spend', 'ready', 'scheduled', 'published', 'manual', 'failed', 'paused'];
+/** Shown only when something is in them, so the bar stays short. */
+const OPTIONAL_FILTERS: ShownState[] = ['spend', 'ready'];
 
 export function CampaignsScreen() {
   const { state } = useDemo();
@@ -59,8 +61,12 @@ export function CampaignsScreen() {
                     <p className="font-medium">{e.name}</p>
                     <p className="text-sm text-slate-600">{fmtShort(e.startDate)} to {fmtShort(e.endDate)} · {GOALS[e.goal].label}</p>
                   </div>
-                  <p className="text-sm text-slate-700">{t.enquiries} conversations · {t.sales} recorded sales · {money(t.costs.total)} spent</p>
-                  <a href={`#/results/${e.id}`} className="btn btn-secondary btn-sm">Results</a>
+                  {e.cancelled ? <p className="text-sm text-slate-600">Cancelled before it started. Nothing went out and nothing was spent.</p> : (
+                    <>
+                      <p className="text-sm text-slate-700">{t.enquiries} conversations · {t.sales} recorded sales · {money(t.costs.total)} spent</p>
+                      <a href={`#/results/${e.id}`} className="btn btn-secondary btn-sm">Results</a>
+                    </>
+                  )}
                 </li>
               );
             })}
@@ -83,9 +89,8 @@ function ActiveCampaign({ c }: { c: Campaign }) {
   const rows = prog.pls
     .map((p) => ({ p, st: shownState(state, p), m: state.materials.find((x) => x.id === p.materialId)! }))
     .sort((a, b) => a.p.date.localeCompare(b.p.date) || a.m.id.localeCompare(b.m.id));
-  const waits = (st: ShownState) => st === 'awaiting' || st === 'ready' || st === 'spend';
-  const count = (st: ShownState) => rows.filter((r) => (st === 'awaiting' ? waits(r.st) : r.st === st)).length;
-  const shown = filter === 'all' ? rows : rows.filter((r) => (filter === 'awaiting' ? waits(r.st) : r.st === filter));
+  const count = (st: ShownState) => rows.filter((r) => r.st === st).length;
+  const shown = filter === 'all' ? rows : rows.filter((r) => r.st === filter);
   const status = !c.scheduled ? 'Not scheduled yet' : c.paused ? 'Paused' : state.today < c.startDate ? `Starts ${relDay(c.startDate, state.today).toLowerCase()}` : prog.finished ? 'Finished' : `Running · day ${prog.day} of ${c.plan.days}`;
 
   const retry = (p: Placement) => {
@@ -141,7 +146,7 @@ function ActiveCampaign({ c }: { c: Campaign }) {
       {/* Status filter */}
       <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1" role="group" aria-label="Filter by status">
         <button type="button" aria-pressed={filter === 'all'} onClick={() => setFilter('all')} className={`min-h-10 shrink-0 rounded-full border px-3 text-sm ${filter === 'all' ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-300 bg-white'}`}>All {rows.length}</button>
-        {FILTERS.map((f) => (
+        {FILTERS.filter((f) => !OPTIONAL_FILTERS.includes(f) || count(f) > 0 || filter === f).map((f) => (
           <button key={f} type="button" aria-pressed={filter === f} onClick={() => setFilter(f)} className={`min-h-10 shrink-0 rounded-full border px-3 text-sm ${filter === f ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-300 bg-white'}`}>
             {SHOWN_LABEL[f]} {count(f)}
           </button>

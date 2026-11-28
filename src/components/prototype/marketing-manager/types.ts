@@ -125,6 +125,8 @@ export interface Campaign {
   paused: boolean;
   /** Paid ads need their own approval to start spending, separate from approving the ad's content. */
   adApproved?: boolean;
+  /** Ended or replaced before its first day: nothing ran. */
+  cancelled?: boolean;
 }
 
 export interface ActivityRecord {
@@ -182,6 +184,10 @@ export interface Enquiry {
   /** The customer's current question. */
   question: string;
   suggestedReply: string;
+  /** The suggestion promotes something, so it must not be sent to someone who opted out. */
+  suggestionPromo?: boolean;
+  /** A promotional suggestion held back while the customer is opted out. */
+  heldPromoReply?: string;
   /** Scripted next customer messages with their suggested replies (simulated). */
   script: { customer: string; question: string; suggestion: string }[];
   followUp?: { date: string; kind: 'promo' | 'service'; note: string };

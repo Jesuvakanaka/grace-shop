@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import { FORMATS, WHATSAPP_RATE, channelById, productById, type ChannelId } from '../catalog';
 import { addDays, fmtDay, fmtShort, money, num } from '../dates';
-import { liveCampaigns, planCostsFor, shownState } from '../engine';
+import { liveCampaigns, planCostsFor, reducer, scriptedConversations, shownState } from '../engine';
 import { GOALS, GOAL_ORDER, OPTIONAL_CHANNELS, STAGE_INFO, planEstimate, planSteps, recipientsFor, reshapePlan, roundRange } from '../plan';
 import { useDemo } from '../store';
 import type { Campaign, GoalId, GoalInput, Plan } from '../types';
@@ -38,7 +38,12 @@ export function PlanScreen() {
 
   const recommend = () => {
     setPreparing('Preparing a recommended plan');
-    window.setTimeout(() => { dispatch({ type: 'draft/recommend' }); setPreparing(null); toast('A recommended plan is ready to review.'); }, 2200);
+    window.setTimeout(() => {
+      const next = reducer(state, { type: 'draft/recommend' });
+      dispatch({ type: 'draft/recommend' });
+      setPreparing(null);
+      toast(next.draft?.plan ? 'A recommended plan is ready to review.' : 'Nothing new to recommend while your campaigns cover the likely goals. Choose a goal yourself instead.', next.draft?.plan ? 'ok' : 'info');
+    }, 2200);
   };
 
   const title = draft?.plan && !changing ? (draft.recommended ? 'Recommended next campaign' : 'Your proposed plan') : changing ? 'Choose a different goal' : live.length ? 'Your plan' : 'Plan your next campaign';
@@ -182,10 +187,11 @@ function ProposedPlan({ plan, recommended, onAlternative, onChangeGoal }: { plan
   const end = addDays(plan.startDate, plan.days - 1);
   const live = liveCampaigns(state);
   const lastLive = [...live].sort((a, b) => a.endDate.localeCompare(b.endDate)).at(-1);
-  const afterStart = lastLive ? addDays(lastLive.endDate, 1) : plan.startDate;
+  const tomorrow = addDays(state.today, 1);
+  const afterStart = [lastLive ? addDays(lastLive.endDate, 1) : plan.startDate, tomorrow].sort().at(-1)!;
   const unknown = (['delivery', 'returns', 'payment'] as const).filter((k) => state.business[k] === null);
   const edit = (patch: Partial<Plan>) => dispatch({ type: 'draft/edit', plan: reshapePlan(plan, patch, recipients, state.business.areas) });
-  const [convLo, convHi] = roundRange(Math.max(2, est.clicks * 0.35), 0.6, 1.3);
+  const scripted = scriptedConversations(plan);
   const formats = steps.flatMap((s) => s.formats);
   const manual = formats.filter((f) => !FORMATS[f].auto).length;
   const hasAds = costs.adDays > 0;
@@ -212,7 +218,7 @@ function ProposedPlan({ plan, recommended, onAlternative, onChangeGoal }: { plan
         <p className="mt-1 text-slate-700">Promote <strong>{plan.collectionName}</strong> with the message <span className="font-serif text-lg text-brand-olive-800">&ldquo;{plan.message}&rdquo;</span></p>
         {recommended ? <p className="mt-3 rounded-lg bg-brand-olive-50 px-3.5 py-2.5 text-sm text-brand-olive-900"><strong>Why this plan:</strong> {recommended}</p> : plan.fromRecommendation ? <p className="mt-3 text-sm text-slate-600">Prepared from the recommendation: <strong>{plan.fromRecommendation}</strong></p> : null}
         <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
-          <div><dt className="text-xs uppercase tracking-wider text-slate-500">When</dt><dd className="font-medium">{fmtShort(live.length ? afterStart : plan.startDate)} to {fmtShort(addDays(live.length ? afterStart : plan.startDate, plan.days - 1))}</dd><dd className="text-xs text-slate-500">{plan.days} days{live.length ? ', after your current campaign' : ''}</dd></div>
+          <div><dt className="text-xs uppercase tracking-wider text-slate-500">When</dt><dd className="font-medium">{fmtShort(afterStart)} to {fmtShort(addDays(afterStart, plan.days - 1))}</dd><dd className="text-xs text-slate-500">{plan.days} days{live.length ? ', after your current campaign' : ''}</dd></div>
           <div><dt className="text-xs uppercase tracking-wider text-slate-500">Cost</dt><dd className={`font-medium ${over ? 'text-rose-700' : ''}`}>{money(costs.total)} of {money(plan.budget)}</dd><dd className="text-xs text-slate-500">{hasAds ? `${money(costs.ads)} of it paid ads` : 'No paid ads'}</dd></div>
           <div><dt className="text-xs uppercase tracking-wider text-slate-500">Channels</dt><dd className="font-medium">{plan.channels.length}</dd><dd className="text-xs text-slate-500">{plan.channels.map((c) => channelById(c.id).name).join(', ')}</dd></div>
           <div><dt className="text-xs uppercase tracking-wider text-slate-500">You approve</dt><dd className="font-medium">{formats.length} items</dd><dd className="text-xs text-slate-500">{manual ? `${manual} you share yourself` : 'All posted for you'}{hasAds ? ', plus ad spending' : ''}</dd></div>
@@ -318,7 +324,7 @@ function ProposedPlan({ plan, recommended, onAlternative, onChangeGoal }: { plan
           <li><strong>{num(roundRange(est.reach)[0])} to {num(roundRange(est.reach)[1])}</strong> combined reported reach. The same person can be counted more than once.</li>
           <li><strong>{num(roundRange(est.visits)[0])} to {num(roundRange(est.visits)[1])}</strong> shop visits.</li>
           <li><strong>{num(roundRange(est.clicks)[0])} to {num(roundRange(est.clicks)[1])}</strong> taps on &ldquo;Ask on WhatsApp&rdquo;.</li>
-          <li><strong>{convLo} to {convHi}</strong> WhatsApp conversations would be a good demo result. Some may become sales.</li>
+          <li><strong>{scripted === 0 ? 'No' : scripted}</strong> scripted WhatsApp conversation{scripted === 1 ? '' : 's'} arrive in this demo when its items go out. A real campaign could bring more or fewer, and only some taps become conversations.</li>
         </ul>
         <p className="mt-3 text-sm text-slate-600">Sales are not guaranteed. Success means learning which channel and message bring real conversations for the money spent.</p>
       </Details>

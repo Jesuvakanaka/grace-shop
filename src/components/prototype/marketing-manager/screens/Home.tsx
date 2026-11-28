@@ -2,7 +2,7 @@
 // "My marketing": answers the owner's five questions at a glance.
 import React from 'react';
 import { fmtDay, money, num, relDay } from '../dates';
-import { activeCampaign, adNeedsApproval, campaignProgress, dueFollowUps, goalLabel, liveCampaigns, managerUpdate, nextStep, totals, waitingCustomers } from '../engine';
+import { activeCampaign, adNeedsApproval, campaignProgress, dueFollowUps, goalLabel, liveCampaigns, managerUpdate, nextStep, totals, uncreditedSales, waitingCustomers } from '../engine';
 import { FORMATS, productById } from '../catalog';
 import { useDemo } from '../store';
 import { Icon, Simulated } from '../ui';
@@ -25,9 +25,10 @@ export function HomeScreen() {
   const prog = c ? campaignProgress(state, c) : null;
   const waiting = waitingCustomers(state);
   const due = dueFollowUps(state);
-  const lastEnded = [...state.campaigns].filter((x) => x.status === 'ended').sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
+  const lastEnded = [...state.campaigns].filter((x) => x.status === 'ended' && !x.cancelled).sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
   const scope = c && c.scheduled ? c : lastEnded;
   const t = scope ? totals(state, scope.id) : null;
+  const other = scope ? uncreditedSales(state, scope.id) : null;
   const live = liveCampaigns(state);
   const liveIds = new Set(live.map((x) => x.id));
   const pendingMats = state.materials.filter((m) => liveIds.has(m.campaignId) && m.status !== 'approved');
@@ -36,19 +37,19 @@ export function HomeScreen() {
 
   return (
     <div>
-      <header className="mb-6">
+      <header className="mb-4 sm:mb-6">
         <p className="brand-label text-brand-olive-700">My marketing</p>
-        <h1 className="font-serif text-3xl leading-tight sm:text-4xl">Here is where things stand</h1>
-        <p className="mt-1 text-slate-600">{fmtDay(state.today)} in the demo{state.onboarding === 'skipped' ? ' · exploring with example answers' : ''}</p>
+        <h1 className="font-serif text-2xl leading-tight sm:text-4xl">Here is where things stand</h1>
+        <p className="mt-1 text-sm text-slate-600 sm:text-base">{fmtDay(state.today)} in the demo{state.onboarding === 'skipped' ? ' · exploring with example answers' : ''}</p>
       </header>
 
       {/* The one next action. */}
       <section className="mb-5 overflow-hidden rounded-2xl bg-brand-olive-700 text-white shadow-md" aria-labelledby="next-title">
-        <div className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between sm:p-6">
+        <div className="flex flex-col gap-3 p-4 sm:gap-4 sm:p-6 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-lime-200">What to do next</p>
-            <h2 id="next-title" className="mt-1 font-serif text-2xl sm:text-3xl">{step.title}</h2>
-            <p className="mt-1 max-w-xl text-brand-olive-50">{step.detail}</p>
+            <h2 id="next-title" className="mt-1 font-serif text-xl leading-snug sm:text-3xl">{step.title}</h2>
+            <p className="mt-1 max-w-xl text-sm text-brand-olive-50 sm:text-base">{step.detail}</p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
             <a href={step.href} className="btn bg-brand-cream text-brand-ink hover:bg-white">{step.cta} <Icon name="arrow" className="h-4 w-4" /></a>
@@ -82,7 +83,7 @@ export function HomeScreen() {
           )}
         </QCard>
 
-        <QCard q="What needs my approval?" href="#/approvals" link="Go to approvals">
+        <QCard q="What needs my approval?" href={!pendingMats.length && !adWaiting.length && state.draft?.plan ? '#/plan' : '#/approvals'} link={!pendingMats.length && !adWaiting.length && state.draft?.plan ? 'Review the plan' : 'Go to approvals'}>
           {pendingMats.length || adWaiting.length || state.draft?.plan ? (
             <ul className="space-y-1.5">
               {state.draft?.plan ? <li className="flex items-center justify-between gap-2"><span className="truncate">Plan: {state.draft.plan.name}</span><span className="shrink-0 text-xs text-slate-500">To review</span></li> : null}
@@ -109,7 +110,8 @@ export function HomeScreen() {
                   <span className="shrink-0 text-xs text-amber-800">{e.stage === 'new' ? 'New' : 'Waiting for you'}</span>
                 </li>
               ))}
-              {due.length ? <li className="text-slate-600">{due.length} follow-up{due.length === 1 ? '' : 's'} due today.</li> : null}
+              {waiting.length > 3 ? <li className="text-slate-500">and {waiting.length - 3} more waiting</li> : null}
+              {due.length ? <li className="text-slate-600">{due.length} follow-up{due.length === 1 ? '' : 's'} due.</li> : null}
             </ul>
           ) : (
             <p>No one is waiting. New WhatsApp enquiries appear here.</p>
@@ -125,6 +127,7 @@ export function HomeScreen() {
                 <div className="rounded-lg bg-slate-50 px-2 py-2"><dt className="text-xs text-slate-500">Recorded sales</dt><dd className="font-serif text-2xl">{num(t.sales)}</dd></div>
                 <div className="rounded-lg bg-slate-50 px-2 py-2"><dt className="text-xs text-slate-500">Spent</dt><dd className="font-serif text-2xl">{money(t.costs.total)}</dd></div>
               </dl>
+              {other?.count ? <p className="mt-2 text-xs text-slate-600">{other.count === 1 ? '1 other sale' : `${other.count} other sales`} in this period {other.count === 1 ? 'is' : 'are'} not credited to this campaign.</p> : null}
             </div>
           ) : (
             <p>Results appear once your first item goes out.</p>

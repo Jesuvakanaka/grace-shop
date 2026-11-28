@@ -4,7 +4,7 @@
 // recommendations that become the next draft plan.
 import React, { useState } from 'react';
 import { fmtShort, money, num } from '../dates';
-import { activeCampaign, economics, liveCampaigns, review, totals, type Recommendation } from '../engine';
+import { activeCampaign, economics, liveCampaigns, review, totals, uncreditedSales, type Recommendation } from '../engine';
 import { useDemo } from '../store';
 import { Dialog, Empty, Icon, Note, PageTitle, SectionTitle, Simulated } from '../ui';
 
@@ -15,12 +15,13 @@ export function ResultsScreen() {
   const active = activeCampaign(state);
   const scopes = [
     ...liveCampaigns(state).map((c) => ({ id: c.id, label: `${c.name} (${c.startDate > state.today ? `starts ${fmtShort(c.startDate)}` : 'current'})` })),
-    ...state.campaigns.filter((c) => c.status === 'ended').sort((a, b) => b.endDate.localeCompare(a.endDate)).map((c) => ({ id: c.id, label: c.name })),
+    ...state.campaigns.filter((c) => c.status === 'ended' && !c.cancelled).sort((a, b) => b.endDate.localeCompare(a.endDate)).map((c) => ({ id: c.id, label: c.name })),
     { id: 'all', label: 'All sample activity' },
   ];
   const scope = scopes.find((s) => s.id === route[1])?.id ?? scopes[0].id;
   const campaign = state.campaigns.find((c) => c.id === scope);
   const t = totals(state, scope);
+  const other = uncreditedSales(state, scope);
   const rv = review(state, t, scope);
   const [pending, setPending] = useState<Recommendation | null>(null);
   const empty = t.reach === 0 && t.visits === 0 && t.enquiries === 0 && t.sales === 0;
@@ -85,6 +86,7 @@ export function ResultsScreen() {
                 </tbody>
               </table>
               <p className={`mt-3 rounded-lg px-3 py-2 text-sm ${t.revenue < t.costs.total ? 'bg-amber-50 text-amber-900' : 'bg-slate-50 text-slate-800'}`}>{economics(state, t, scope)}</p>
+              {other.count ? <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">{other.count === 1 ? '1 other recorded sale' : `${other.count} other recorded sales`} ({money(other.revenue)}) in this campaign&apos;s dates came from an unknown source or from somewhere else, such as a referral, so {other.count === 1 ? 'it is' : 'they are'} not credited to this campaign. See &ldquo;All sample activity&rdquo; for everything.</p> : null}
               <p className="mt-2 text-xs text-slate-500">Revenue is not profit: it does not take off what the clothes cost you.</p>
             </section>
 

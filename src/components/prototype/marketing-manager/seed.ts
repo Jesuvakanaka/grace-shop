@@ -104,6 +104,7 @@ export function seedState(today: string = isoToday()): DemoState {
         ],
         question: 'Wants to know when new colours arrive.',
         suggestedReply: 'Hi Memory, you asked us to tell you about new colours. Our new Occasion Edit has just arrived. Would you like to see it?',
+        suggestionPromo: true,
         followUp: { date: today, kind: 'promo', note: 'She asked to hear when new colours arrive.' },
         script: [],
       },

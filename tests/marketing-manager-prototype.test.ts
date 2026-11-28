@@ -257,3 +257,101 @@ describe('customers and results', () => {
     for (const m of s.materials) assert.ok(!/delivery|return/i.test(m.versions[0].caption), m.title)
   })
 })
+
+describe('independent review fixes', () => {
+  const approveRun = (s: DemoState, id: string) => run(s, { type: 'material/approveAll', campaignId: id }, { type: 'campaign/approveAds', id, approved: true }, { type: 'campaign/schedule', id })
+
+  test('the manager does not recommend the campaign that is already planned or running', () => {
+    let s = reducer(seedState(TODAY), { type: 'onboarding/skip' })
+    const first = s.draft!.plan!
+    s = reducer(s, { type: 'draft/accept' })
+    s = reducer(s, { type: 'draft/recommend' })
+    if (s.draft?.plan) {
+      assert.notEqual(s.draft.plan.goal, first.goal)
+      assert.notEqual(s.draft.plan.name, first.name)
+      assert.doesNotMatch(s.draft.recommended ?? '', /half of your monthly budget/)
+    }
+  })
+
+  test('a campaign finishes on its own after its last day, and a next plan is recommended', () => {
+    let s = accepted()
+    const c = active(s)
+    s = run(approveRun(s, c.id), { type: 'connection/set', channel: 'facebook', status: 'connected' })
+    for (let i = 0; i < c.plan.days + 1; i++) s = reducer(s, { type: 'day/advance' })
+    assert.equal(s.campaigns.find((x) => x.id === c.id)!.status, 'ended')
+    assert.equal(liveCampaigns(s).length, 0)
+    assert.ok(s.draft?.plan && s.draft.recommended, 'a recommended next plan is ready')
+    assert.notEqual(nextStep(s).cta, 'See campaign')
+    assert.ok(s.draft.plan.startDate > s.today, 'the next plan starts in the future')
+  })
+
+  test('ending a campaign early pulls the queued one forward', () => {
+    let s = accepted()
+    const first = active(s)
+    s = run(approveRun(s, first.id), { type: 'day/advance' })
+    s = run(s, { type: 'draft/start', input: { goal: 'repeat', weeks: 1, budget: 50 } }, { type: 'draft/plan', variant: 0 }, { type: 'draft/accept', mode: 'after' })
+    const second = liveCampaigns(s).find((x) => x.id !== first.id)!
+    assert.equal(second.startDate, addDays(first.endDate, 1))
+    s = reducer(s, { type: 'campaign/end', id: first.id })
+    const moved = s.campaigns.find((x) => x.id === second.id)!
+    assert.equal(moved.startDate, addDays(s.today, 1))
+    assert.equal(moved.endDate, addDays(moved.startDate, moved.plan.days - 1))
+    assert.ok(s.materials.filter((m) => m.campaignId === second.id).every((m) => m.date >= moved.startDate && m.date <= moved.endDate))
+  })
+
+  test('replacing a campaign that has not started cancels it without an end before its start', () => {
+    let s = accepted()
+    const first = active(s)
+    assert.ok(first.startDate > s.today)
+    s = run(s, { type: 'draft/start', input: { goal: 'repeat', weeks: 1, budget: 50 } }, { type: 'draft/plan', variant: 0 }, { type: 'draft/accept', mode: 'replace' })
+    const old = s.campaigns.find((x) => x.id === first.id)!
+    assert.equal(old.status, 'ended')
+    assert.equal(old.cancelled, true)
+    assert.ok(old.endDate >= old.startDate)
+  })
+
+  test('an opt-out replaces a promotional suggested reply, and opting in restores it', () => {
+    const s0 = seedState(TODAY)
+    const before = s0.enquiries.find((e) => e.id === 'e-memory')!
+    assert.ok(before.suggestionPromo)
+    const out = reducer(s0, { type: 'customer/optOut', id: before.customerId, optedOut: true })
+    const e = out.enquiries.find((x) => x.id === 'e-memory')!
+    assert.notEqual(e.suggestedReply, before.suggestedReply)
+    assert.doesNotMatch(e.suggestedReply, /Occasion Edit/)
+    const back = reducer(out, { type: 'customer/optOut', id: before.customerId, optedOut: false })
+    assert.equal(back.enquiries.find((x) => x.id === 'e-memory')!.suggestedReply, before.suggestedReply)
+  })
+
+  test('resuming runs the items due today', () => {
+    let s = accepted()
+    const c = active(s)
+    s = run(approveRun(s, c.id), { type: 'campaign/pause', id: c.id }, { type: 'day/advance' })
+    assert.equal(s.today, c.startDate)
+    const post = () => s.placements.find((p) => p.campaignId === c.id && p.format === 'ig_post' && p.date === c.startDate)!
+    assert.notEqual(post().state, 'published')
+    s = reducer(s, { type: 'campaign/resume', id: c.id })
+    assert.equal(post().state, 'published')
+  })
+
+  test('a published ad stops spending when its content is changed or sent back', () => {
+    let s = accepted()
+    const c = active(s)
+    s = run(approveRun(s, c.id), { type: 'day/advance' })
+    const spent = totals(s, c.id).costs.ads
+    assert.ok(spent > 0)
+    const ad = s.materials.find((m) => m.campaignId === c.id && m.formats[0] === 'ad')!
+    s = run(s, { type: 'material/caption', id: ad.id, caption: 'Changed words', why: 'edit' }, { type: 'day/advance' }, { type: 'day/advance' })
+    assert.equal(totals(s, c.id).costs.ads, spent)
+  })
+
+  test('revisions that cannot change anything make no new version', () => {
+    let s = accepted()
+    const m = s.materials.find((x) => x.campaignId === active(s).id && x.formats[0] === 'ig_post')!
+    s = run(s, { type: 'material/revise', id: m.id, style: 'warmer', why: 'w' }, { type: 'material/revise', id: m.id, style: 'warmer', why: 'w' })
+    assert.equal(s.materials.find((x) => x.id === m.id)!.versions.length, 2)
+    for (let i = 0; i < 4; i++) s = reducer(s, { type: 'material/revise', id: m.id, style: 'shorter', why: 's' })
+    const last = s.materials.find((x) => x.id === m.id)!
+    assert.ok(last.versions.length < 6, 'shorter stops once nothing is left to remove')
+    if (m.versions[0].caption.includes('\n\n#')) assert.match(last.versions.at(-1)!.caption, /#/, 'hashtags kept')
+  })
+})

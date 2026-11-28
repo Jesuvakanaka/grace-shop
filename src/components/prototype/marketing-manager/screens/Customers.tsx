@@ -6,7 +6,7 @@ import { channelById, productById, type ChannelId } from '../catalog';
 import { addDays, fmtShort, money, relDay } from '../dates';
 import { totals } from '../engine';
 import { useDemo } from '../store';
-import type { Enquiry, Source } from '../types';
+import type { Business, Enquiry, Source } from '../types';
 import { RichText } from '../previews';
 import { Dialog, Empty, Icon, Note, PageTitle, Pill, SectionTitle, Simulated } from '../ui';
 
@@ -35,7 +35,7 @@ function sourceText(src: Source) {
 }
 
 const inTab = (e: Enquiry, tab: TabKey, today: string) =>
-  tab === 'followup' ? !!e.followUp && e.followUp.date <= addDays(today, 7) : e.stage === tab;
+  tab === 'followup' ? !!e.followUp && e.followUp.date <= today : e.stage === tab;
 
 export function CustomersScreen() {
   const { route } = useDemo();
@@ -54,7 +54,7 @@ function EnquiryList({ tab }: { tab: TabKey }) {
       <PageTitle eyebrow="Customers" title="WhatsApp enquiries" hint="Your shop sends shoppers to WhatsApp to ask and order. Every conversation here is a fictional sample customer." />
 
       <Note className="mb-5">
-        <strong>{t.clicks} taps</strong> on &ldquo;Ask on WhatsApp&rdquo; so far, but only <strong>{state.enquiries.length} people</strong> actually sent a message. A tap only opens WhatsApp: you can not see or reply to people who did not send anything.
+        <strong>{t.clicks} taps</strong> on &ldquo;Ask on WhatsApp&rdquo; were tracked so far, and <strong>{state.enquiries.length} conversations</strong> are recorded here. Some people tap and never send a message, and some conversations may not have been recorded. A tap only opens WhatsApp: you can not see or reply to people who did not send anything.
       </Note>
 
       <div className="mb-4 flex gap-1.5 overflow-x-auto pb-1" role="tablist" aria-label="Enquiry stage">
@@ -85,7 +85,7 @@ function EnquiryList({ tab }: { tab: TabKey }) {
                     <p className="truncate text-sm text-slate-700">{e.question}</p>
                     <p className="mt-1 flex flex-wrap gap-x-3 text-xs text-slate-500">
                       <span>{p.name}</span><span>{src.label}</span>
-                      {e.followUp ? <span className={e.followUp.date <= state.today ? 'font-medium text-amber-800' : ''}>Follow-up {relDay(e.followUp.date, state.today).toLowerCase()}</span> : <span>{relDay(e.created, state.today)}</span>}
+                      {e.followUp ? <span className={e.followUp.date <= state.today ? 'font-medium text-amber-800' : ''}>{e.followUp.date < state.today ? `Overdue: follow-up was due ${relDay(e.followUp.date, state.today).toLowerCase()}` : `Follow-up ${relDay(e.followUp.date, state.today).toLowerCase()}`}</span> : <span>{relDay(e.created, state.today)}</span>}
                     </p>
                   </div>
                   <Icon name="arrow" className="mt-1 h-4 w-4 shrink-0 text-slate-400" />
@@ -135,7 +135,7 @@ function EnquiryDetail({ id }: { id: string }) {
             </ol>
           </section>
 
-          {!closed || e.suggestedReply ? <ReplyBox key={`${e.id}-${e.messages.length}`} e={e} /> : null}
+          {!closed || e.suggestedReply ? <ReplyBox key={`${e.id}-${e.messages.length}-${e.suggestedReply}`} e={e} /> : null}
 
           {e.script.length && e.stage === 'replied' ? (
             <button type="button" className="btn btn-secondary" onClick={() => { dispatch({ type: 'enquiry/customerReplies', id: e.id }); toast(`${c.name} replied (simulated).`, 'info'); }}>
@@ -205,9 +205,20 @@ function EnquiryDetail({ id }: { id: string }) {
   );
 }
 
+/** Fill a suggestion's gaps from the shop's answers once they are known. */
+function fillGaps(text: string, b: Business): string {
+  const lower = (x: string) => x.charAt(0).toLowerCase() + x.slice(1).replace(/\.$/, '');
+  let t = text;
+  if (b.delivery) t = t.replace(' costs [add your delivery price]', `: ${lower(b.delivery)}`).replace('[add your delivery price]', lower(b.delivery));
+  if (b.payment) t = t.replace('[add how customers can pay]', lower(b.payment));
+  if (b.returns) t = t.replace('[add your returns policy]', lower(b.returns));
+  return t;
+}
+
 function ReplyBox({ e }: { e: Enquiry }) {
   const { state, dispatch, toast } = useDemo();
-  const [text, setText] = useState(e.suggestedReply);
+  const suggestion = fillGaps(e.suggestedReply, state.business);
+  const [text, setText] = useState(suggestion);
   const [follow, setFollow] = useState(e.stage !== 'won' && e.stage !== 'lost');
   const gaps = text.match(/\[[^\]]+\]/g) ?? [];
   const send = () => {
@@ -217,7 +228,8 @@ function ReplyBox({ e }: { e: Enquiry }) {
   return (
     <section className="card" aria-labelledby="reply-title">
       <div className="mb-2 flex flex-wrap items-center gap-2"><h2 id="reply-title" className="font-serif text-xl">Your reply</h2>{e.suggestedReply ? <Simulated /> : null}</div>
-      {e.suggestedReply ? <p className="mb-2 rounded-lg bg-slate-50 p-3 text-sm text-slate-700"><span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">Suggested</span><RichText text={e.suggestedReply} /></p> : null}
+      {e.heldPromoReply ? <Note tone="warn" className="mb-2">{state.customers.find((x) => x.id === e.customerId)?.name} opted out of promotions, so the promotional suggestion was replaced with a service reply.</Note> : null}
+      {e.suggestedReply ? <p className="mb-2 rounded-lg bg-slate-50 p-3 text-sm text-slate-700"><span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">Suggested</span><RichText text={suggestion} /></p> : null}
       <label htmlFor="reply" className="label">Edit before sending</label>
       <textarea id="reply" rows={5} className="input" value={text} onChange={(ev) => setText(ev.target.value)} placeholder="Type your reply" />
       {gaps.length ? <Note tone="warn" className="mt-2">Fill in {gaps.join(', ')} before sending. Your {gaps.some((g) => /deliver/i.test(g)) ? 'delivery' : 'payment'} details are unknown, so your marketing manager left a gap instead of guessing.</Note> : null}
@@ -226,7 +238,7 @@ function ReplyBox({ e }: { e: Enquiry }) {
       </label>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button type="button" className="btn btn-primary" disabled={!text.trim() || gaps.length > 0} onClick={send}><Icon name="send" className="h-4 w-4" /> Send reply (demo)</button>
-        {text !== e.suggestedReply && e.suggestedReply ? <button type="button" className="btn btn-ghost btn-sm" onClick={() => setText(e.suggestedReply)}>Use the suggestion again</button> : null}
+        {text !== suggestion && e.suggestedReply ? <button type="button" className="btn btn-ghost btn-sm" onClick={() => setText(suggestion)}>Use the suggestion again</button> : null}
       </div>
       <p className="mt-2 text-xs text-slate-500">In the demo the reply is only added to this sample conversation. Nothing is sent on WhatsApp.</p>
     </section>
@@ -234,7 +246,7 @@ function ReplyBox({ e }: { e: Enquiry }) {
 }
 
 function SaleDialog({ open, onClose, e }: { open: boolean; onClose: () => void; e: Enquiry }) {
-  const { dispatch, toast } = useDemo();
+  const { state, dispatch, toast } = useDemo();
   const p = productById(e.productId);
   const [amount, setAmount] = useState(p.price);
   const tracked = e.source.kind === 'tracked';
@@ -244,7 +256,10 @@ function SaleDialog({ open, onClose, e }: { open: boolean; onClose: () => void; 
     const source: Source = tracked ? e.source : kind === 'reported' ? { kind: 'reported', channel } : { kind: 'unknown' };
     dispatch({ type: 'enquiry/sale', id: e.id, amount, source });
     onClose();
-    toast(`Demo sale of ${money(amount)} recorded. Results are updated.`);
+    const camp = state.campaigns.find((x) => x.id === e.campaignId);
+    toast(source.kind === 'unknown'
+      ? `Demo sale of ${money(amount)} recorded. Its source is unknown, so it is not credited to any campaign. Results list it separately.`
+      : camp ? `Demo sale of ${money(amount)} recorded and credited to "${camp.name}".` : `Demo sale of ${money(amount)} recorded.`);
   };
   return (
     <Dialog open={open} onClose={onClose} title="Record a sale"

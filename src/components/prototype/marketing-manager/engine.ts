@@ -1,10 +1,11 @@
 // AI Marketing Manager prototype: every state change, as one pure reducer, plus
 // the read-only summaries the screens show. Nothing here talks to a server.
 import { AD_DAILY_RESULTS_PER_DOLLAR, FORMAT_SAMPLE_RESULTS, FORMATS, WHATSAPP_RATE, channelById, productById, type ChannelId } from './catalog';
-import { addDays, daysBetween, r2 } from './dates';
-import { GOALS, buildMaterials, buildPlan, planCosts, recipientsFor, revise, withOpening, type RevisionStyle } from './plan';
+import { addDays, daysBetween, fmtDay, r2 } from './dates';
+import { COLLECTIONS } from './catalog';
+import { GOALS, buildMaterials, planSteps, buildPlan, planCosts, recipientsFor, revise, withOpening, type RevisionStyle } from './plan';
 import type { Look, Scene, Version } from './types';
-import { seedState } from './seed';
+import { PREV_ID, seedState } from './seed';
 import type {
   ActivityRecord, Business, Campaign, DemoState, Enquiry, GoalId, GoalInput, Material, Placement, Plan, Sale, Source,
 } from './types';
@@ -163,19 +164,79 @@ function attempt(s: DemoState, p: Placement): DemoState {
   return log(s, `"${s.materials.find((m) => m.id === p.materialId)?.title}" could not go out on ${f.label}: ${reason}`);
 }
 
+/** Sends out one campaign's approved items that are due today or overdue. */
+function runDue(s: DemoState, c: Campaign): DemoState {
+  const due = s.placements.filter((p) => {
+    if (p.campaignId !== c.id || p.state !== 'scheduled' || p.date > s.today) return false;
+    const m = s.materials.find((x) => x.id === p.materialId);
+    // An ad waits until paid activity is approved, even when its content is approved.
+    if (p.format === 'ad' && !c.adApproved) return false;
+    return m?.status === 'approved';
+  });
+  for (const p of due) s = attempt(s, p);
+  return s;
+}
+
+/** Moves a campaign that has not started to a new start date, with its items. */
+function shiftCampaign(s: DemoState, id: string, start: string): DemoState {
+  const c = s.campaigns.find((x) => x.id === id);
+  if (!c || c.startDate === start) return s;
+  const d = daysBetween(c.startDate, start);
+  return {
+    ...s,
+    campaigns: s.campaigns.map((x) => (x.id === id ? { ...x, startDate: start, endDate: addDays(x.endDate, d), plan: { ...x.plan, startDate: start } } : x)),
+    materials: s.materials.map((m) => (m.campaignId === id ? { ...m, date: addDays(m.date, d) } : m)),
+    placements: s.placements.map((p) => (p.campaignId === id && p.state !== 'published' ? { ...p, date: addDays(p.date, d) } : p)),
+  };
+}
+
+/** After a campaign stops early, queued campaigns move up so no empty days are left. */
+function pullForward(s: DemoState): DemoState {
+  let cursor = addDays(s.today, 1);
+  for (const c of liveCampaigns(s)) {
+    if (c.startDate <= s.today) { cursor = addDays(c.endDate, 1); continue; }
+    if (c.startDate > cursor) {
+      const name = c.name;
+      s = log(shiftCampaign(s, c.id, cursor), `"${name}" now starts on ${fmtDay(cursor)}, straight after the previous campaign.`);
+    }
+    cursor = addDays(s.campaigns.find((x) => x.id === c.id)!.endDate, 1);
+  }
+  return s;
+}
+
+/**
+ * Stops a campaign. `finished` is its natural end. A campaign stopped before its first day is
+ * marked cancelled and keeps its planned dates, so no end date falls before its start.
+ */
+function closeCampaign(s: DemoState, id: string, how: 'finished' | 'ended' | 'replaced'): DemoState {
+  const c = s.campaigns.find((x) => x.id === id);
+  if (!c || c.status !== 'active') return s;
+  const started = c.startDate <= s.today;
+  const unsent = s.placements.filter((p) => p.campaignId === id && p.state !== 'published').length;
+  s = {
+    ...s,
+    campaigns: s.campaigns.map((x) => (x.id === id ? {
+      ...x, status: 'ended' as const, paused: false, cancelled: !started,
+      endDate: how === 'finished' || !started ? x.endDate : (x.endDate < s.today ? x.endDate : s.today),
+    } : x)),
+    // Items that never went out are withdrawn.
+    placements: s.placements.filter((p) => p.campaignId !== id || p.state === 'published'),
+  };
+  const withdrawn = unsent ? ` ${unsent} item${unsent === 1 ? ' that had not gone out was' : 's that had not gone out were'} withdrawn.` : '';
+  const text = how === 'finished'
+    ? `"${c.name}" finished on its last day, ${fmtDay(c.endDate)}.${withdrawn}`
+    : !started ? `"${c.name}" was cancelled before it started.` : how === 'replaced' ? `"${c.name}" was ended to make way for a new plan.${withdrawn}` : `You ended "${c.name}".${withdrawn}`;
+  return log(s, text);
+}
+
 function runDay(s: DemoState): DemoState {
   for (const c of s.campaigns.filter((x) => x.status === 'active' && x.scheduled && !x.paused)) {
-    const due = s.placements.filter((p) => {
-      if (p.campaignId !== c.id || p.state !== 'scheduled' || p.date > s.today) return false;
-      const m = s.materials.find((x) => x.id === p.materialId);
-      // An ad waits until paid activity is approved, even when its content is approved.
-      if (p.format === 'ad' && !c.adApproved) return false;
-      return m?.status === 'approved';
-    });
-    for (const p of due) s = attempt(s, p);
-    // A running ad spends its daily amount each day, and reports its reach daily.
+    s = runDue(s, c);
+    // A running ad spends its daily amount each day, and reports its reach daily. It stops if
+    // its content is no longer approved (edited or sent back) or spending is withdrawn.
     const ad = s.placements.find((p) => p.campaignId === c.id && p.format === 'ad' && p.state === 'published');
-    if (ad && c.adApproved && c.plan.adDaily > 0 && s.today <= c.endDate) {
+    const adOk = ad && s.materials.find((m) => m.id === ad.materialId)?.status === 'approved';
+    if (ad && adOk && c.adApproved && c.plan.adDaily > 0 && s.today <= c.endDate) {
       const spentDays = s.costs.filter((k) => k.campaignId === c.id && k.kind === 'ads').length;
       if (spentDays < c.plan.days && !s.costs.some((k) => k.campaignId === c.id && k.kind === 'ads' && k.date === s.today)) {
         const d = c.plan.adDaily;
@@ -191,6 +252,11 @@ function runDay(s: DemoState): DemoState {
       }
     }
   }
+  // Campaigns past their last day finish on their own.
+  const done = s.campaigns.filter((c) => c.status === 'active' && c.endDate < s.today);
+  for (const c of done) s = closeCampaign(s, c.id, 'finished');
+  // Nothing is live any more: the manager reads the results and prepares the next plan.
+  if (done.length && !liveCampaigns(s).length) s = recommend(s, done[done.length - 1].id);
   return s;
 }
 
@@ -205,17 +271,30 @@ function recommend(s: DemoState, fromCampaign?: string): DemoState {
   if (s.draft) return s;
   let input: GoalInput;
   let reason: string;
-  const prev = fromCampaign ? s.campaigns.find((c) => c.id === fromCampaign) : undefined;
-  if (prev) {
-    const r = review(s, totals(s, prev.id), prev.id).next[0];
-    input = r.input;
-    reason = `Based on how "${prev.name}" went. ${r.why}`;
-  } else {
+  const live = liveCampaigns(s);
+  const ran = s.campaigns.filter((c) => !c.cancelled);
+  const occasionDone = ran.some((c) => c.plan.collectionName === COLLECTIONS.occasion.name);
+  // The campaign whose results the recommendation reads: the one named, else the one under way, else the last one.
+  const basis = (fromCampaign ? s.campaigns.find((c) => c.id === fromCampaign) : undefined)
+    ?? live.find((c) => c.startDate <= s.today)
+    ?? [...ran].filter((c) => c.status === 'ended').sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
+  const lastLive = [...live].sort((a, b) => a.endDate.localeCompare(b.endDate)).at(-1);
+  const after = lastLive ? ` It would start after "${lastLive.name}" ends on ${fmtDay(lastLive.endDate)}.` : '';
+  if (!occasionDone && !fromCampaign) {
     input = { goal: 'collection', weeks: 2, budget: Math.round(s.business.monthlyBudget / 2), fromRecommendation: 'Promote the Occasion Edit' };
-    reason = 'The Occasion Edit has not been promoted yet and occasion season is coming. In your last campaign, Instagram brought the most taps on "Ask on WhatsApp", so this plan leads with Instagram posts. It uses about half of your monthly budget.';
+    reason = `The Occasion Edit has not been promoted yet and occasion season is coming.${basis && basis.id === PREV_ID ? ' In your last campaign, Instagram brought the most taps on "Ask on WhatsApp", so this plan leads with Instagram posts.' : ''}${after}`;
+  } else {
+    if (!basis) return s;
+    const goalsLive = new Set(live.map((c) => c.goal));
+    const r = review(s, totals(s, basis.id), basis.id).next.find((x) => !goalsLive.has(x.input.goal) && !(x.input.goal === 'collection' && occasionDone));
+    // Nothing that is not already planned: say so rather than repeat a running campaign.
+    if (!r) return log(s, 'Your marketing manager found nothing new to recommend: your live campaigns already cover the useful goals.');
+    input = r.input;
+    reason = `Based on how "${basis.name}" ${basis.status === 'active' ? 'is going so far' : 'went'}. ${r.why}${after}`;
   }
   const plan = buildPlan(input, s.business, s.today, 0, recipientsFor(s.customers));
-  return log({ ...s, draft: { input, plan, recommended: reason } }, `Your marketing manager prepared a recommended plan, "${plan.name}", for you to review (simulated).`);
+  const named = live.some((c) => c.name === plan.name) ? { ...plan, name: `${plan.name}: next round` } : plan;
+  return log({ ...s, draft: { input, plan: named, recommended: reason } }, `Your marketing manager prepared a recommended plan, "${named.name}", for you to review (simulated).`);
 }
 
 // --------------------------------------------------------------- reducer
@@ -261,22 +340,21 @@ export function reducer(s: DemoState, a: Action): DemoState {
         if (plan.startDate < start) plan = { ...plan, startDate: start };
       }
       const endedIds = new Set(mode === 'replace' ? live.map((c) => c.id) : []);
-      const [cid, first] = nextId(s, 'c');
-      let n = first;
+      let n = s;
+      // Replacing finishes the live campaigns now; their records stay in the results.
+      for (const id of endedIds) n = closeCampaign(n, id, 'replaced');
+      const [cid, first] = nextId(n, 'c');
       n = {
-        ...n,
-        // Replacing finishes the live campaigns now; their records stay in the results.
-        campaigns: [...n.campaigns.map((c) => (endedIds.has(c.id) ? { ...c, status: 'ended' as const, paused: false, endDate: c.endDate < n.today ? c.endDate : n.today } : c)),
+        ...first,
+        campaigns: [...first.campaigns,
           { id: cid, name: plan.name, goal: plan.goal, plan, status: 'active', startDate: plan.startDate, endDate: addDays(plan.startDate, plan.days - 1), scheduled: false, paused: false, adApproved: false }],
-        // Unsent items of an ended campaign are withdrawn.
-        placements: n.placements.filter((p) => p.state === 'published' || !endedIds.has(p.campaignId)),
       };
       const mats = buildMaterials(plan, n.business, cid, n.seq);
       n = { ...n, seq: n.seq + mats.length, materials: [...n.materials, ...mats] };
       const placements: Placement[] = [];
       for (const m of mats) for (const f of m.formats) placements.push({ id: `${m.id}-${f}`, campaignId: cid, materialId: m.id, format: f, date: m.date, state: 'scheduled' });
       n = { ...n, placements: [...n.placements, ...placements], draft: null };
-      const when = mode === 'after' && live.length ? ` It starts on ${plan.startDate}, after your current campaign.` : endedIds.size ? ' Your previous campaign was ended.' : '';
+      const when = mode === 'after' && live.length ? ` It starts on ${fmtDay(plan.startDate)}, after your current campaign.` : '';
       return log(n, `You accepted the plan "${plan.name}". ${mats.length} items are ready for your approval.${when}`);
     }
 
@@ -339,18 +417,19 @@ export function reducer(s: DemoState, a: Action): DemoState {
         campaigns: s.campaigns.map((c) => (c.id === a.id ? { ...c, paused: true } : c)),
         placements: s.placements.map((p) => (p.campaignId === a.id && p.state === 'scheduled' ? { ...p, state: 'paused' } : p)),
       }, 'You paused the campaign. Nothing new goes out and ads stop spending.');
-    case 'campaign/resume':
-      return log({
+    case 'campaign/resume': {
+      let n = log({
         ...s,
         campaigns: s.campaigns.map((c) => (c.id === a.id ? { ...c, paused: false } : c)),
         placements: s.placements.map((p) => (p.campaignId === a.id && p.state === 'paused' ? { ...p, state: 'scheduled' } : p)),
       }, 'You resumed the campaign.');
+      // Anything due today goes out now, not tomorrow.
+      const c = n.campaigns.find((x) => x.id === a.id);
+      if (c?.scheduled && c.status === 'active') n = runDue(n, c);
+      return n;
+    }
     case 'campaign/end': {
-      const n = log({
-        ...s,
-        campaigns: s.campaigns.map((c) => (c.id === a.id ? { ...c, status: 'ended', paused: false, endDate: c.endDate < s.today ? c.endDate : s.today } : c)),
-        placements: s.placements.filter((p) => p.campaignId !== a.id || p.state === 'published'),
-      }, 'You ended the campaign. Items that had not gone out were withdrawn.');
+      const n = pullForward(closeCampaign(s, a.id, 'ended'));
       // Nothing else is live: the manager prepares the next plan for review.
       return liveCampaigns(n).length ? n : recommend(n, a.id);
     }
@@ -437,8 +516,17 @@ export function reducer(s: DemoState, a: Action): DemoState {
       return log({
         ...s,
         customers: s.customers.map((c) => (c.id === a.id ? { ...c, marketingOk: !a.optedOut } : c)),
-        // Opting out removes any promotional follow-up straight away.
-        enquiries: a.optedOut ? s.enquiries.map((e) => (e.customerId === a.id && e.followUp?.kind === 'promo' ? { ...e, followUp: undefined } : e)) : s.enquiries,
+        // Opting out removes any promotional follow-up and swaps a promotional suggested reply
+        // for a plain service one; opting back in restores it.
+        enquiries: s.enquiries.map((e) => {
+          if (e.customerId !== a.id) return e;
+          if (a.optedOut) {
+            const first = name.split(' ')[0];
+            const swap = e.suggestionPromo ? { suggestedReply: `Hi ${first}, thank you for your message. Let us know if there is anything we can help you with.`, heldPromoReply: e.suggestedReply, suggestionPromo: false } : {};
+            return { ...e, ...swap, followUp: e.followUp?.kind === 'promo' ? undefined : e.followUp };
+          }
+          return e.heldPromoReply ? { ...e, suggestedReply: e.heldPromoReply, heldPromoReply: undefined, suggestionPromo: true } : e;
+        }),
       }, a.optedOut ? `${name} opted out of promotional messages.` : `${name} agreed to promotional messages again.`);
     }
   }
@@ -528,6 +616,20 @@ export function totals(s: DemoState, scope: string): Totals {
   };
 }
 
+/** Recorded sales during a campaign's dates that are not linked to any campaign (unknown source, referral): never credited to it, but shown beside it. */
+export function uncreditedSales(s: DemoState, scope: string): { count: number; revenue: number } {
+  if (scope === 'all') return { count: 0, revenue: 0 };
+  const c = s.campaigns.find((x) => x.id === scope);
+  if (!c) return { count: 0, revenue: 0 };
+  const xs = s.sales.filter((x) => x.campaignId === null && x.date >= c.startDate && x.date <= c.endDate);
+  return { count: xs.length, revenue: r2(xs.reduce((n, x) => n + x.amount, 0)) };
+}
+
+/** How many of a plan's items have a scripted customer conversation in this demo. */
+export function scriptedConversations(plan: Plan): number {
+  return planSteps(plan).reduce((n, st) => n + st.formats.filter((f) => ARRIVALS[`${st.stage}:${f}`]).length, 0);
+}
+
 export interface Recommendation {
   id: string;
   title: string;
@@ -549,7 +651,9 @@ export function review(s: DemoState, t: Totals, scope: string): Review {
   const uncertain: string[] = [];
   const channelRows = t.rows.filter((r) => r.key !== 'none' && !r.reportedOnly);
   const best = [...channelRows].sort((a, b) => b.enquiries - a.enquiries || b.clicks - a.clicks)[0];
-  if (best && best.enquiries > 0) working.push(`${best.label} started the most conversations: ${best.enquiries} of ${t.enquiries}.`);
+  const tied = best ? channelRows.filter((r) => r.enquiries === best.enquiries) : [];
+  if (best && best.enquiries > 0 && tied.length > 1) working.push(`${tied.map((r) => r.label).join(' and ')} started the most recorded conversations, ${best.enquiries} each of ${t.enquiries}.`);
+  else if (best && best.enquiries > 0) working.push(`${best.label} started the most recorded conversations: ${best.enquiries} of ${t.enquiries}.`);
   else if (best) working.push(`${best.label} reached the most people (${best.reach.toLocaleString('en-US')}), but has not started a conversation yet.`);
   const wa = t.rows.find((r) => r.key === 'whatsapp_status');
   if (wa && wa.reach > 0 && wa.clicks / wa.reach > 0.02) working.push('WhatsApp Status reaches few people, but a high share of them tap through. Your saved contacts are warm.');
@@ -572,7 +676,12 @@ export function review(s: DemoState, t: Totals, scope: string): Review {
   if (t.clicks > t.enquiries * 2) next.push({ id: 'r-convert', title: 'Make the WhatsApp step easier', why: 'More people tap "Ask on WhatsApp" than conversations are recorded. Once you have checked that every conversation was recorded, a friendly ready-made first message and quick replies could turn more taps into conversations.', input: { goal: 'convert', weeks: 2, budget, fromRecommendation: 'Make the WhatsApp step easier' } });
   const optedIn = recipientsFor(s.customers);
   next.push({ id: 'r-repeat', title: 'Give past customers a first look', why: `${optedIn} people agreed to hear from you on WhatsApp${t.repeatCustomers ? `, and ${t.repeatCustomers} customer${t.repeatCustomers === 1 ? ' has' : 's have'} already bought twice` : ''}. They are the cheapest people to reach.`, input: { goal: 'repeat', weeks: 2, budget: Math.round(budget / 3), fromRecommendation: 'Give past customers a first look' } });
-  next.push({ id: 'r-reach', title: 'Test short styling videos', why: 'Styling posts reached the most new people for no ad money. A two-week test on TikTok and reels would show if video works for your shop.', input: { goal: 'reach', weeks: 2, budget, fromRecommendation: 'Test short styling videos' } });
+  const videoIds = new Set(s.placements.filter((p) => p.format === 'ig_reel' || p.format === 'tiktok_video').map((p) => p.id));
+  const videoReach = s.activity.filter((r) => (scope === 'all' || r.campaignId === scope) && r.placementId && videoIds.has(r.placementId)).reduce((n, r) => n + r.reach, 0);
+  const videoWhy = videoReach
+    ? `Your styling video reached about ${videoReach.toLocaleString('en-US')} people, an estimate because you shared it yourself. A two-week test on TikTok and reels would show whether video also brings conversations.`
+    : 'Short styling videos have not been tried yet. A two-week test on TikTok and reels would show whether video brings conversations for your shop.';
+  next.push({ id: 'r-reach', title: 'Test short styling videos', why: videoWhy, input: { goal: 'reach', weeks: 2, budget, fromRecommendation: 'Test short styling videos' } });
   return { working, dropOff, uncertain, next: next.slice(0, 3) };
 }
 
@@ -639,6 +748,11 @@ export function nextStep(s: DemoState): NextStep {
     if (p.awaiting) return { title: `Approve ${p.awaiting} campaign item${p.awaiting === 1 ? '' : 's'}`, detail: p.changes ? `${p.changes} item${p.changes === 1 ? ' was' : 's were'} sent back for changes.` : `For "${c.name}". Nothing goes out until you approve it, exactly as shown for each channel.`, href: '#/approvals', cta: 'Review items', also };
     if (adNeedsApproval(s, c)) return { title: 'Decide on paid ads', detail: `The ad for "${c.name}" is approved, but it will not run or spend until you approve its audience, dates and spending limit.`, href: '#/approvals', cta: 'Review ad settings', also };
     if (!c.scheduled) return { title: 'Schedule your approved campaign', detail: `Everything in "${c.name}" is approved. Schedule it so each item goes out on its planned day.`, href: '#/campaigns', cta: 'Go to campaign', also };
+    const blocked = p.pls.filter((x) => x.state === 'scheduled' && FORMATS[x.format].auto && s.connections[FORMATS[x.format].channel] !== 'connected');
+    if (blocked.length && !p.failed) {
+      const names = [...new Set(blocked.map((x) => channelById(FORMATS[x.format].channel).name))].join(' and ');
+      return { title: `Reconnect ${names} before your next post`, detail: `${blocked.length} upcoming item${blocked.length === 1 ? '' : 's'} can only be posted for you once ${names} is connected again (demo). Otherwise ${blocked.length === 1 ? 'it' : 'they'} will fail on the day.`, href: '#/channels', cta: 'Check connections', also };
+    }
     if (p.failed) return { title: 'Fix a failed item', detail: 'Something could not go out. It usually takes one step to fix.', href: '#/campaigns', cta: 'See what failed', also };
     if (p.manual) return { title: `Share ${p.manual} item${p.manual === 1 ? '' : 's'} yourself`, detail: 'Some formats need you to post from your phone. The words and picture are ready to copy.', href: '#/campaigns', cta: 'Open share pack', also };
   }
@@ -680,7 +794,9 @@ export function managerUpdate(s: DemoState): string[] {
     const last = [...s.campaigns].filter((x) => x.status === 'ended').sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
     if (last) {
       const t = totals(s, last.id);
-      lines.push(`Your last campaign, "${last.name}", ended ${daysBetween(last.endDate, s.today)} days ago. It reached about ${t.reach.toLocaleString('en-US')} people, started ${t.enquiries} WhatsApp conversations and led to ${t.sales} recorded sale${t.sales === 1 ? '' : 's'}.`);
+      const ago = daysBetween(last.endDate, s.today);
+      if (last.cancelled) lines.push(`Your last campaign, "${last.name}", was cancelled before it started.`);
+      else lines.push(`Your last campaign, "${last.name}", ended ${ago <= 0 ? 'today' : ago === 1 ? 'yesterday' : `${ago} days ago`}. It reached about ${t.reach.toLocaleString('en-US')} people, started ${t.enquiries} WhatsApp conversations and led to ${t.sales} recorded sale${t.sales === 1 ? '' : 's'}.`);
     }
     lines.push(s.draft?.plan
       ? (s.draft.recommended ? `Nothing is running right now, so I prepared "${s.draft.plan.name}" for you to review.` : 'Your new plan is ready for you to review.')
