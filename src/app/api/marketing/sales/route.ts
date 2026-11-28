@@ -1,5 +1,5 @@
 // ZP-1118 (MM-13): the sales report from the existing ledger: all shop, per campaign, per channel, uncredited.
-// GET ?from=YYYY-MM-DD&to=YYYY-MM-DD (Harare days). OWNER only.
+// GET ?from=YYYY-MM-DD&to=YYYY-MM-DD (ledger days: the same days as the cash positions). OWNER only.
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { marketingAuth } from '@/lib/marketing/guard'

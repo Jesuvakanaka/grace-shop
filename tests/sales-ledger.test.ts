@@ -1,8 +1,9 @@
 // ZP-1118 (MM-13): the money rules of the sales ledger and the sales report. Pure: no database.
 import { describe, test } from 'node:test'
 import assert from 'node:assert'
+import { format, startOfDay } from 'date-fns'
 import {
-  allocatePayments, harareDay, isCredited, saleAndRefundEvents, saleMoney, salesReport,
+  allocatePayments, isCredited, ledgerDay, saleAndRefundEvents, saleMoney, salesReport,
   type LedgerRefund, type LedgerSale, type MoneyEvent, type ReportAttribution,
 } from '../src/lib/sales-ledger'
 
@@ -22,10 +23,13 @@ function at09(refunds: LedgerRefund[] = [], extraEvents: MoneyEvent[] = []) {
   return salesReport({ from: '2031-03-10', to: '2031-03-12', sales, events: [...saleAndRefundEvents(sales, refunds), ...extraEvents], attributions: [credited(A.id, X)] })
 }
 
-describe('harareDay', () => {
-  test('the day turns at midnight Harare time (UTC+2)', () => {
-    assert.strictEqual(harareDay(new Date('2031-03-10T21:59:00Z')), '2031-03-10')
-    assert.strictEqual(harareDay(new Date('2031-03-10T22:00:00Z')), '2031-03-11')
+describe('ledgerDay', () => {
+  test('the same day boundary as the cash positions (startOfDay), late evening included', () => {
+    for (const iso of ['2031-03-10T00:00:00Z', '2031-03-10T21:59:00Z', '2031-03-10T22:30:00Z', '2031-03-10T23:59:59Z']) {
+      const d = new Date(iso)
+      assert.strictEqual(ledgerDay(d), ledgerDay(startOfDay(d)), iso)
+      assert.strictEqual(ledgerDay(d), format(startOfDay(d), 'yyyy-MM-dd'), iso)
+    }
   })
 })
 
@@ -77,6 +81,10 @@ describe('refunds, voids and cancellations', () => {
     const ev = saleAndRefundEvents([A], [r])
     assert.deepStrictEqual(ev.map((e) => [e.kind, e.day, e.cents]), [['CASH_SALE', '2031-03-10', 6500], ['REFUND', '2031-03-11', -1000], ['REFUND_VOIDED', '2031-03-12', 1000]])
     assert.deepStrictEqual(saleMoney(A, ev, [r]), { collectedCents: 6500, cashRefundedCents: 0, creditRefundedCents: 0, outstandingCents: 0 })
+    const later = salesReport({ from: '2031-03-12', to: '2031-03-12', sales: [A], events: ev, attributions: [] })
+    assert.strictEqual(later.allShop.refundedCents, 0, 'a correction is never a negative refund')
+    assert.strictEqual(later.allShop.correctedCents, 1000)
+    assert.strictEqual(later.allShop.netCents, 1000)
   })
   test('a credit refund is never collected money; it lowers what is owed', () => {
     const r = refund(1, C.id, '2031-03-11', 20, { method: 'CREDIT' })

@@ -6,11 +6,15 @@
 //   A refund taken off what the customer owes (CREDIT) reduces that sale's debt and is never collected money.
 // - A cancelled sale counts nowhere (it was never paid: see cancelSale). An unpaid credit sale collects nothing.
 
-export const HARARE_OFFSET_MS = 2 * 60 * 60 * 1000
+const pad = (n: number) => String(n).padStart(2, '0')
 
-/** The Harare calendar day of an instant, as YYYY-MM-DD (Harare is UTC+2 all year). */
-export function harareDay(d: Date): string {
-  return new Date(d.getTime() + HARARE_OFFSET_MS).toISOString().slice(0, 10)
+/**
+ * The ledger day of an instant, as YYYY-MM-DD: the same boundary the cash positions and day closing already use
+ * (date-fns startOfDay, the server's own time zone; UTC where the shop is deployed). One function for every report,
+ * so money and the till always fall on the same day. Moving the whole ledger to shop days is its own change.
+ */
+export function ledgerDay(d: Date): string {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
 /** Money as cents, so sums of Float columns do not drift. */
@@ -78,12 +82,12 @@ export function allocatePayments(debts: LedgerDebt[], payments: LedgerPayment[])
     while (left > 0 && i < queue.length) {
       const d = queue[i]
       const take = Math.min(left, d.left)
-      if (take > 0) out.push({ saleId: d.saleId, day: harareDay(p.date), kind: 'DEBTOR_PAYMENT', cents: take, ref: `payment:${p.id}` })
+      if (take > 0) out.push({ saleId: d.saleId, day: ledgerDay(p.date), kind: 'DEBTOR_PAYMENT', cents: take, ref: `payment:${p.id}` })
       d.left -= take
       left -= take
       if (d.left === 0) i++
     }
-    if (left > 0) out.push({ saleId: null, day: harareDay(p.date), kind: 'DEBTOR_PAYMENT', cents: left, ref: `payment:${p.id}` })
+    if (left > 0) out.push({ saleId: null, day: ledgerDay(p.date), kind: 'DEBTOR_PAYMENT', cents: left, ref: `payment:${p.id}` })
   }
   return out
 }
@@ -94,12 +98,12 @@ export function saleAndRefundEvents(sales: LedgerSale[], refunds: LedgerRefund[]
   const out: MoneyEvent[] = []
   for (const s of sales) {
     if (!counted.has(s.id) || toCents(s.cashAmount) <= 0) continue
-    out.push({ saleId: s.id, day: harareDay(s.saleDate), kind: 'CASH_SALE', cents: toCents(s.cashAmount), ref: `sale:${s.id}` })
+    out.push({ saleId: s.id, day: ledgerDay(s.saleDate), kind: 'CASH_SALE', cents: toCents(s.cashAmount), ref: `sale:${s.id}` })
   }
   for (const r of refunds) {
     if (r.method !== 'CASH' || !counted.has(r.saleId)) continue
-    out.push({ saleId: r.saleId, day: harareDay(r.refundDate), kind: 'REFUND', cents: -toCents(r.amount), ref: `refund:${r.id}` })
-    if (r.voidedAt) out.push({ saleId: r.saleId, day: harareDay(r.voidedAt), kind: 'REFUND_VOIDED', cents: toCents(r.amount), ref: `refund:${r.id}:void` })
+    out.push({ saleId: r.saleId, day: ledgerDay(r.refundDate), kind: 'REFUND', cents: -toCents(r.amount), ref: `refund:${r.id}` })
+    if (r.voidedAt) out.push({ saleId: r.saleId, day: ledgerDay(r.voidedAt), kind: 'REFUND_VOIDED', cents: toCents(r.amount), ref: `refund:${r.id}:void` })
   }
   return out
 }
@@ -155,20 +159,24 @@ export function isCredited(a: ReportAttribution | undefined): a is ReportAttribu
 
 export interface MoneyTotals {
   collectedCents: number
+  /** Refunds given in the period (a positive number). */
   refundedCents: number
+  /** Refunds corrected (voided) in the period: money back in. Never shown as a negative refund. */
+  correctedCents: number
   netCents: number
 }
-const zero = (): MoneyTotals => ({ collectedCents: 0, refundedCents: 0, netCents: 0 })
+const zero = (): MoneyTotals => ({ collectedCents: 0, refundedCents: 0, correctedCents: 0, netCents: 0 })
 const add = (t: MoneyTotals, e: MoneyEvent) => {
   if (e.kind === 'CASH_SALE' || e.kind === 'DEBTOR_PAYMENT') t.collectedCents += e.cents
-  else t.refundedCents -= e.cents // a refund is negative, its void positive
+  else if (e.kind === 'REFUND') t.refundedCents -= e.cents // stored negative
+  else t.correctedCents += e.cents
   t.netCents += e.cents
 }
 
 export interface SalesReport {
   from: string
   to: string
-  /** Everything in the ledger in the period: reconciles to the cash position (cash sales + debtor payments - refunds). */
+  /** Everything in the ledger in the period (ledger days): reconciles to the cash positions of the same days. */
   allShop: MoneyTotals & { salesCount: number; billedCents: number; cancelledCount: number }
   /** Per credited campaign. Sales stay on their real dates, even after the campaign ended (MM-13-AC4). */
   campaigns: Array<MoneyTotals & { campaignId: number; salesCount: number }>
@@ -183,7 +191,7 @@ export interface SalesReport {
 }
 
 /**
- * Sum the events of a period (Harare days, inclusive) by campaign, channel and uncredited.
+ * Sum the events of a period (ledger days, inclusive) by campaign, channel and uncredited.
  * The same events and the same date filter feed every breakdown, so they always add up (MM-13-AC6).
  */
 export function salesReport(input: { from: string; to: string; sales: LedgerSale[]; events: MoneyEvent[]; attributions: ReportAttribution[] }): SalesReport {
@@ -200,7 +208,7 @@ export function salesReport(input: { from: string; to: string; sales: LedgerSale
 
   // Sale counts and billed amounts: by sale date, the same filter as the money.
   for (const s of input.sales) {
-    if (!inRange(harareDay(s.saleDate))) continue
+    if (!inRange(ledgerDay(s.saleDate))) continue
     if (s.status === 'CANCELLED') { allShop.cancelledCount++; continue }
     allShop.salesCount++
     allShop.billedCents += toCents(s.totalAmount)

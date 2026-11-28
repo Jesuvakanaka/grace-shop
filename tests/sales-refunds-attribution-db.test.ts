@@ -6,6 +6,9 @@ import assert from 'node:assert'
 import prisma from '../src/lib/db'
 import { createSale, DuplicateSaleError } from '../src/lib/sales'
 import { recordDebtorPayment } from '../src/lib/debtors'
+import { updateCashPosition } from '../src/lib/cash'
+import { ledgerDay } from '../src/lib/sales-ledger'
+import { startOfDay } from 'date-fns'
 import { cancelSale, moneyOfSale, recordRefund, saleWithMoney, voidRefund } from '../src/lib/sale-refunds'
 import { getAttribution, linkSale, marketingSalesReport } from '../src/lib/marketing/sale-attribution'
 import { confirmImport } from '../src/lib/import/importer'
@@ -24,6 +27,7 @@ const saleIds: number[] = []
 const campaignIds: number[] = []
 let contentId = 0
 let postId = 0
+const extraPostIds: number[] = []
 let tag = ''
 let importDocId = 0
 const ids = { A: 0, B: 0, C: 0, D: 0, X: 0, Y: 0 }
@@ -50,7 +54,7 @@ before(async () => {
   campaignIds.push(ids.X, ids.Y)
   contentId = (await prisma.marketingContent.create({ data: { title: 'ZP1118 content', campaignId: ids.X, createdBy: OWNER } })).id
   tag = 'mkzp1118tag001'
-  postId = (await prisma.marketingPost.create({ data: { contentId, channelKind: 'INSTAGRAM', text: 'x', trackingTag: tag, status: 'PUBLISHED' } })).id
+  postId = (await prisma.marketingPost.create({ data: { contentId, channelKind: 'INSTAGRAM', text: 'x', trackingTag: tag, status: 'PUBLISHED', publishedAt: at('2031-03-01') } })).id
   // AT-09: A collected 65, B collected 40, C an unpaid order of 50.
   ids.A = await sale({ saleDate: at('2031-03-10'), paymentType: 'CASH', items: [{ productId: p1, quantity: 1, unitPrice: 65 }], cashAmount: 65, receiptRef: 'ZP1118-R1' })
   ids.B = await sale({ saleDate: at('2031-03-10'), paymentType: 'CASH', items: [{ productId: p2, quantity: 2, unitPrice: 20 }], cashAmount: 40 })
@@ -66,12 +70,12 @@ after(async () => {
   const debtors = await prisma.debtor.findMany({ where: { customerName: CUSTOMER }, select: { id: true } })
   await prisma.debtorTransaction.deleteMany({ where: { debtorId: { in: debtors.map((d) => d.id) } } })
   await prisma.debtor.deleteMany({ where: { customerName: CUSTOMER } })
-  await prisma.cashPosition.deleteMany({ where: { cashDate: { gte: new Date('2031-03-09T00:00:00Z'), lte: new Date('2031-03-16T00:00:00Z') } } })
+  await prisma.cashPosition.deleteMany({ where: { cashDate: { gte: new Date('2031-03-08T00:00:00Z'), lte: new Date('2031-03-18T00:00:00Z') } } })
   if (importDocId) {
     await prisma.importRow.deleteMany({ where: { importDocumentId: importDocId } })
     await prisma.importDocument.deleteMany({ where: { id: importDocId } })
   }
-  await prisma.marketingPost.deleteMany({ where: { id: postId } })
+  await prisma.marketingPost.deleteMany({ where: { id: { in: [postId, ...extraPostIds] } } })
   await prisma.marketingContent.deleteMany({ where: { id: contentId } })
   await prisma.marketingCampaign.deleteMany({ where: { id: { in: campaignIds } } })
   await prisma.marketingAuditLog.deleteMany({ where: { actor: OWNER } })
@@ -188,7 +192,10 @@ describe('MM-13-AC5: refunds, unpaid orders and corrections', () => {
     await rejects(() => voidRefund(prisma, r.id, '', OWNER, at('2031-03-14')), 400)
     assert.strictEqual(await prisma.saleRefund.count({ where: { saleId: ids.B } }), 1, 'history kept')
     assert.strictEqual((await report('2031-03-13', '2031-03-13')).allShop.refunded, 20)
-    assert.strictEqual((await report('2031-03-14', '2031-03-14')).allShop.net, 20, 'the money is back on the void date')
+    const voidDay = await report('2031-03-14', '2031-03-14')
+    assert.strictEqual(voidDay.allShop.net, 20, 'the money is back on the void date')
+    assert.strictEqual(voidDay.allShop.refunded, 0, 'a correction is not a negative refund')
+    assert.strictEqual(voidDay.allShop.corrected, 20)
     assert.strictEqual((await report()).allShop.net, 115)
   })
 
@@ -271,13 +278,57 @@ describe('MM-13-AC2/AC3/AC4: evidence, review and late sales', () => {
   })
 })
 
+describe('validator round 1: the till, the day boundary and campaign timing', () => {
+  test('editing the cash screen keeps refunds out of the till; refunds paid cannot be typed over', async () => {
+    const day = at('2031-03-12')
+    const pos = await updateCashPosition(day, 'otherCashIn', 7)
+    const expected = pos.openingCash + pos.cashSales + pos.debtorPaymentsReceived + pos.otherCashIn - pos.expensesPaid - pos.creditorPaymentsMade - pos.refundsPaid
+    assert.strictEqual(pos.refundsPaid, 10)
+    assert.strictEqual(Math.round(pos.expectedClosingCash * 100), Math.round(expected * 100))
+    await assert.rejects(() => updateCashPosition(day, 'refundsPaid', 0), /cannot be edited/)
+    await assert.rejects(() => updateCashPosition(day, 'cashSales', 0), /cannot be edited/)
+    await updateCashPosition(day, 'otherCashIn', 0)
+  })
+
+  test('a sale and a refund at 22:30 UTC land on the same ledger day as the till, and reconcile', async () => {
+    const saleAt = new Date('2031-03-15T22:30:00Z')
+    const refundAt = new Date('2031-03-16T22:30:00Z')
+    const e = await sale({ saleDate: saleAt, paymentType: 'CASH', items: [{ productId: productIds[1], quantity: 1, unitPrice: 30 }], cashAmount: 30 })
+    await recordRefund(prisma, e, { amount: 5, method: 'CASH', reason: 'Late evening refund' }, OWNER, refundAt)
+    const from = ledgerDay(saleAt)
+    const to = ledgerDay(refundAt)
+    const r = await report(from, to)
+    const pos = await prisma.cashPosition.findMany({ where: { cashDate: { gte: startOfDay(saleAt), lte: startOfDay(refundAt) } } })
+    const till = pos.reduce((a, p) => a + p.cashSales + p.debtorPaymentsReceived - p.refundsPaid, 0)
+    assert.strictEqual(Math.round(till * 100), Math.round(r.allShop.net * 100))
+    assert.strictEqual(r.allShop.net, 25)
+    const saleDay = await report(from, from)
+    const saleDayPos = await prisma.cashPosition.findUniqueOrThrow({ where: { cashDate: startOfDay(saleAt) } })
+    assert.strictEqual(saleDay.allShop.collected, saleDayPos.cashSales)
+    assert.ok(r.reconciles)
+  })
+
+  test('a campaign that began after the sale, or a post that went out after it, cannot be credited', async () => {
+    const later = await prisma.marketingCampaign.create({ data: { name: 'ZP1118 later', status: 'ACTIVE', startsAt: at('2031-04-01') } })
+    campaignIds.push(later.id)
+    await rejects(() => linkSale(prisma, ids.A, { source: 'CUSTOMER_REPORTED', campaignId: later.id, evidence: 'Mentioned it' }, OWNER), 409, /before "ZP1118 later" began/)
+    const latePost = await prisma.marketingPost.create({ data: { contentId, channelKind: 'FACEBOOK_PAGE', text: 'x', trackingTag: 'mkzp1118late01', status: 'PUBLISHED', publishedAt: at('2031-03-20') } })
+    extraPostIds.push(latePost.id)
+    await rejects(() => linkSale(prisma, ids.A, { source: 'TRACKED_LINK', trackingTag: 'mkzp1118late01' }, OWNER), 409, /had not gone out/)
+    const draftPost = await prisma.marketingPost.create({ data: { contentId, channelKind: 'FACEBOOK_PAGE', text: 'x', trackingTag: 'mkzp1118draft1', status: 'DRAFT' } })
+    extraPostIds.push(draftPost.id)
+    await rejects(() => linkSale(prisma, ids.A, { source: 'TRACKED_LINK', trackingTag: 'mkzp1118draft1' }, OWNER), 409, /had not gone out/)
+    assert.strictEqual((await getAttribution(prisma, ids.A))?.campaignId, ids.X, 'the earlier link is untouched')
+  })
+})
+
 describe('MM-13-AC6: totals reconcile to the existing ledger', () => {
   test('all-shop money equals the cash positions of the same days; billed equals the sale rows; breakdowns add up', async () => {
     const r = await report()
     const pos = await prisma.cashPosition.findMany({ where: { cashDate: { gte: new Date('2031-03-09T12:00:00Z'), lte: new Date('2031-03-14T12:00:00Z') } } })
     const till = pos.reduce((a, p) => a + p.cashSales + p.debtorPaymentsReceived - p.refundsPaid, 0)
     assert.strictEqual(Math.round(till * 100), Math.round(r.allShop.net * 100))
-    const rows = await prisma.sale.findMany({ where: { id: { in: saleIds }, status: 'COMPLETED' } })
+    const rows = (await prisma.sale.findMany({ where: { id: { in: saleIds }, status: 'COMPLETED' } })).filter((s) => ledgerDay(s.saleDate) >= '2031-03-10' && ledgerDay(s.saleDate) <= '2031-03-14')
     assert.strictEqual(Math.round(rows.reduce((a, s) => a + s.totalAmount, 0) * 100), Math.round(r.allShop.billed * 100))
     const sum = (xs: { net: number }[]) => Math.round(xs.reduce((a, x) => a + x.net, 0) * 100)
     assert.strictEqual(sum(r.campaigns) + Math.round(r.uncredited.net * 100) + Math.round(r.notASale.net * 100), Math.round(r.allShop.net * 100))

@@ -44,6 +44,8 @@ async function debtorOf(tx: Tx, saleId: number) {
 
 /** Change what a customer owes by `delta` (negative: owes less), keeping the debtor's status right. */
 async function changeDebt(tx: Tx, debtorId: number, delta: number) {
+  // Lock the customer's row: a payment recorded at the same moment must not overwrite this change.
+  await tx.$queryRaw`SELECT id FROM "Debtor" WHERE id = ${debtorId} FOR UPDATE`
   const d = await tx.debtor.findUniqueOrThrow({ where: { id: debtorId } })
   const totalCreditAmount = fromCents(toCents(d.totalCreditAmount) + toCents(delta))
   const outstandingBalance = fromCents(toCents(d.outstandingBalance) + toCents(delta))

@@ -13,7 +13,7 @@
 import type { MarketingSaleAttribution, Prisma } from '@prisma/client'
 import { WebsiteError } from '@/lib/website/http'
 import { loadLedger } from '@/lib/sale-ledger-db'
-import { ATTRIBUTION_SOURCES, fromCents, harareDay, salesReport, type AttributionSource, type MoneyTotals, type SalesReport } from '@/lib/sales-ledger'
+import { ATTRIBUTION_SOURCES, fromCents, ledgerDay, salesReport, type AttributionSource, type MoneyTotals, type SalesReport } from '@/lib/sales-ledger'
 import { writeAudit, type Db } from './audit'
 import { CHANNEL_KINDS } from './channels'
 
@@ -78,7 +78,7 @@ function toDto(a: MarketingSaleAttribution, sale: { saleDate: Date }, campaign: 
     credited,
     paymentEvidence: a.paymentEvidence as PaymentEvidence,
     paymentNote: a.paymentNote,
-    saleDate: harareDay(sale.saleDate),
+    saleDate: ledgerDay(sale.saleDate),
     afterCampaignEnd: Boolean(credited && campaign?.endsAt && sale.saleDate > campaign.endsAt),
     reviewedBy: a.reviewedBy,
     reviewedAt: a.reviewedAt?.toISOString() ?? null,
@@ -121,15 +121,26 @@ interface Resolved {
 }
 
 /** The tracking tag of a post or ad: its campaign and channel. */
-async function fromTag(db: Db, tag: string): Promise<{ campaignId: number | null; postId: number | null; channelKind: string }> {
-  const post = await db.marketingPost.findUnique({ where: { trackingTag: tag }, select: { id: true, channelKind: true, content: { select: { campaignId: true } } } })
-  if (post) return { campaignId: post.content.campaignId, postId: post.id, channelKind: post.channelKind }
-  const ad = await db.marketingAd.findUnique({ where: { trackingTag: tag }, select: { campaignId: true, channelKind: true } })
-  if (ad) return { campaignId: ad.campaignId, postId: null, channelKind: ad.channelKind }
+async function fromTag(db: Db, tag: string): Promise<{ campaignId: number | null; postId: number | null; channelKind: string; wentOutAt: Date | null; what: string }> {
+  const post = await db.marketingPost.findUnique({ where: { trackingTag: tag }, select: { id: true, channelKind: true, publishedAt: true, content: { select: { campaignId: true } } } })
+  if (post) return { campaignId: post.content.campaignId, postId: post.id, channelKind: post.channelKind, wentOutAt: post.publishedAt, what: 'post' }
+  const ad = await db.marketingAd.findUnique({ where: { trackingTag: tag }, select: { campaignId: true, channelKind: true, activatedAt: true } })
+  if (ad) return { campaignId: ad.campaignId, postId: null, channelKind: ad.channelKind, wentOutAt: ad.activatedAt, what: 'ad' }
   throw new WebsiteError(400, 'That tracking tag does not belong to any post or ad.', { field: 'trackingTag' })
 }
 
-async function resolve(db: Db, o: Record<string, unknown>): Promise<Resolved> {
+/**
+ * A campaign cannot be credited with a sale made before it began (its start date, or when it was created when it has
+ * no start date). A sale after the campaign ended stays allowed (MM-13-AC4).
+ */
+async function assertCampaignBefore(db: Db, campaignId: number, saleDate: Date) {
+  const c = await db.marketingCampaign.findUnique({ where: { id: campaignId }, select: { name: true, startsAt: true, createdAt: true } })
+  if (!c) throw new WebsiteError(400, 'That campaign does not exist.', { field: 'campaignId' })
+  const began = c.startsAt ?? c.createdAt
+  if (began > saleDate) throw new WebsiteError(409, `The sale was made before "${c.name}" began, so it cannot be credited to it.`, { field: 'campaignId' })
+}
+
+async function resolve(db: Db, o: Record<string, unknown>, saleDate: Date): Promise<Resolved> {
   const source = (o.source ?? 'UNKNOWN') as AttributionSource
   if (!ATTRIBUTION_SOURCES.includes(source)) throw new WebsiteError(400, 'Choose where the sale came from: TRACKED_LINK, CUSTOMER_REPORTED or UNKNOWN.', { field: 'source' })
   const candidates = Array.isArray(o.candidateCampaignIds) ? [...new Set(o.candidateCampaignIds.map((c) => id(c, 'candidateCampaignIds')!))] : []
@@ -158,12 +169,14 @@ async function resolve(db: Db, o: Record<string, unknown>): Promise<Resolved> {
     if (!t.campaignId) throw new WebsiteError(409, 'That post or ad is not part of a campaign, so there is no campaign to credit.', { field: 'trackingTag' })
     if (campaignId && campaignId !== t.campaignId) throw new WebsiteError(409, 'The tracking tag belongs to a different campaign.', { field: 'campaignId' })
     if (channelKind && channelKind !== t.channelKind) throw new WebsiteError(409, 'The tracking tag belongs to a different channel.', { field: 'channelKind' })
+    if (!t.wentOutAt || t.wentOutAt > saleDate) throw new WebsiteError(409, `That ${t.what} had not gone out when the sale was made, so the sale cannot have come from its link.`, { field: 'trackingTag' })
+    await assertCampaignBefore(db, t.campaignId, saleDate)
     return { source, campaignId: t.campaignId, postId: t.postId, channelKind: t.channelKind, evidence: tag.toLowerCase(), candidates: [], needsReview: false }
   }
   // CUSTOMER_REPORTED
   if (!campaignId) throw new WebsiteError(400, 'Choose the campaign the customer mentioned.', { field: 'campaignId' })
   if (!evidence) throw new WebsiteError(400, 'Write down what the customer said, so the link can be checked later.', { field: 'evidence' })
-  if (!(await db.marketingCampaign.findUnique({ where: { id: campaignId }, select: { id: true } }))) throw new WebsiteError(400, 'That campaign does not exist.', { field: 'campaignId' })
+  await assertCampaignBefore(db, campaignId, saleDate)
   channelKind = channelKind ?? null
   return { source, campaignId, postId: null, channelKind, evidence, candidates: [], needsReview: false }
 }
@@ -180,7 +193,7 @@ export async function linkSale(db: Db, saleId: number, body: unknown, actor: str
   const sale = await db.sale.findUnique({ where: { id: saleId }, select: { id: true, saleDate: true, status: true } })
   if (!sale) throw new WebsiteError(404, 'Sale not found')
   if (sale.status === 'CANCELLED') throw new WebsiteError(409, 'This sale was cancelled, so it is not linked to any campaign.')
-  const r = await resolve(db, o)
+  const r = await resolve(db, o, sale.saleDate)
   const contactId = id(o.contactId, 'contactId')
   if (contactId && !(await db.marketingContact.findUnique({ where: { id: contactId }, select: { id: true } }))) throw new WebsiteError(400, 'That customer does not exist.', { field: 'contactId' })
   const notes = Array.isArray(o.touchpoints) ? o.touchpoints.map((t, i) => str(t, `touchpoints[${i}]`, 200)).filter((t): t is string => Boolean(t)).slice(0, 10) : []
@@ -218,7 +231,7 @@ export async function linkSale(db: Db, saleId: number, body: unknown, actor: str
 
 // ───────────────────────── report ─────────────────────────
 
-const money = (t: MoneyTotals) => ({ collected: fromCents(t.collectedCents), refunded: fromCents(t.refundedCents), net: fromCents(t.netCents) })
+const money = (t: MoneyTotals) => ({ collected: fromCents(t.collectedCents), refunded: fromCents(t.refundedCents), corrected: fromCents(t.correctedCents), net: fromCents(t.netCents) })
 
 export interface SalesReportDto {
   from: string
@@ -236,7 +249,7 @@ export interface SalesReportDto {
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/
 
-/** All-shop, per campaign, per channel and uncredited money for a period of Harare days (inclusive). */
+/** All-shop, per campaign, per channel and uncredited money for a period of ledger days (inclusive; see ledgerDay). */
 export async function marketingSalesReport(db: Db, range: { from: string; to: string }): Promise<SalesReportDto> {
   if (!DAY.test(range.from) || !DAY.test(range.to) || range.from > range.to) throw new WebsiteError(400, 'Give a period as from and to dates (YYYY-MM-DD), from first.')
   const ledger = await loadLedger(db)
@@ -245,7 +258,7 @@ export async function marketingSalesReport(db: Db, range: { from: string; to: st
   const names = new Map((await db.marketingCampaign.findMany({ where: { id: { in: report.campaigns.map((c) => c.campaignId) } }, select: { id: true, name: true } })).map((c) => [c.id, c.name]))
   const uncreditedRows = await db.sale.findMany({ where: { id: { in: report.uncredited.saleIds } }, select: { id: true, saleDate: true, totalAmount: true, customerName: true }, orderBy: { saleDate: 'desc' } })
   const attrBySale = new Map(attrs.map((a) => [a.saleId, a]))
-  const inRange = new Set(ledger.sales.filter((s) => s.status !== 'CANCELLED' && harareDay(s.saleDate) >= range.from && harareDay(s.saleDate) <= range.to).map((s) => s.id))
+  const inRange = new Set(ledger.sales.filter((s) => s.status !== 'CANCELLED' && ledgerDay(s.saleDate) >= range.from && ledgerDay(s.saleDate) <= range.to).map((s) => s.id))
   return {
     from: report.from,
     to: report.to,
@@ -256,7 +269,7 @@ export async function marketingSalesReport(db: Db, range: { from: string; to: st
     uncredited: {
       ...money(report.uncredited),
       salesCount: report.uncredited.salesCount,
-      sales: uncreditedRows.map((s) => ({ saleId: s.id, saleDate: harareDay(s.saleDate), total: s.totalAmount, customerName: s.customerName, needsReview: attrBySale.get(s.id)?.needsReview ?? false, source: attrBySale.get(s.id)?.source ?? 'UNKNOWN' })),
+      sales: uncreditedRows.map((s) => ({ saleId: s.id, saleDate: ledgerDay(s.saleDate), total: s.totalAmount, customerName: s.customerName, needsReview: attrBySale.get(s.id)?.needsReview ?? false, source: attrBySale.get(s.id)?.source ?? 'UNKNOWN' })),
     },
     notASale: money(report.notASale),
     needsReview: attrs.filter((a) => a.needsReview && inRange.has(a.saleId)).length,
