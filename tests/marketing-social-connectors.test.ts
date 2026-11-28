@@ -86,7 +86,8 @@ describe('Pinterest', () => {
     const l = await pinterestConnector.publish(post({ format: 'PIN', imageUrls: ['https://i/1'] }), ctx(fakeFetch({ 'POST ': () => json({ code: 8, message: 'slow down' }, 429) }).fn))
     assert.ok(!l.ok && l.retryable && l.code === 429)
     const s = await pinterestConnector.publish(post({ format: 'PIN', imageUrls: ['https://i/1'] }), ctx(fakeFetch({ 'POST ': () => json({}, 503) }).fn))
-    assert.ok(!s.ok && s.retryable)
+    // ZP-1124: a 5xx on the creating request may mean the pin exists: uncertain, never retried blind.
+    assert.ok(!s.ok && !s.retryable && s.uncertain === true)
   })
   test('verify reads the user account', async () => {
     const f = fakeFetch({ 'GET https://api.pinterest.com/v5/user_account': () => json({ username: 'vyra', id: 'u1' }) })
@@ -256,7 +257,7 @@ describe('YouTube', () => {
     const rate = await youtubeConnector.publish(post({ format: 'VIDEO' }), yctx(fakeFetch({ ...routes(), [`POST ${UP}`]: () => json({ error: { message: 'slow' } }, 429) }).fn))
     assert.ok(!rate.ok && rate.retryable)
     const down = await youtubeConnector.publish(post({ format: 'VIDEO' }), yctx(fakeFetch({ ...routes(), 'PUT https://upload.example/session1': () => json({}, 503) }).fn))
-    assert.ok(!down.ok && down.retryable)
+    assert.ok(!down.ok && !down.retryable && down.uncertain === true)
   })
   test('verify refreshes then reads the channel', async () => {
     const f = fakeFetch({ [`POST ${TOKEN}`]: () => json({ access_token: 'AT' }), 'GET https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true': () => json({ items: [{ id: 'UC1', snippet: { title: 'VYRA' } }] }) })
@@ -319,7 +320,7 @@ describe('TikTok (inbox drafts only)', () => {
     const dom = await run(403, 'url_ownership_unverified')
     assert.ok(!dom.ok && /verify/i.test(dom.error))
     const ise = await run(500, 'internal_error')
-    assert.ok(!ise.ok && ise.retryable)
+    assert.ok(!ise.ok && !ise.retryable && ise.uncertain === true)
     // an error code inside a 200 answer is still a failure
     const soft = await run(200, 'invalid_param')
     assert.ok(!soft.ok)

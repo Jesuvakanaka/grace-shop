@@ -53,7 +53,7 @@ export const pinterestConnector: Connector = {
       const out = await jsonOf(res)
       if (!res.ok) return failure(res.status, 'Pinterest', msgOf(out), { retryable: out?.code === 8 })
       const id = typeof out?.id === 'string' ? out.id : null
-      if (!id) return { ok: false, error: 'Pinterest did not say whether the pin was created. Check the board before trying again.', retryable: false }
+      if (!id) return { ok: false, error: 'Pinterest did not say whether the pin was created. Check the board before trying again.', retryable: false, uncertain: true }
       return { ok: true, externalId: id, externalUrl: `https://www.pinterest.com/pin/${id}/` }
     } catch (e) {
       return networkFailure('Pinterest', e)

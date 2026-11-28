@@ -72,7 +72,7 @@ export const googleBusinessConnector: Connector = {
     try {
       const access = await exchangeRefreshToken(ctx.credentials, ctx.fetch)
       const r = await googleJson<{ name?: string; searchUrl?: string }>(ctx.fetch, 'POST', `${GBP_POSTS_BASE}/${location}/localPosts`, access, buildLocalPost(post, cta), { approval: true })
-      if (!r.name) return { ok: false, error: 'Google did not say whether the post went out. Check the profile before trying again.', retryable: false }
+      if (!r.name) return { ok: false, error: 'Google did not say whether the post went out. Check the profile before trying again.', retryable: false, uncertain: true }
       return { ok: true, externalId: r.name, externalUrl: r.searchUrl ?? null }
     } catch (e) {
       return failureOfGoogle(e)

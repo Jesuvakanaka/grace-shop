@@ -9,6 +9,7 @@ import { transitionAd, AD_OBJECTIVES, LIVE_EDITABLE_FIELDS, onPlatform, type AdA
 import { readTargeting } from './audiences'
 import { writeAudit, type Db } from './audit'
 import { checkAdCap, monthDateBounds } from './budget'
+import { campaignBlockReason } from './campaign-window'
 import { assertCanGoLive } from './flags'
 import {
   activateAd, createPausedAd, fetchAdInsights, pauseAd, updateAdSchedule,
@@ -356,9 +357,21 @@ export async function transitionAdAction(db: Db, id: number, action: AdApiAction
   return toAdDto(await mustGet(db, id))
 }
 
+/**
+ * ZP-1124 (MM-04-AC4): an ad in a campaign follows the campaign's dates and status like a post does.
+ * Checked before any request, so nothing is created or started (and no money spent) outside them.
+ */
+export async function assertAdCampaignAllows(db: Db, ad: { campaignId: number | null }, now: Date): Promise<void> {
+  if (!ad.campaignId) return
+  const campaign = await db.marketingCampaign.findUnique({ where: { id: ad.campaignId }, select: { id: true, name: true, status: true, startsAt: true, endsAt: true } })
+  const reason = campaignBlockReason(campaign, now)
+  if (reason) throw new WebsiteError(409, reason, { blocked: 'campaign' })
+}
+
 async function createOnPlatform(db: Db, id: number, actor: Actor, deps: AdDeps, now: Date): Promise<AdDto> {
   const before = await mustGet(db, id)
   transitionAd(before, 'create_on_platform', actor) // throws when not allowed
+  await assertAdCampaignAllows(db, before, now)
   const ops = opsOf(before)
   const settings = await getSettings(db)
   const channel = await adsChannel(db, platformKind(before))
@@ -400,6 +413,7 @@ async function createOnPlatform(db: Db, id: number, actor: Actor, deps: AdDeps, 
 async function startAd(db: Db, id: number, actor: Actor, deps: AdDeps, now: Date): Promise<AdDto> {
   const ad = await mustGet(db, id)
   const t = transitionAd(ad, 'start', actor, { now })
+  await assertAdCampaignAllows(db, ad, now)
   const ops = opsOf(ad)
   const settings = await getSettings(db)
   const channel = await adsChannel(db, platformKind(ad))

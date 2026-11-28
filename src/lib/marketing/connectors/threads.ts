@@ -68,7 +68,8 @@ async function call<T>(fetchFn: FetchLike, method: 'GET' | 'POST', path: string,
 
 const failure = (e: unknown) =>
   e instanceof ThreadsError
-    ? { ok: false as const, error: e.message, retryable: e.retryable, ...(e.code !== null ? { code: e.code } : {}), ...(e.httpStatus === 0 ? { uncertain: true } : {}) }
+    // ZP-1124: no answer (0) or a 5xx: Threads may have created the post, so it is uncertain.
+    ? { ok: false as const, error: e.message, retryable: e.retryable, ...(e.code !== null ? { code: e.code } : {}), ...(e.httpStatus === 0 || e.httpStatus >= 500 ? { uncertain: true } : {}) }
     : { ok: false as const, error: e instanceof Error ? e.message : 'Publishing failed.', retryable: false }
 
 export interface ThreadsOptions {
@@ -130,7 +131,7 @@ export function createThreadsConnector(opts: ThreadsOptions = {}): Connector {
         }
         if (!ready) return { ok: false, error: 'Threads is still processing the post after a minute. Try again later.', retryable: true }
         const pub = await call<{ id?: string }>(ctx.fetch, 'POST', `${userId}/threads_publish`, accessToken, { creation_id: container.id })
-        if (!pub.id) return { ok: false, error: 'Threads did not say whether the post went out. Check the profile before trying again.', retryable: false }
+        if (!pub.id) return { ok: false, error: 'Threads did not say whether the post went out. Check the profile before trying again.', retryable: false, uncertain: true }
         let url: string | null = null
         try {
           const m = await call<{ permalink?: string }>(ctx.fetch, 'GET', pub.id, accessToken, { fields: 'permalink' })

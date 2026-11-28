@@ -87,5 +87,6 @@ export const failureOfGoogle = (e: unknown): { ok: false; error: string; retryab
   e instanceof GoogleApiError
     // code 190 = "the saved credentials no longer work": publishPost then moves the channel to ERROR (same meaning as Meta's 190).
     // httpStatus 0 = Google could not be reached or the connection broke: the request may have arrived.
-    ? { ok: false, error: e.message, retryable: e.retryable, ...(e.credentialsRejected ? { code: 190 } : {}), ...(e.httpStatus === 0 ? { uncertain: true } : {}) }
+    // ZP-1124: a 5xx is the same: Google may have created the post before it failed to answer.
+    ? { ok: false, error: e.message, retryable: e.retryable, ...(e.credentialsRejected ? { code: 190 } : {}), ...(e.httpStatus === 0 || e.httpStatus >= 500 ? { uncertain: true } : {}) }
     : { ok: false, error: e instanceof Error ? e.message : 'The request to Google failed.', retryable: false }
