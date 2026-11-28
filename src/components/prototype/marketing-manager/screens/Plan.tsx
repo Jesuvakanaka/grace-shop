@@ -197,11 +197,17 @@ function ProposedPlan({ plan, recommended, onAlternative, onChangeGoal }: { plan
   const hasAds = costs.adDays > 0;
   const unsent = live.flatMap((c) => state.placements.filter((p) => p.campaignId === c.id && shownState(state, p) !== 'published')).length;
 
-  const accept = (mode: 'after' | 'replace') => {
+  const alongStart = [plan.startDate, tomorrow].sort().at(-1)!;
+  const liveCosts = live.map((c) => ({ c, total: planCostsFor(state, c.plan).total }));
+  const combined = liveCosts.reduce((n, x) => n + x.total, 0) + costs.total;
+  const accept = (mode: 'after' | 'alongside' | 'replace') => {
     dispatch({ type: 'draft/accept', mode });
     setConfirmAccept(false);
     go('#/approvals');
-    toast(mode === 'after' && live.length ? `Plan accepted. It starts on ${fmtShort(afterStart)}, after your current campaign. Its items are ready for approval.` : 'Plan accepted. Your campaign items are ready for approval.');
+    toast(!live.length ? 'Plan accepted. Your campaign items are ready for approval.'
+      : mode === 'after' ? `Plan accepted. It starts on ${fmtShort(afterStart)}, after your current campaign. Its items are ready for approval.`
+      : mode === 'alongside' ? `Plan accepted. It starts on ${fmtShort(alongStart)} and runs alongside your current campaign.`
+      : 'Plan accepted. The current campaign has ended and the new one starts tomorrow.');
   };
 
   return (
@@ -333,17 +339,28 @@ function ProposedPlan({ plan, recommended, onAlternative, onChangeGoal }: { plan
         footer={<><button type="button" className="btn btn-secondary" onClick={() => setConfirmAlt(false)}>Keep this plan</button><button type="button" className="btn btn-primary" onClick={() => { setConfirmAlt(false); onAlternative(); }}>Show alternative</button></>}>
         <p>You changed this plan. An alternative replaces it, including your changes.</p>
       </Dialog>
-      <Dialog open={confirmAccept} onClose={() => setConfirmAccept(false)} title="You already have a live campaign" wide
+      <Dialog open={confirmAccept} onClose={() => setConfirmAccept(false)} title="When should this campaign run?" wide
         footer={<button type="button" className="btn btn-ghost" onClick={() => setConfirmAccept(false)}>Cancel</button>}>
         <p className="mb-4 text-slate-700">{live.map((c) => `"${c.name}"`).join(' and ')} {live.length === 1 ? 'is' : 'are'} still live. Choose what happens to {live.length === 1 ? 'it' : 'them'}.</p>
         <div className="space-y-3">
           <button type="button" className="w-full rounded-xl border-2 border-brand-olive-600 bg-brand-olive-50 p-4 text-left hover:bg-brand-olive-100" onClick={() => accept('after')}>
-            <span className="flex flex-wrap items-center gap-2 font-medium text-slate-900">Keep it, and start this plan afterwards <Pill tone="olive">Recommended</Pill></span>
-            <span className="mt-1 block text-sm text-slate-700">Nothing changes in the current campaign. &ldquo;{plan.name}&rdquo; starts on {fmtDay(afterStart)} and runs {plan.days} days. You can approve its items now.</span>
+            <span className="flex flex-wrap items-center gap-2 font-medium text-slate-900">Start after the current campaign <Pill tone="olive">Recommended</Pill></span>
+            <span className="mt-1 block text-sm text-slate-700">Nothing changes in the current campaign. <strong>Proposed start: {fmtDay(afterStart)}</strong>, running {plan.days} days to {fmtDay(addDays(afterStart, plan.days - 1))}. You can approve its items now.</span>
+          </button>
+          <button type="button" className="w-full rounded-xl border border-slate-300 bg-white p-4 text-left hover:border-brand-olive-400 hover:bg-brand-olive-50" onClick={() => accept('alongside')}>
+            <span className="block font-medium text-slate-900">Run alongside it</span>
+            <span className="mt-1 block text-sm text-slate-700">Both campaigns run at the same time. Customers may see both.</span>
+            <span className="mt-2 block overflow-hidden rounded-lg border border-slate-200 text-sm">
+              {liveCosts.map(({ c, total }) => (
+                <span key={c.id} className="flex justify-between gap-3 border-b border-slate-100 px-3 py-1.5"><span>{c.name} · {fmtShort(c.startDate)} to {fmtShort(c.endDate)}</span><span className="shrink-0">{money(total)}</span></span>
+              ))}
+              <span className="flex justify-between gap-3 border-b border-slate-100 px-3 py-1.5"><span>{plan.name} · {fmtShort(alongStart)} to {fmtShort(addDays(alongStart, plan.days - 1))}</span><span className="shrink-0">{money(costs.total)}</span></span>
+              <span className="flex justify-between gap-3 bg-slate-50 px-3 py-1.5 font-semibold"><span>Combined planned spending</span><span className="shrink-0">{money(combined)}</span></span>
+            </span>
           </button>
           <button type="button" className="w-full rounded-xl border border-slate-300 bg-white p-4 text-left hover:border-rose-300 hover:bg-rose-50" onClick={() => accept('replace')}>
-            <span className="block font-medium text-slate-900">Replace it now</span>
-            <span className="mt-1 block text-sm text-slate-700">The current campaign ends today. {unsent ? `${unsent} item${unsent === 1 ? '' : 's'} that ${unsent === 1 ? 'has' : 'have'} not gone out ${unsent === 1 ? 'is' : 'are'} withdrawn` : 'Nothing is left to withdraw'}{live.some((c) => c.adApproved) ? ' and its paid ads stop' : ''}. What already happened stays in your results. The new plan starts tomorrow.</span>
+            <span className="block font-medium text-slate-900">Replace the current campaign</span>
+            <span className="mt-1 block text-sm text-slate-700">What stops: {live.map((c) => `"${c.name}"`).join(' and ')} {live.length === 1 ? 'ends' : 'end'} today. {unsent ? `${unsent} item${unsent === 1 ? '' : 's'} that ${unsent === 1 ? 'has' : 'have'} not gone out ${unsent === 1 ? 'is' : 'are'} withdrawn` : 'Nothing is left to withdraw'}{live.some((c) => c.adApproved) ? ' and its paid ads stop' : ''}. What already happened stays in your results. The new plan starts tomorrow.</span>
           </button>
         </div>
       </Dialog>

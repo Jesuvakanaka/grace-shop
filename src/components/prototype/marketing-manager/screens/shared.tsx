@@ -3,11 +3,11 @@
 import React from 'react';
 import { FORMATS, channelById, type DemoConnection, type FormatId } from '../catalog';
 import { fmtDay, money, r2, relDay } from '../dates';
-import { SHOWN_LABEL, activeCampaign, reducer, shownState, type ShownState } from '../engine';
+import { SHOWN_LABEL, activeCampaign, adChangeQuote, reducer, shownState, type ShownState } from '../engine';
 import { STAGES, STAGE_INFO } from '../plan';
 import { useDemo } from '../store';
 import type { Campaign, Material, Stage } from '../types';
-import { Icon, Pill, STATE_TONE } from '../ui';
+import { Dialog, Field, Icon, Note, Pill, STATE_TONE } from '../ui';
 
 /** One material's overall state, from its placements. */
 export function materialSummary(states: ShownState[]): ShownState {
@@ -97,7 +97,7 @@ export function automation(conn: DemoConnection | undefined, f: FormatId): { lab
   const name = channelById(info.channel).name;
   if (f === 'ad' && conn === 'connected') return { label: 'Runs for you once you approve both the ad and its spending. The ad account is connected in the demo.', short: 'Posted for you', tone: 'olive' };
   if (conn === 'connected') return { label: `Posted for you in the demo, because ${name} is connected.`, short: 'Posted for you', tone: 'olive' };
-  return { label: `Posted for you once ${name} is ${conn === 'expired' ? 'reconnected' : 'connected'}. Until then it would fail.`, short: conn === 'expired' ? 'Needs reconnecting' : 'Needs connecting', tone: 'amber' };
+  return { label: `Not connected${conn === 'expired' ? ' (the connection expired)' : ''}. Posted for you once ${name} is ${conn === 'expired' ? 'reconnected' : 'connected'}; until then it would fail.`, short: 'Not connected', tone: 'amber' };
 }
 
 export function AutoPill({ f }: { f: FormatId }) {
@@ -109,17 +109,21 @@ export function AutoPill({ f }: { f: FormatId }) {
 /** Everything the owner approves before paid ads run, shown beside the ad itself. */
 export function AdSettings({ campaign }: { campaign: Campaign }) {
   const { state, dispatch, toast } = useDemo();
+  const [changing, setChanging] = React.useState(false);
   const ad = state.materials.find((m) => m.campaignId === campaign.id && m.formats[0] === 'ad');
-  if (!ad || campaign.plan.adDaily <= 0) return null;
+  if (!ad) return null;
   const p = campaign.plan;
-  const total = r2(p.adDaily * p.days);
+  const q = adChangeQuote(state, campaign, p.adDaily);
+  const total = r2(q.spent + q.currentRemaining);
   const contentOk = ad.status === 'approved';
   const live = campaign.status === 'active';
+  const stopped = p.adDaily <= 0;
   const rows: [string, React.ReactNode][] = [
     ['Who sees it', p.audience],
     ['Where', `${state.business.areas || 'Your delivery area'} only`],
     ['Dates', `${fmtDay(ad.date)} to ${fmtDay(campaign.endDate)} (up to ${p.days} days)`],
-    ['Daily amount', `${money(p.adDaily)} a day`],
+    ['Daily amount', stopped ? 'Stopped: no paid ads' : `${money(p.adDaily)} a day`],
+    ['Spent so far', money(q.spent)],
     ['Total limit', `${money(total)}. It never spends more than this.`],
     ['Where a tap goes', `A WhatsApp chat with ${state.business.name || 'your shop'} ("Send message" button)`],
   ];
@@ -127,26 +131,72 @@ export function AdSettings({ campaign }: { campaign: Campaign }) {
     <div className="card space-y-3" aria-label="Paid ad settings">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-serif text-xl">Paid ad settings</h2>
-        {campaign.adApproved ? <Pill tone="olive"><Icon name="check" className="h-3.5 w-3.5" /> Spending approved</Pill> : <Pill tone="amber">Spending not approved</Pill>}
+        {stopped ? <Pill>Paid ads stopped</Pill> : campaign.adApproved ? <Pill tone="olive"><Icon name="check" className="h-3.5 w-3.5" /> Spending approved</Pill> : <Pill tone="amber">Spending not approved</Pill>}
       </div>
       <dl className="divide-y divide-slate-100 text-sm">
         {rows.map(([k, v]) => (
           <div key={k} className="grid grid-cols-[7.5rem_1fr] gap-3 py-2"><dt className="text-slate-500">{k}</dt><dd className="text-slate-900">{v}</dd></div>
         ))}
       </dl>
+      {campaign.adApproved && !contentOk ? <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">The ad was changed, so it is not spending. It starts again once you approve the new version, and then runs that version.</p> : null}
       <p className="text-xs text-slate-500">Approving the ad&apos;s words and picture does not start spending. Paid ads need this second approval. Pretend spending only: no money is spent in the prototype.</p>
       {live ? (
-        campaign.adApproved ? (
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => { dispatch({ type: 'campaign/approveAds', id: campaign.id, approved: false }); toast('Paid ads stopped. No more ad spending.', 'info'); }}>Stop paid ads</button>
-        ) : (
-          <div className="space-y-2">
+        <div className="flex flex-wrap gap-2">
+          {!stopped && !campaign.adApproved ? (
             <button type="button" className="btn btn-primary btn-sm" disabled={!contentOk} onClick={() => { dispatch({ type: 'campaign/approveAds', id: campaign.id, approved: true }); toast(`Paid ads approved: up to ${money(p.adDaily)} a day, ${money(total)} in total.`); }}>
               Approve paid ads, up to {money(total)}
             </button>
-            {!contentOk ? <p className="text-xs text-amber-800">Approve the ad&apos;s content first. Then approve the spending.</p> : null}
-          </div>
-        )
+          ) : null}
+          {!stopped && campaign.adApproved ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => { dispatch({ type: 'campaign/approveAds', id: campaign.id, approved: false }); toast('Paid ads paused. No more ad spending until you approve it again.', 'info'); }}>Pause paid ads</button> : null}
+          {campaign.scheduled || campaign.adApproved || stopped ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => setChanging(true)}>{stopped ? 'Restart paid ads' : 'Change daily amount or stop'}</button> : null}
+          {!stopped && !campaign.adApproved && !contentOk ? <p className="w-full text-xs text-amber-800">Approve the ad&apos;s content first. Then approve the spending.</p> : null}
+        </div>
       ) : null}
+      {changing ? <AdChangeDialog campaign={campaign} onClose={() => setChanging(false)} /> : null}
     </div>
+  );
+}
+
+/** Change the daily ad amount after the plan was accepted. Shows what it means before anything changes. */
+function AdChangeDialog({ campaign, onClose }: { campaign: Campaign; onClose: () => void }) {
+  const { state, dispatch, toast } = useDemo();
+  const cur = campaign.plan.adDaily;
+  const [daily, setDaily] = React.useState(cur > 0 ? cur : 3);
+  const [ok, setOk] = React.useState(false);
+  const valid = Number.isFinite(daily) && daily >= 0 && daily <= 50;
+  const q = adChangeQuote(state, campaign, valid ? daily : 0);
+  const over = q.revisedTotal > q.budget;
+  const needsOk = q.increase;
+  const apply = (value: number) => {
+    dispatch({ type: 'campaign/adDaily', id: campaign.id, daily: value, approved: value > cur ? ok : undefined });
+    onClose();
+    toast(value === 0 ? 'Paid ads stopped. Nothing more will be spent.' : `Daily ad amount changed to ${money(value)}.`);
+  };
+  return (
+    <Dialog open onClose={onClose} title="Change the paid ads"
+      footer={<>
+        <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        {cur > 0 ? <button type="button" className="btn btn-secondary" onClick={() => apply(0)}>Stop paid ads</button> : null}
+        <button type="button" className="btn btn-primary" disabled={!valid || daily === cur || (needsOk && !ok)} onClick={() => apply(r2(daily))}>{needsOk ? 'Approve and change' : 'Change amount'}</button>
+      </>}>
+      <Field label="New daily amount (US$)" htmlFor="ad-daily" hint={`Now ${cur > 0 ? `${money(cur)} a day` : 'stopped'}.`}>
+        <input id="ad-daily" type="number" min={0} max={50} step={0.5} inputMode="decimal" className="input max-w-[10rem]" value={Number.isFinite(daily) ? daily : ''} onChange={(e) => { setDaily(e.target.valueAsNumber); setOk(false); }} />
+      </Field>
+      <dl className="mt-4 divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200 text-sm" aria-label="What this change means">
+        <div className="flex justify-between gap-3 px-3 py-2"><dt>Already spent on ads</dt><dd className="font-medium">{money(q.spent)}</dd></div>
+        <div className="flex justify-between gap-3 px-3 py-2"><dt>New daily amount</dt><dd className="font-medium">{valid ? money(daily) : 'Enter 0 to 50'}</dd></div>
+        <div className="flex justify-between gap-3 px-3 py-2"><dt>Remaining ad cost ({q.daysLeft} day{q.daysLeft === 1 ? '' : 's'} left)</dt><dd className="font-medium">{money(q.remaining)} <span className="font-normal text-slate-500">(was {money(q.currentRemaining)})</span></dd></div>
+        <div className="flex justify-between gap-3 px-3 py-2"><dt>Other planned costs</dt><dd className="font-medium">{money(q.other)}</dd></div>
+        <div className={`flex justify-between gap-3 px-3 py-2 ${over ? 'bg-amber-50 text-amber-900' : ''}`}><dt>Revised campaign total</dt><dd className="font-semibold">{money(q.revisedTotal)} of your {money(q.budget)} budget</dd></div>
+      </dl>
+      {over ? <Note tone="warn" className="mt-3">This is {money(r2(q.revisedTotal - q.budget))} more than the budget you accepted.</Note> : null}
+      {needsOk && valid ? (
+        <label className="mt-3 flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1 h-4 w-4 accent-brand-olive-600" checked={ok} onChange={(e) => setOk(e.target.checked)} />
+          <span>I approve spending up to {money(r2(q.remaining - q.currentRemaining))} more on ads for this campaign (pretend spending).</span>
+        </label>
+      ) : null}
+      {campaign.plan.adDaily === 0 && valid && daily > 0 ? <p className="mt-2 text-xs text-slate-500">Restarting also needs the ad itself to be approved.</p> : null}
+    </Dialog>
   );
 }

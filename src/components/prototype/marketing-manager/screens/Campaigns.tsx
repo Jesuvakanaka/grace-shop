@@ -5,13 +5,13 @@
 import React, { useState } from 'react';
 import { FORMATS, channelById, type FormatId } from '../catalog';
 import { fmtDay, fmtShort, money, relDay } from '../dates';
-import { SHOWN_LABEL, campaignProgress, currentVersion, liveCampaigns, shownState, totals, type ShownState } from '../engine';
+import { SHOWN_LABEL, campaignProgress, currentVersion, earlierStarts, liveCampaigns, reducer, shownState, totals, type ShownState } from '../engine';
 import { GOALS } from '../plan';
 import { useDemo } from '../store';
 import type { Campaign, Placement } from '../types';
 import { Dialog, Empty, Icon, Note, PageTitle, Pill, SectionTitle } from '../ui';
 import { LookSwatch } from '../previews';
-import { AutoPill, CampaignJourney, DemoClock, StatePill, automation } from './shared';
+import { AdSettings, AutoPill, CampaignJourney, DemoClock, StatePill, automation } from './shared';
 
 const SHARE_STEPS: Partial<Record<FormatId, string[]>> = {
   wa_status: ['Save the photo to your phone (press and hold it).', 'Open WhatsApp, go to Updates and add a Status with the photo.', 'Paste the caption and post it.', 'Come back here and mark it as shared.'],
@@ -26,13 +26,20 @@ const FILTERS: ShownState[] = ['awaiting', 'spend', 'ready', 'scheduled', 'publi
 const OPTIONAL_FILTERS: ShownState[] = ['spend', 'ready'];
 
 export function CampaignsScreen() {
-  const { state } = useDemo();
+  const { state, dispatch, toast } = useDemo();
   const live = liveCampaigns(state);
   const [pick, setPick] = useState<string | null>(null);
   const c = live.find((x) => x.id === pick) ?? live[0];
   const ended = state.campaigns.filter((x) => x.status === 'ended').sort((a, b) => b.endDate.localeCompare(a.endDate));
+  const offers = earlierStarts(state);
   return (
     <div>
+      {offers.map((o) => (
+        <div key={o.id} className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-olive-200 bg-brand-olive-50 p-4" role="region" aria-label="Earlier start available">
+          <p className="text-sm text-slate-800"><strong>&ldquo;{o.name}&rdquo; could start earlier.</strong> The campaign before it ended early, so it could start on {fmtDay(o.to)} instead of {fmtDay(o.from)}. It stays on its planned date unless you move it.</p>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => { dispatch({ type: 'campaign/moveStart', id: o.id, start: o.to }); toast(`"${o.name}" now starts on ${fmtDay(o.to)}.`); }}>Start it on {fmtShort(o.to)}</button>
+        </div>
+      ))}
       {live.length > 1 ? (
         <div className="mb-4 flex gap-1.5 overflow-x-auto pb-1" role="tablist" aria-label="Live campaigns">
           {live.map((x) => (
@@ -143,6 +150,8 @@ function ActiveCampaign({ c }: { c: Campaign }) {
         <CampaignJourney campaign={c} />
       </section>
 
+      {c.scheduled && state.materials.some((m) => m.campaignId === c.id && m.formats[0] === 'ad') ? <div className="mb-5 max-w-2xl"><AdSettings campaign={c} /></div> : null}
+
       {/* Status filter */}
       <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1" role="group" aria-label="Filter by status">
         <button type="button" aria-pressed={filter === 'all'} onClick={() => setFilter('all')} className={`min-h-10 shrink-0 rounded-full border px-3 text-sm ${filter === 'all' ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-300 bg-white'}`}>All {rows.length}</button>
@@ -214,7 +223,7 @@ function ActiveCampaign({ c }: { c: Campaign }) {
       </Dialog>
 
       <Dialog open={confirmEnd} onClose={() => setConfirmEnd(false)} title="End this campaign?"
-        footer={<><button type="button" className="btn btn-secondary" onClick={() => setConfirmEnd(false)}>Keep it running</button><button type="button" className="btn btn-primary" onClick={() => { const others = liveCampaigns(state).length > 1; dispatch({ type: 'campaign/end', id: c.id }); setConfirmEnd(false); go(`#/results/${c.id}`); toast(others ? 'Campaign ended. Here are its results.' : 'Campaign ended. Here are its results, and a recommended next plan is ready for you.', 'info'); }}>End campaign</button></>}>
+        footer={<><button type="button" className="btn btn-secondary" onClick={() => setConfirmEnd(false)}>Keep it running</button><button type="button" className="btn btn-primary" onClick={() => { const others = liveCampaigns(state).length > 1; const canMove = earlierStarts(reducer(state, { type: 'campaign/end', id: c.id })).length > 0; dispatch({ type: 'campaign/end', id: c.id }); setConfirmEnd(false); go(`#/results/${c.id}`); toast(others ? `Campaign ended. Here are its results.${canMove ? ' Your next campaign keeps its date; you can start it earlier from Campaigns.' : ''}` : 'Campaign ended. Here are its results, and a recommended next plan is ready for you.', 'info'); }}>End campaign</button></>}>
         <p>Items that have not gone out are withdrawn and the ad stops. What already happened stays in your results.</p>
       </Dialog>
     </div>

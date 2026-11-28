@@ -21,8 +21,11 @@ export type Action =
   | { type: 'draft/edit'; plan: Plan }
   | { type: 'draft/discard' }
   | { type: 'draft/recommend' }
-  /** `after` keeps every live campaign and starts the new one when the last of them ends. `replace` ends them now. */
-  | { type: 'draft/accept'; mode?: 'after' | 'replace' }
+  /**
+   * `after` (the default) keeps every live campaign and starts the new one when the last of them ends.
+   * `alongside` starts it as planned, running at the same time. `replace` ends the live ones now.
+   */
+  | { type: 'draft/accept'; mode?: 'after' | 'alongside' | 'replace' }
   | { type: 'material/caption'; id: string; caption: string; why: string; by?: 'owner' | 'revision' }
   | { type: 'material/opening'; id: string; opening: string }
   | { type: 'material/revise'; id: string; style: RevisionStyle; why: string }
@@ -38,6 +41,10 @@ export type Action =
   | { type: 'campaign/pause'; id: string }
   | { type: 'campaign/resume'; id: string }
   | { type: 'campaign/end'; id: string }
+  /** The owner accepts an earlier start the manager offered after another campaign ended early. */
+  | { type: 'campaign/moveStart'; id: string; start: string }
+  /** Change the daily ad amount after accepting. An increase needs `approved`. 0 stops paid ads. */
+  | { type: 'campaign/adDaily'; id: string; daily: number; approved?: boolean }
   | { type: 'day/advance' }
   | { type: 'placement/retry'; id: string }
   | { type: 'placement/shared'; id: string }
@@ -130,6 +137,7 @@ function arrive(s: DemoState, c: Campaign, m: Material, p: Placement): DemoState
 }
 
 function goesOut(s: DemoState, p: Placement, byOwner: boolean): DemoState {
+  if (!withinCampaign(s, p.campaignId)) return s;
   const m = s.materials.find((x) => x.id === p.materialId)!;
   const c = s.campaigns.find((x) => x.id === p.campaignId)!;
   const channel = FORMATS[p.format].channel;
@@ -150,7 +158,25 @@ function goesOut(s: DemoState, p: Placement, byOwner: boolean): DemoState {
   return arrive(s, c, m, p);
 }
 
+/** A running ad shows only an approved version: after re-approval, it switches to that version. */
+function syncPublished(s: DemoState): DemoState {
+  for (const p of s.placements.filter((x) => x.format === 'ad' && x.state === 'published')) {
+    const m = s.materials.find((x) => x.id === p.materialId);
+    if (!m || m.status !== 'approved' || m.approvedVersion == null || m.approvedVersion === p.publishedVersion || !withinCampaign(s, p.campaignId)) continue;
+    s = log({ ...s, placements: s.placements.map((x) => (x.id === p.id ? { ...x, publishedVersion: m.approvedVersion! } : x)) },
+      `The running ad now shows version ${m.approvedVersion}, the one you approved.`);
+  }
+  return s;
+}
+
+/** Nothing goes out for a campaign that has ended, or outside its dates. */
+export function withinCampaign(s: DemoState, campaignId: string): boolean {
+  const c = s.campaigns.find((x) => x.id === campaignId);
+  return !!c && c.status === 'active' && s.today >= c.startDate && s.today <= c.endDate;
+}
+
 function attempt(s: DemoState, p: Placement): DemoState {
+  if (!withinCampaign(s, p.campaignId)) return s;
   const f = FORMATS[p.format];
   if (!f.auto) {
     return { ...s, placements: s.placements.map((x) => (x.id === p.id ? { ...x, state: 'manual' } : x)) };
@@ -190,18 +216,40 @@ function shiftCampaign(s: DemoState, id: string, start: string): DemoState {
   };
 }
 
-/** After a campaign stops early, queued campaigns move up so no empty days are left. */
-function pullForward(s: DemoState): DemoState {
+/**
+ * After a campaign stops early, a queued campaign could start sooner. It is never moved on its
+ * own: the earlier date is offered and the owner decides.
+ */
+export function earlierStarts(s: DemoState): { id: string; name: string; from: string; to: string }[] {
+  const out: { id: string; name: string; from: string; to: string }[] = [];
   let cursor = addDays(s.today, 1);
-  for (const c of liveCampaigns(s)) {
-    if (c.startDate <= s.today) { cursor = addDays(c.endDate, 1); continue; }
-    if (c.startDate > cursor) {
-      const name = c.name;
-      s = log(shiftCampaign(s, c.id, cursor), `"${name}" now starts on ${fmtDay(cursor)}, straight after the previous campaign.`);
-    }
-    cursor = addDays(s.campaigns.find((x) => x.id === c.id)!.endDate, 1);
+  for (const c of [...liveCampaigns(s)].sort((a, b) => a.startDate.localeCompare(b.startDate))) {
+    if (c.startDate <= s.today) { cursor = [cursor, addDays(c.endDate, 1)].sort().at(-1)!; continue; }
+    const start = c.startDate > cursor ? cursor : c.startDate;
+    if (start !== c.startDate) out.push({ id: c.id, name: c.name, from: c.startDate, to: start });
+    cursor = [cursor, addDays(start, c.plan.days)].sort().at(-1)!;
   }
-  return s;
+  return out;
+}
+
+/** What changing the daily ad amount would mean, shown before the owner confirms. */
+export function adChangeQuote(s: DemoState, c: Campaign, daily: number) {
+  const ads = s.costs.filter((k) => k.campaignId === c.id && k.kind === 'ads');
+  const spent = r2(ads.reduce((n, k) => n + k.amount, 0));
+  const spentToday = ads.some((k) => k.date === s.today);
+  const firstDay = [c.startDate, spentToday ? addDays(s.today, 1) : s.today].sort().at(-1)!;
+  const daysLeft = firstDay > c.endDate ? 0 : Math.min(daysBetween(firstDay, c.endDate) + 1, Math.max(0, c.plan.days - ads.length));
+  const planned = planCosts(c.plan, recipientsFor(s.customers));
+  const other = r2(planned.content + planned.messaging);
+  const remaining = r2(daily * daysLeft);
+  return {
+    spent, daysLeft, remaining, other,
+    currentRemaining: r2(c.plan.adDaily * daysLeft),
+    revisedTotal: r2(spent + remaining + other),
+    currentTotal: r2(spent + c.plan.adDaily * daysLeft + other),
+    budget: c.plan.budget,
+    increase: daily > c.plan.adDaily,
+  };
 }
 
 /**
@@ -230,6 +278,9 @@ function closeCampaign(s: DemoState, id: string, how: 'finished' | 'ended' | 're
 }
 
 function runDay(s: DemoState): DemoState {
+  // Campaigns past their last day finish first, so nothing of theirs goes out after the end.
+  const done = s.campaigns.filter((c) => c.status === 'active' && c.endDate < s.today);
+  for (const c of done) s = closeCampaign(s, c.id, 'finished');
   for (const c of s.campaigns.filter((x) => x.status === 'active' && x.scheduled && !x.paused)) {
     s = runDue(s, c);
     // A running ad spends its daily amount each day, and reports its reach daily. It stops if
@@ -240,10 +291,11 @@ function runDay(s: DemoState): DemoState {
       const spentDays = s.costs.filter((k) => k.campaignId === c.id && k.kind === 'ads').length;
       if (spentDays < c.plan.days && !s.costs.some((k) => k.campaignId === c.id && k.kind === 'ads' && k.date === s.today)) {
         const d = c.plan.adDaily;
+        const shownVersion = ad.publishedVersion ?? 1;
         s = {
           ...s,
           seq: s.seq + 2,
-          costs: [...s.costs, { id: `k${s.seq}`, date: s.today, campaignId: c.id, kind: 'ads', amount: d, note: `One day of ads at $${d} a day (pretend spending)` }],
+          costs: [...s.costs, { id: `k${s.seq}`, date: s.today, campaignId: c.id, kind: 'ads', amount: d, note: `One day of ads at $${d} a day, ad version ${shownVersion} (pretend spending)` }],
           activity: [...s.activity, {
             id: `a${s.seq + 1}`, date: s.today, campaignId: c.id, channel: 'meta_ads', placementId: ad.id,
             reach: Math.round(d * AD_DAILY_RESULTS_PER_DOLLAR.reach), visits: Math.round(d * AD_DAILY_RESULTS_PER_DOLLAR.visits), clicks: Math.round(d * AD_DAILY_RESULTS_PER_DOLLAR.clicks),
@@ -252,9 +304,6 @@ function runDay(s: DemoState): DemoState {
       }
     }
   }
-  // Campaigns past their last day finish on their own.
-  const done = s.campaigns.filter((c) => c.status === 'active' && c.endDate < s.today);
-  for (const c of done) s = closeCampaign(s, c.id, 'finished');
   // Nothing is live any more: the manager reads the results and prepares the next plan.
   if (done.length && !liveCampaigns(s).length) s = recommend(s, done[done.length - 1].id);
   return s;
@@ -334,6 +383,7 @@ export function reducer(s: DemoState, a: Action): DemoState {
       // A plan prepared on an earlier demo day never starts in the past.
       if (plan.startDate <= s.today) plan = { ...plan, startDate: addDays(s.today, 1) };
       // Keeping what is running: the new campaign starts the day after the last live one ends.
+      // `alongside` keeps the planned start, so both run at the same time.
       if (mode === 'after' && live.length) {
         const lastEnd = live.map((c) => c.endDate).sort().at(-1)!;
         const start = addDays(lastEnd, 1);
@@ -354,7 +404,7 @@ export function reducer(s: DemoState, a: Action): DemoState {
       const placements: Placement[] = [];
       for (const m of mats) for (const f of m.formats) placements.push({ id: `${m.id}-${f}`, campaignId: cid, materialId: m.id, format: f, date: m.date, state: 'scheduled' });
       n = { ...n, placements: [...n.placements, ...placements], draft: null };
-      const when = mode === 'after' && live.length ? ` It starts on ${fmtDay(plan.startDate)}, after your current campaign.` : '';
+      const when = !live.length ? '' : mode === 'after' ? ` It starts on ${fmtDay(plan.startDate)}, after your current campaign.` : mode === 'alongside' ? ` It starts on ${fmtDay(plan.startDate)} and runs alongside your current campaign.` : '';
       return log(n, `You accepted the plan "${plan.name}". ${mats.length} items are ready for your approval.${when}`);
     }
 
@@ -370,7 +420,7 @@ export function reducer(s: DemoState, a: Action): DemoState {
       const m = s.materials.find((x) => x.id === a.id);
       // Approval applies only to the version the owner was looking at.
       if (!m || currentVersion(m).n !== a.version) return s;
-      return log(updateMaterial(s, a.id, (x) => ({ ...x, status: 'approved', approvedVersion: a.version, reapproval: false, backNote: undefined })), `You approved "${m.title}" (version ${a.version}).`);
+      return syncPublished(log(updateMaterial(s, a.id, (x) => ({ ...x, status: 'approved', approvedVersion: a.version, reapproval: false, backNote: undefined })), `You approved "${m.title}" (version ${a.version}).`));
     }
     case 'material/approveMany': {
       // Each item is approved only if the owner saw its current version.
@@ -380,7 +430,7 @@ export function reducer(s: DemoState, a: Action): DemoState {
       });
       if (!ok.length) return s;
       const ids = new Map(ok.map((it) => [it.id, it.version]));
-      return log({ ...s, materials: s.materials.map((m) => (ids.has(m.id) ? { ...m, status: 'approved', approvedVersion: ids.get(m.id)!, reapproval: false, backNote: undefined } : m)) }, `You approved ${ok.length} item${ok.length === 1 ? '' : 's'} as shown.`);
+      return syncPublished(log({ ...s, materials: s.materials.map((m) => (ids.has(m.id) ? { ...m, status: 'approved', approvedVersion: ids.get(m.id)!, reapproval: false, backNote: undefined } : m)) }, `You approved ${ok.length} item${ok.length === 1 ? '' : 's'} as shown.`));
     }
     case 'material/approveAll': {
       const list = s.materials.filter((m) => m.campaignId === a.campaignId && m.status === 'awaiting');
@@ -429,9 +479,28 @@ export function reducer(s: DemoState, a: Action): DemoState {
       return n;
     }
     case 'campaign/end': {
-      const n = pullForward(closeCampaign(s, a.id, 'ended'));
+      let n = closeCampaign(s, a.id, 'ended');
+      for (const o of earlierStarts(n)) n = log(n, `"${o.name}" could now start earlier, on ${fmtDay(o.to)} instead of ${fmtDay(o.from)}. It stays on its planned date unless you choose to move it.`);
       // Nothing else is live: the manager prepares the next plan for review.
       return liveCampaigns(n).length ? n : recommend(n, a.id);
+    }
+    case 'campaign/moveStart': {
+      const offer = earlierStarts(s).find((o) => o.id === a.id && o.to === a.start);
+      if (!offer) return s;
+      return log(shiftCampaign(s, a.id, a.start), `You moved "${offer.name}" to start on ${fmtDay(a.start)}.`);
+    }
+    case 'campaign/adDaily': {
+      const c = s.campaigns.find((x) => x.id === a.id);
+      const daily = r2(a.daily);
+      if (!c || c.status !== 'active' || !(daily >= 0) || daily === c.plan.adDaily) return s;
+      // Spending more always needs the owner's explicit approval.
+      if (daily > c.plan.adDaily && !a.approved) return s;
+      const q = adChangeQuote(s, c, daily);
+      const adOk = s.materials.find((m) => m.campaignId === c.id && m.formats[0] === 'ad')?.status === 'approved';
+      const n = { ...s, campaigns: s.campaigns.map((x) => (x.id === a.id ? { ...x, plan: { ...x.plan, adDaily: daily }, adApproved: daily === 0 ? false : x.plan.adDaily === 0 ? adOk : x.adApproved } : x)) };
+      return log(n, daily === 0
+        ? `You stopped paid ads for "${c.name}". $${q.spent} was spent; nothing more will be.`
+        : `You changed the ads for "${c.name}" from $${c.plan.adDaily} to $${daily} a day. Up to $${q.remaining} more over ${q.daysLeft} day${q.daysLeft === 1 ? '' : 's'}; revised total $${q.revisedTotal} against a $${q.budget} budget.`);
     }
     case 'day/advance':
       return runDay({ ...s, today: addDays(s.today, 1) });
@@ -623,6 +692,20 @@ export function uncreditedSales(s: DemoState, scope: string): { count: number; r
   if (!c) return { count: 0, revenue: 0 };
   const xs = s.sales.filter((x) => x.campaignId === null && x.date >= c.startDate && x.date <= c.endDate);
   return { count: xs.length, revenue: r2(xs.reduce((n, x) => n + x.amount, 0)) };
+}
+
+/** Sales in plain terms: everything the shop sold in the period, what is linked to this campaign, and what has no known source. */
+export function salesBreakdown(s: DemoState, scope: string) {
+  const c = s.campaigns.find((x) => x.id === scope);
+  const end = c ? [c.endDate, s.today].sort()[0] : s.today;
+  const inPeriod = s.sales.filter((x) => !c || (x.date >= c.startDate && x.date <= end));
+  const linkedList = c ? s.sales.filter((x) => x.campaignId === c.id) : s.sales.filter((x) => x.campaignId !== null);
+  const all = [...new Map([...inPeriod, ...linkedList].map((x) => [x.id, x])).values()];
+  const sum = (xs: Sale[]) => ({ count: xs.length, revenue: r2(xs.reduce((n, x) => n + x.amount, 0)) });
+  const linkedIds = new Set(linkedList.map((x) => x.id));
+  const unknown = all.filter((x) => x.source.kind === 'unknown');
+  const elsewhere = all.filter((x) => !linkedIds.has(x.id) && x.source.kind !== 'unknown');
+  return { all: sum(all), linked: sum(linkedList), unknown: sum(unknown), elsewhere: sum(elsewhere) };
 }
 
 /** How many of a plan's items have a scripted customer conversation in this demo. */

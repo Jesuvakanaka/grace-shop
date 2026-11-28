@@ -4,7 +4,7 @@
 // recommendations that become the next draft plan.
 import React, { useState } from 'react';
 import { fmtShort, money, num } from '../dates';
-import { activeCampaign, economics, liveCampaigns, review, totals, uncreditedSales, type Recommendation } from '../engine';
+import { activeCampaign, economics, liveCampaigns, review, salesBreakdown, totals, type Recommendation } from '../engine';
 import { useDemo } from '../store';
 import { Dialog, Empty, Icon, Note, PageTitle, SectionTitle, Simulated } from '../ui';
 
@@ -21,7 +21,7 @@ export function ResultsScreen() {
   const scope = scopes.find((s) => s.id === route[1])?.id ?? scopes[0].id;
   const campaign = state.campaigns.find((c) => c.id === scope);
   const t = totals(state, scope);
-  const other = uncreditedSales(state, scope);
+  const sb = salesBreakdown(state, scope);
   const rv = review(state, t, scope);
   const [pending, setPending] = useState<Recommendation | null>(null);
   const empty = t.reach === 0 && t.visits === 0 && t.enquiries === 0 && t.sales === 0;
@@ -73,12 +73,34 @@ export function ResultsScreen() {
             </ol>
           </section>
 
+          <section className="card" aria-label="Sales">
+            <SectionTitle title="Sales" hint={campaign ? `${fmtShort(campaign.startDate)} to ${campaign.status === 'active' ? 'today' : fmtShort(campaign.endDate)}` : 'Everything in the demo'} />
+            <dl className="grid gap-2 sm:grid-cols-3">
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <dt className="text-sm font-medium text-slate-900">All shop sales{campaign ? ' in these dates' : ''}</dt>
+                <dd className="mt-1 font-serif text-2xl">{sb.all.count} · {money(sb.all.revenue)}</dd>
+                <dd className="mt-1 text-xs text-slate-600">Every sale you recorded{campaign ? ' while this campaign ran' : ''}, whatever brought the customer.</dd>
+              </div>
+              <div className="rounded-lg border border-brand-olive-200 bg-brand-olive-50 p-3">
+                <dt className="text-sm font-medium text-slate-900">{campaign ? 'Linked to this campaign' : 'Linked to a campaign'}</dt>
+                <dd className="mt-1 font-serif text-2xl">{sb.linked.count} · {money(sb.linked.revenue)}</dd>
+                <dd className="mt-1 text-xs text-slate-600">The customer came through a campaign link or said a campaign channel brought them. Only these count in the money below.</dd>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <dt className="text-sm font-medium text-slate-900">Source unknown</dt>
+                <dd className="mt-1 font-serif text-2xl">{sb.unknown.count} · {money(sb.unknown.revenue)}</dd>
+                <dd className="mt-1 text-xs text-slate-600">No one knows what brought the customer, so it is never given to a campaign automatically.</dd>
+              </div>
+            </dl>
+            {sb.elsewhere.count ? <p className="mt-2 text-xs text-slate-600">{sb.elsewhere.count} other sale{sb.elsewhere.count === 1 ? '' : 's'} ({money(sb.elsewhere.revenue)}) came from somewhere else, such as a friend&apos;s recommendation{campaign ? ' or another campaign' : ''}.</p> : null}
+          </section>
+
           <div className="grid gap-5 lg:grid-cols-2">
             <section className="card">
-              <SectionTitle title="Money" hint="Pretend spending in this prototype." />
+              <SectionTitle title="Revenue and marketing costs" hint="Pretend spending in this prototype." />
               <table className="w-full text-sm">
                 <tbody className="divide-y divide-slate-200">
-                  <tr><th scope="row" className="py-2 text-left font-normal">Revenue from recorded sales</th><td className="py-2 text-right font-semibold">{money(t.revenue)}</td></tr>
+                  <tr><th scope="row" className="py-2 text-left font-normal">{campaign ? 'Revenue from sales linked to this campaign' : 'Revenue from all recorded sales'}</th><td className="py-2 text-right font-semibold">{money(t.revenue)}</td></tr>
                   <tr><th scope="row" className="py-2 pl-3 text-left font-normal text-slate-600">Advertising</th><td className="py-2 text-right">{money(t.costs.ads)}</td></tr>
                   <tr><th scope="row" className="py-2 pl-3 text-left font-normal text-slate-600">Messaging</th><td className="py-2 text-right">{money(t.costs.messaging)}</td></tr>
                   <tr><th scope="row" className="py-2 pl-3 text-left font-normal text-slate-600">Content creation</th><td className="py-2 text-right">{money(t.costs.content)}</td></tr>
@@ -86,8 +108,7 @@ export function ResultsScreen() {
                 </tbody>
               </table>
               <p className={`mt-3 rounded-lg px-3 py-2 text-sm ${t.revenue < t.costs.total ? 'bg-amber-50 text-amber-900' : 'bg-slate-50 text-slate-800'}`}>{economics(state, t, scope)}</p>
-              {other.count ? <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">{other.count === 1 ? '1 other recorded sale' : `${other.count} other recorded sales`} ({money(other.revenue)}) in this campaign&apos;s dates came from an unknown source or from somewhere else, such as a referral, so {other.count === 1 ? 'it is' : 'they are'} not credited to this campaign. See &ldquo;All sample activity&rdquo; for everything.</p> : null}
-              <p className="mt-2 text-xs text-slate-500">Revenue is not profit: it does not take off what the clothes cost you.</p>
+              <p className="mt-2 text-xs text-slate-500">This is not profit. Profit would also take off what the clothes cost you and your other running costs, which this prototype does not know.</p>
             </section>
 
             <section className="card">

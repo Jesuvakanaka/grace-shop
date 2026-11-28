@@ -10,8 +10,8 @@ import { Dialog, Note, PageTitle, Pill } from '../ui';
 const GROUPS: ChannelGroup[] = ['discovery', 'direct', 'search', 'partners'];
 
 const DEPICTION = {
-  automatic: { label: 'Posted for you (depicted)', tone: 'sky' as const },
-  manual: { label: 'You share it yourself', tone: 'violet' as const },
+  automatic: { label: 'Can post for you once connected', tone: 'sky' as const },
+  manual: { label: 'You share it', tone: 'violet' as const },
   future: { label: 'Future idea', tone: 'slate' as const },
 };
 
@@ -72,10 +72,10 @@ function ChannelCard({ ch, inPlan, onConnect }: { ch: ChannelInfo; inPlan: boole
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
         <span className="text-sm">
           {ch.depiction === 'future' ? <span className="text-slate-500">Not available in this prototype</span>
-            : conn === 'manual' ? <span className="text-slate-600">No connection needed</span>
-            : conn === 'connected' ? <span className="font-medium text-brand-olive-700">Connected in demo</span>
-            : conn === 'expired' ? <span className="font-medium text-rose-700">Connection expired (demo)</span>
-            : <span className="text-slate-600">Not connected</span>}
+            : conn === 'manual' ? <span className="font-medium text-violet-800">You share it <span className="font-normal text-slate-600">(no connection needed)</span></span>
+            : conn === 'connected' ? <span className="font-medium text-brand-olive-700">Posted for you <span className="font-normal text-slate-600">(connected in demo)</span></span>
+            : conn === 'expired' ? <span className="font-medium text-rose-700">Not connected <span className="font-normal">(connection expired)</span></span>
+            : <span className="font-medium text-amber-800">Not connected</span>}
         </span>
         {ch.depiction === 'automatic' ? (
           conn === 'connected'
