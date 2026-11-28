@@ -10,7 +10,7 @@ import { writeAudit, type Db } from './audit'
 import { BROADCAST_OWNER_ACTIONS, BROADCAST_STATUSES, transitionBroadcast, type BroadcastAction, type BroadcastActor } from './broadcast-state'
 import { getChannel } from './channels'
 import { CONSENT_FOR_CHANNEL, addressFor, isOptedIn, CONTACT_SOURCES } from './consent'
-import { PURPOSE_FOR_BROADCAST } from './consent-records'
+import { PURPOSE_FOR_BROADCAST, stopEverything } from './consent-records'
 import { getConnector } from './connectors'
 import type { Connector, ConnectorMessage, FetchLike } from './connectors/types'
 import { assertCanGoLive, checkCanGoLive, type GoLiveInput } from './flags'
@@ -451,7 +451,7 @@ export async function continueSending(db: Db, id: number, actor: BroadcastActor,
     if (sentToday >= settings.messageDailyCap) { run.stoppedBecause = `The daily limit of ${settings.messageDailyCap} messages has been reached. Sending carries on tomorrow.`; break }
     if (b.channelKind === 'EMAIL' && !origin) { run.stoppedBecause = 'The public site address is not set, so the unsubscribe link cannot be made.'; break }
 
-    const next = await db.marketingBroadcastRecipient.findFirst({ where: { broadcastId: id, status: 'PENDING' }, orderBy: { id: 'asc' }, include: { contact: { include: { consents: { where: { channel: consentChannel } } } } } })
+    const next = await db.marketingBroadcastRecipient.findFirst({ where: { broadcastId: id, status: 'PENDING' }, orderBy: { id: 'asc' }, include: { contact: true } })
     if (!next) break
     // Claim it first: two runs can never send to the same person.
     const claim = await db.marketingBroadcastRecipient.updateMany({ where: { id: next.id, status: 'PENDING' }, data: { status: 'SENDING' } })
@@ -461,8 +461,10 @@ export async function continueSending(db: Db, id: number, actor: BroadcastActor,
       await db.marketingBroadcastRecipient.update({ where: { id: next.id }, data: { status: 'SKIPPED', error: why } })
       run.skipped++
     }
-    // MM-12-AC1: checked again right before each message, for this channel and this purpose.
-    if (!isOptedIn(next.contact.consents, consentChannel, PURPOSE_FOR_BROADCAST[b.purpose] ?? 'PROMOTION')) { await skip('No longer opted in.'); continue }
+    // MM-12-AC1: checked again right before each message, for this channel and this purpose, after the claim, so an
+    // opt-out recorded while this run was picking the person is still seen.
+    const consents = await db.marketingConsent.findMany({ where: { contactId: next.contact.id, channel: consentChannel } })
+    if (!isOptedIn(consents, consentChannel, PURPOSE_FOR_BROADCAST[b.purpose] ?? 'PROMOTION')) { await skip('No longer opted in.'); continue }
     const address = addressFor(b.channelKind, next.contact)
     if (!address) { await skip('No address.'); continue }
 
@@ -493,8 +495,9 @@ export async function continueSending(db: Db, id: number, actor: BroadcastActor,
       sentToday++
       consecutiveBusy = 0
     } else if (result.optedOut) {
-      await db.marketingConsent.create({ data: { contactId: next.contact.id, channel: consentChannel, status: 'OPTED_OUT', method: 'The provider reported that this person replied STOP', recordedBy: 'system' } })
-      await writeAudit(db, { actor: 'system', action: 'consent.opt_out', entity: 'contact', entityId: next.contact.id, detail: { channel: consentChannel, via: 'provider STOP' } })
+      // MM-12: STOP stops every purpose on this channel, through the one consent writer (which also takes the person
+      // off their other waiting messages).
+      await stopEverything(db, next.contact.id, consentChannel, { method: 'The provider reported that this person replied STOP', recordedBy: 'system', via: 'provider STOP' })
       await skip('Replied STOP.')
     } else {
       await db.marketingBroadcastRecipient.update({ where: { id: next.id }, data: { status: 'FAILED', error: result.error.slice(0, 500) } })

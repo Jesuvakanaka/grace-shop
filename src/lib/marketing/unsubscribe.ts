@@ -3,8 +3,7 @@
 import { createHmac, hkdfSync, timingSafeEqual } from 'node:crypto'
 import { writeAudit, type Db } from './audit'
 import { CONSENT_CHANNELS, type ConsentChannel } from './consent'
-import { CONSENT_PURPOSES, latestConsent } from './consent'
-import { writeConsent } from './consent-records'
+import { stopEverything } from './consent-records'
 
 const INFO = 'grace-marketing-unsubscribe-v1'
 
@@ -45,12 +44,7 @@ export async function applyUnsubscribe(db: Db, token: unknown): Promise<'done' |
   if (!t) return 'invalid'
   const contact = await db.marketingContact.findUnique({ where: { id: t.contactId }, select: { id: true } })
   if (!contact) return 'invalid'
-  const rows = await db.marketingConsent.findMany({ where: { contactId: t.contactId, channel: t.channel } })
   // MM-12: the link stops every kind of message on that channel (offers and review requests alike).
-  const open = CONSENT_PURPOSES.filter((p) => latestConsent(rows, t.channel, p)?.status !== 'OPTED_OUT')
-  if (open.length === 0) return 'already'
-  for (const purpose of open) {
-    await writeConsent(db, { contactId: t.contactId, channel: t.channel, purpose, status: 'OPTED_OUT', method: 'Used the unsubscribe link', evidence: null, recordedBy: 'self:unsubscribe' }, { via: 'unsubscribe link' })
-  }
-  return 'done'
+  const stopped = await stopEverything(db, t.contactId, t.channel, { method: 'Used the unsubscribe link', recordedBy: 'self:unsubscribe', via: 'unsubscribe link' })
+  return stopped === 0 ? 'already' : 'done'
 }

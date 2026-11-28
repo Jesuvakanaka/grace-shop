@@ -167,3 +167,17 @@ describe('helpers', () => {
     assert.deepStrictEqual(parseCsv('name;phone\nA;1'), [['name', 'phone'], ['A', '1']])
   })
 })
+
+describe('MM-12: one writer for consent', () => {
+  test('no file under src writes MarketingConsent except consent-records.ts', async () => {
+    const { readdirSync, readFileSync, statSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const files: string[] = []
+    const walk = (d: string) => { for (const f of readdirSync(d)) { const p = join(d, f); if (statSync(p).isDirectory()) walk(p); else if (/\.(ts|tsx)$/.test(f)) files.push(p) } }
+    walk(join(process.cwd(), 'src'))
+    const writes = /marketingConsent\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\b|consents:\s*\{\s*(create|createMany|connectOrCreate|upsert|update|updateMany|delete|deleteMany)\b|INSERT INTO\s+"MarketingConsent"|UPDATE\s+"MarketingConsent"/
+    const offenders = files.filter((f) => !f.endsWith(join('marketing', 'consent-records.ts')) && writes.test(readFileSync(f, 'utf8')))
+    assert.deepStrictEqual(offenders, [])
+    assert.ok(files.length > 100, 'the walk found the source files')
+  })
+})

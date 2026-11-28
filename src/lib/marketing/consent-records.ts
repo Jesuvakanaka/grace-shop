@@ -4,7 +4,7 @@
 //   once (MM-12-AC1). Sending also checks again right before each message. Skipped messages are never brought back.
 import { WebsiteError } from '@/lib/website/http'
 import { writeAudit, type Db } from './audit'
-import { CONSENT_FOR_CHANNEL, restorationProblem, type ConsentChannel, type ConsentPurpose, type ConsentStatus } from './consent'
+import { CONSENT_FOR_CHANNEL, CONSENT_PURPOSES, latestConsent, restorationProblem, type ConsentChannel, type ConsentPurpose, type ConsentStatus } from './consent'
 
 /** The consent purpose a message of this purpose needs. */
 export const PURPOSE_FOR_BROADCAST: Readonly<Record<string, ConsentPurpose>> = { PROMOTION: 'PROMOTION', REVIEW_REQUEST: 'FEEDBACK' }
@@ -33,6 +33,19 @@ export async function writeConsent(db: Db, w: ConsentWrite, audit: { via?: strin
     detail: { channel: w.channel, purpose: w.purpose, method: w.method, withdrawn, ...(audit.via ? { via: audit.via } : {}) },
   })
   return { withdrawn }
+}
+
+/**
+ * MM-12: the person asked to stop on this channel (the unsubscribe link, or STOP reported by the provider). Every purpose
+ * on that channel stops, offers and review requests alike. Returns how many purposes were stopped (0: already stopped).
+ */
+export async function stopEverything(db: Db, contactId: number, channel: ConsentChannel, how: { method: string; recordedBy: string; via: string }): Promise<number> {
+  const rows = await db.marketingConsent.findMany({ where: { contactId, channel } })
+  const open = CONSENT_PURPOSES.filter((p) => latestConsent(rows, channel, p)?.status !== 'OPTED_OUT')
+  for (const purpose of open) {
+    await writeConsent(db, { contactId, channel, purpose, status: 'OPTED_OUT', method: how.method, evidence: null, recordedBy: how.recordedBy }, { via: how.via })
+  }
+  return open.length
 }
 
 /** Take the contact off every waiting message that needs this channel and purpose. */

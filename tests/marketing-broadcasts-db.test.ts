@@ -508,6 +508,29 @@ describe('ZP-1117 (MM-12): purpose, approval snapshot, restoration and review re
     assert.strictEqual((await db(ok.id)).approvedCount, 1)
   })
 
+  test('STOP on a review request stops offers and review requests on that channel, and skips their other waiting message', async () => {
+    const c = await contact({ optIn: ['SMS'] })
+    await recordConsent(prisma, c.id, { channel: 'SMS', purpose: 'FEEDBACK', status: 'OPTED_IN', method: 'said yes to review requests' }, owner.username)
+    const offer = await approvedBroadcast([c.id])
+    const review = await createBroadcast(prisma, { channelKind: 'SMS', purpose: 'REVIEW_REQUEST', name: 'ZP1117 STOP review', text: 'Hi {name}, how was your dress? An honest review helps: https://vyra.example/review', audienceFilter: { contactIds: [c.id] } }, owner.username)
+    broadcastIds.push(review.id)
+    await broadcastAction(prisma, review.id, 'submit', staff, depsFor(fakeProvider('SMS').connector))
+    await broadcastAction(prisma, review.id, 'approve', owner, depsFor(fakeProvider('SMS').connector))
+    // The offer is part-sent and paused (as at the daily cap): its row for this person waits.
+    await prisma.marketingBroadcast.update({ where: { id: offer.id }, data: { status: 'SENDING' } })
+    await prisma.marketingBroadcastRecipient.create({ data: { broadcastId: offer.id, contactId: c.id } })
+    assert.strictEqual((await recipients(offer.id))[0]?.status, 'PENDING')
+    const stop = fakeProvider('SMS', () => ({ ok: false, error: 'stopped', retryable: false, code: 21610, optedOut: true }))
+    await broadcastAction(prisma, review.id, 'send', owner, depsFor(stop.connector))
+    const history = await prisma.marketingConsent.findMany({ where: { contactId: c.id, channel: 'SMS', status: 'OPTED_OUT' }, orderBy: { id: 'asc' } })
+    assert.deepStrictEqual(history.map((h) => [h.purpose, h.recordedBy]).sort(), [['FEEDBACK', 'system'], ['PROMOTION', 'system']])
+    for (const purpose of ['PROMOTION', 'REVIEW_REQUEST']) {
+      assert.strictEqual((await computeAudience(prisma, { channelKind: 'SMS', purpose, audienceFilter: { contactIds: [c.id] } })).eligible.length, 0, purpose)
+    }
+    const waiting = (await recipients(offer.id))[0]
+    assert.deepStrictEqual([waiting.status, waiting.error], ['SKIPPED', 'Opted out.'])
+  })
+
   test('MM-12-AC6: a message the provider accepted is SENT with its id, never marked delivered', async () => {
     const a = await contact({ optIn: ['SMS'] })
     const b = await approvedBroadcast([a.id])
