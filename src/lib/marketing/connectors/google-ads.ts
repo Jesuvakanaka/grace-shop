@@ -71,8 +71,9 @@ function pushUnique(list: string[], seen: Set<string>, t: string, max: number) {
   list.push(v)
 }
 
-const FILLER_HEADLINES = ['VYRA', 'Shop at VYRA', 'VYRA in Harare']
-const FILLER_DESCRIPTIONS = ['Visit VYRA in Harare to see the full collection.', 'Browse the latest pieces online or in store.']
+// ZP-1106 (MM-01-AC2): fillers state nothing the owner has not confirmed (no town, no shop visit, no delivery).
+const FILLER_HEADLINES = ['VYRA', 'Shop at VYRA', 'Discover VYRA']
+const FILLER_DESCRIPTIONS = ['See the latest pieces from VYRA.', 'Browse the collection on the VYRA website.']
 
 /**
  * Split our headline (80), primaryText (500) and description (150) into Google's 3 to 15 headlines (30 characters)

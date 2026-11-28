@@ -15,6 +15,7 @@ import { getChannel } from '../channels'
 import { hararedayString, resultsReport, ymd } from '../results'
 import { getSettings } from '../settings'
 import type { Actor } from '../state'
+import { shopIdentity, type ShopIdentity } from './shop'
 
 const DAY_MS = 86_400_000
 const HARARE_MS = 2 * 3_600_000
@@ -188,12 +189,16 @@ export function ruleRecommendations(f: Facts): Rec[] {
 
 // ───────────────────────── AI wording ─────────────────────────
 
-const SYSTEM = `You help the owner of VYRA, a small children's boutique in Harare, understand last month's marketing. You are given short pieces of advice that were worked out by the shop's system. Rewrite each one in warm, plain, British English that a busy shopkeeper can act on in a minute.
+/** The system prompt, with the shop as the owner describes it and the market only when the owner set one. Pure. */
+export function recommendSystemPrompt(shop: ShopIdentity, market: string | null): string {
+  const where = market?.trim() ? ` in ${market.trim()}` : ''
+  return `You help the owner of ${shop.name}, ${shop.description}${where}, understand last month's marketing. You are given short pieces of advice that were worked out by the shop's system. Rewrite each one in warm, plain, British English that a busy shopkeeper can act on in a minute.
 Hard rules:
 - Use ONLY numbers, names, days and times that appear in the piece you are rewriting. Never add, round, estimate or compare numbers yourself. Never mention a price, discount or stock level.
 - Keep the same meaning and the same "kind". Do not add new advice items.
 - title: at most 70 characters. body: at most 3 short sentences. No emojis, no jargon.
 - Return only JSON.`
+}
 
 const SCHEMA = {
   type: 'object',
@@ -245,13 +250,13 @@ export function aiAvailable(ai: RecommendAi = {}): boolean {
   return Boolean(ai.client || ai.openai || process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY)
 }
 
-async function askModel(rules: Rec[], ai: RecommendAi): Promise<{ text: string; costCents: number }> {
+async function askModel(rules: Rec[], ai: RecommendAi, system: string): Promise<{ text: string; costCents: number }> {
   const prompt = `Rewrite these ${rules.length} pieces of advice as JSON.\n${JSON.stringify(rules.map((r) => ({ kind: r.kind, title: r.title, body: r.body })))}`
   const hasClaude = Boolean(ai.client || process.env.ANTHROPIC_API_KEY)
   const hasOpenAI = Boolean(ai.openai || process.env.OPENAI_API_KEY)
   const viaOpenAI = async () => {
     const res = await (ai.openai ?? new OpenAI({ maxRetries: 2 })).responses.create({
-      model: OPENAI_LISTING_MODEL, instructions: SYSTEM, reasoning: { effort: 'low' },
+      model: OPENAI_LISTING_MODEL, instructions: system, reasoning: { effort: 'low' },
       input: [{ role: 'user', content: [{ type: 'input_text' as const, text: prompt }] }],
       text: { format: { type: 'json_schema', name: 'marketing_advice', schema: SCHEMA, strict: true } },
     })
@@ -263,7 +268,7 @@ async function askModel(rules: Rec[], ai: RecommendAi): Promise<{ text: string; 
     try {
       const msg = await (ai.client ?? new Anthropic()).messages.create({
         model: process.env.ANTHROPIC_MARKETING_MODEL || process.env.ANTHROPIC_LISTING_MODEL || 'claude-opus-5-5',
-        max_tokens: 3000, system: SYSTEM,
+        max_tokens: 3000, system,
         output_config: { effort: 'low', format: { type: 'json_schema', schema: SCHEMA } },
         messages: [{ role: 'user', content: [{ type: 'text' as const, text: prompt }] }],
       })
@@ -336,7 +341,8 @@ export async function generateRecommendations(db: Db, actorIn: Actor | string, o
   let costCents = 0
   if ((opts.useAi ?? true) && aiAvailable(opts.ai) && recs.length > 0) {
     try {
-      const raw = await askModel(recs, opts.ai ?? {})
+      const settings = await getSettings(db)
+      const raw = await askModel(recs, opts.ai ?? {}, recommendSystemPrompt(shopIdentity(settings), settings.market))
       costCents = raw.costCents
       let json: unknown
       try { json = JSON.parse(raw.text) } catch { throw new Error('The AI reply was not valid JSON') }

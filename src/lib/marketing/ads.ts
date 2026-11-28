@@ -10,6 +10,7 @@ import { readTargeting } from './audiences'
 import { writeAudit, type Db } from './audit'
 import { checkAdCap, monthDateBounds } from './budget'
 import { campaignBlockReason } from './campaign-window'
+import { assertContentProductMarketable } from './catalogue'
 import { assertCanGoLive } from './flags'
 import {
   activateAd, createPausedAd, fetchAdInsights, pauseAd, updateAdSchedule,
@@ -368,10 +369,19 @@ export async function assertAdCampaignAllows(db: Db, ad: { campaignId: number | 
   if (reason) throw new WebsiteError(409, reason, { blocked: 'campaign' })
 }
 
+/**
+ * ZP-1106 (MM-01-AC4, AT-06): an ad for a withdrawn or sold-out piece is not created or started on the platform.
+ * Checked before any request, like the campaign dates.
+ */
+export async function assertAdProductMarketable(db: Db, ad: { contentId: number | null }): Promise<void> {
+  if (ad.contentId) await assertContentProductMarketable(db, ad.contentId)
+}
+
 async function createOnPlatform(db: Db, id: number, actor: Actor, deps: AdDeps, now: Date): Promise<AdDto> {
   const before = await mustGet(db, id)
   transitionAd(before, 'create_on_platform', actor) // throws when not allowed
   await assertAdCampaignAllows(db, before, now)
+  await assertAdProductMarketable(db, before)
   const ops = opsOf(before)
   const settings = await getSettings(db)
   const channel = await adsChannel(db, platformKind(before))
@@ -414,6 +424,7 @@ async function startAd(db: Db, id: number, actor: Actor, deps: AdDeps, now: Date
   const ad = await mustGet(db, id)
   const t = transitionAd(ad, 'start', actor, { now })
   await assertAdCampaignAllows(db, ad, now)
+  await assertAdProductMarketable(db, ad)
   const ops = opsOf(ad)
   const settings = await getSettings(db)
   const channel = await adsChannel(db, platformKind(ad))
