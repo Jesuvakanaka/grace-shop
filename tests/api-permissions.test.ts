@@ -108,6 +108,11 @@ import * as mkContacts from '../src/app/api/marketing/contacts/route';
 import * as mkContactById from '../src/app/api/marketing/contacts/[id]/route';
 import * as mkContactConsent from '../src/app/api/marketing/contacts/[id]/consent/route';
 import * as mkContactsImport from '../src/app/api/marketing/contacts/import/route';
+import * as mkEnquiries from '../src/app/api/marketing/enquiries/route';
+import * as mkEnquiryById from '../src/app/api/marketing/enquiries/[id]/route';
+import * as mkEnquiryStatus from '../src/app/api/marketing/enquiries/[id]/status/route';
+import * as mkEnquiryContact from '../src/app/api/marketing/enquiries/[id]/contact/route';
+import * as mkEnquiryReply from '../src/app/api/marketing/enquiries/[id]/reply/route';
 import * as mkBroadcasts from '../src/app/api/marketing/broadcasts/route';
 import * as mkBroadcastById from '../src/app/api/marketing/broadcasts/[id]/route';
 import * as mkBroadcastTransition from '../src/app/api/marketing/broadcasts/[id]/transition/route';
@@ -276,6 +281,14 @@ const cases: Case[] = [
   { method: 'PATCH', path: `/api/marketing/contacts/${MISSING_ID}`, handler: h(mkContactById.PATCH), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'POST', path: `/api/marketing/contacts/${MISSING_ID}/consent`, handler: h(mkContactConsent.POST), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'POST', path: '/api/marketing/contacts/import', handler: h(mkContactsImport.POST), policy: 'OWNER' },
+  // ZP-1116 (MM-11): enquiries are OWNER only.
+  { method: 'GET', path: '/api/marketing/enquiries', handler: h(mkEnquiries.GET), policy: 'OWNER' },
+  { method: 'POST', path: '/api/marketing/enquiries', handler: h(mkEnquiries.POST), policy: 'OWNER' },
+  { method: 'GET', path: `/api/marketing/enquiries/${MISSING_ID}`, handler: h(mkEnquiryById.GET), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'PATCH', path: `/api/marketing/enquiries/${MISSING_ID}`, handler: h(mkEnquiryById.PATCH), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: `/api/marketing/enquiries/${MISSING_ID}/status`, handler: h(mkEnquiryStatus.POST), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: `/api/marketing/enquiries/${MISSING_ID}/contact`, handler: h(mkEnquiryContact.POST), policy: 'OWNER', params: { id: MISSING_ID } },
+  { method: 'POST', path: `/api/marketing/enquiries/${MISSING_ID}/reply`, handler: h(mkEnquiryReply.POST), policy: 'OWNER', params: { id: MISSING_ID } },
   { method: 'GET', path: '/api/marketing/broadcasts', handler: h(mkBroadcasts.GET), policy: 'OWNER' },
   { method: 'POST', path: '/api/marketing/broadcasts', handler: h(mkBroadcasts.POST), policy: 'OWNER' },
   { method: 'GET', path: `/api/marketing/broadcasts/${MISSING_ID}`, handler: h(mkBroadcastById.GET), policy: 'OWNER', params: { id: MISSING_ID } },

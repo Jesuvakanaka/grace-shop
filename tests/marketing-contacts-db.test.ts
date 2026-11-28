@@ -63,7 +63,10 @@ describe('contacts', () => {
     await recordConsent(prisma, c.id, { channel: 'WHATSAPP', status: 'OPTED_IN', method: 'said yes on WhatsApp on 26 Nov', evidence: 'chat screenshot' }, ACTOR)
     let after = await recordConsent(prisma, c.id, { channel: 'WHATSAPP', status: 'OPTED_OUT', method: 'asked to stop' }, ACTOR)
     assert.strictEqual(after.consent.WHATSAPP, 'OPTED_OUT')
-    after = await recordConsent(prisma, c.id, { channel: 'WHATSAPP', status: 'OPTED_IN', method: 'asked to be added back' }, ACTOR)
+    // MM-12-AC4: opting back in needs new evidence, not none and not the evidence from before the opt-out.
+    await rejects(() => recordConsent(prisma, c.id, { channel: 'WHATSAPP', status: 'OPTED_IN', method: 'asked to be added back' }, ACTOR), 409, /needs new evidence/)
+    await rejects(() => recordConsent(prisma, c.id, { channel: 'WHATSAPP', status: 'OPTED_IN', method: 'asked to be added back', evidence: 'Chat screenshot' }, ACTOR), 409, /already used/)
+    after = await recordConsent(prisma, c.id, { channel: 'WHATSAPP', status: 'OPTED_IN', method: 'asked to be added back', evidence: 'phoned on 27 Nov and asked again' }, ACTOR)
     assert.strictEqual(after.consent.WHATSAPP, 'OPTED_IN')
     assert.strictEqual(after.consent.SMS, 'NONE')
     const { history } = await getContact(prisma, c.id)
@@ -158,7 +161,9 @@ describe('public unsubscribe route', () => {
     assert.match(await r.text(), /You are unsubscribed/)
     assert.strictEqual(await sms(c.id), 'OPTED_OUT')
     assert.strictEqual((await unsub.GET(new Request(url(`?t=${t}`)))).status, 200)
-    assert.strictEqual((await prisma.marketingConsent.count({ where: { contactId: c.id } })), 2, 'no duplicate row the second time')
+    // One opt-out per purpose (offers and review requests), and no duplicate rows the second time.
+    const rows = await prisma.marketingConsent.findMany({ where: { contactId: c.id }, orderBy: { id: 'asc' } })
+    assert.deepStrictEqual(rows.map((x) => [x.status, x.purpose]), [['OPTED_IN', 'PROMOTION'], ['OPTED_OUT', 'PROMOTION'], ['OPTED_OUT', 'FEEDBACK']])
   })
 
   test('POST (one-click) and JSON answers', async () => {

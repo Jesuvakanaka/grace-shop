@@ -112,7 +112,7 @@ describe('audience: only a recorded, un-withdrawn opt-in for that exact channel'
     const none = await contact()
     const out = await contact({ optIn: ['SMS'], optOut: ['SMS'] })
     const again = await contact({ optIn: ['SMS'], optOut: ['SMS'] })
-    await recordConsent(prisma, again.id, { channel: 'SMS', status: 'OPTED_IN', method: 'asked to be added again' }, owner.username)
+    await recordConsent(prisma, again.id, { channel: 'SMS', status: 'OPTED_IN', method: 'asked to be added again', evidence: 'texted JOIN again on 27 Nov' }, owner.username)
     const waOnly = await contact({ optIn: ['WHATSAPP'] })
     const aud = await computeAudience(prisma, { channelKind: 'SMS', audienceFilter: { contactIds: [yes.id, none.id, out.id, again.id, waOnly.id] } })
     assert.deepStrictEqual(aud.eligible.map((m) => m.id).sort(), [yes.id, again.id].sort())
@@ -259,9 +259,12 @@ describe('sending', () => {
     const deps = depsFor(p.connector, { sleep: async () => { await recordConsent(prisma, c.id, { channel: 'SMS', status: 'OPTED_OUT', method: 'replied stop' }, owner.username) } })
     const r = await broadcastAction(prisma, b.id, 'send', owner, deps)
     assert.deepStrictEqual(p.sent.map((m) => m.to), [a.phone])
-    assert.strictEqual(r.run?.skipped, 1)
+    // MM-12-AC1: the opt-out itself takes them off the waiting message, so the run never reaches them.
+    assert.strictEqual(r.run?.sent, 1)
     const rows = await recipients(b.id)
-    assert.strictEqual(rows.find((x) => x.contactId === c.id)?.status, 'SKIPPED')
+    const skipped = rows.find((x) => x.contactId === c.id)
+    assert.strictEqual(skipped?.status, 'SKIPPED')
+    assert.strictEqual(skipped?.error, 'Opted out.')
     assert.strictEqual(r.broadcast.status, 'SENT')
   })
 
@@ -412,8 +415,131 @@ describe('WhatsApp and email end to end with the real connectors and a fake fetc
     const aud = await computeAudience(prisma, { channelKind: 'EMAIL', audienceFilter: { contactIds: [c.id] } })
     assert.strictEqual(aud.eligible.length, 0)
     const history = await prisma.marketingConsent.findMany({ where: { contactId: c.id, channel: 'EMAIL' }, orderBy: { id: 'asc' } })
-    assert.deepStrictEqual(history.map((h) => h.status), ['OPTED_IN', 'OPTED_OUT'])
-    assert.strictEqual(history[1].recordedBy, 'self:unsubscribe')
+    assert.deepStrictEqual(history.map((h) => [h.status, h.purpose]), [['OPTED_IN', 'PROMOTION'], ['OPTED_OUT', 'PROMOTION'], ['OPTED_OUT', 'FEEDBACK']])
+    assert.ok(history.slice(1).every((h) => h.recordedBy === 'self:unsubscribe'))
+  })
+})
+
+describe('ZP-1117 (MM-12): purpose, approval snapshot, restoration and review requests', () => {
+  test('MM-12-AC2: agreement to review requests is not agreement to offers, and the other way round', async () => {
+    const promo = await contact({ optIn: ['SMS'] })
+    const fb = await contact()
+    await recordConsent(prisma, fb.id, { channel: 'SMS', purpose: 'FEEDBACK', status: 'OPTED_IN', method: 'said yes to review requests at the till' }, owner.username)
+    const offers = await computeAudience(prisma, { channelKind: 'SMS', purpose: 'PROMOTION', audienceFilter: { contactIds: [promo.id, fb.id] } })
+    assert.deepStrictEqual(offers.eligible.map((m) => m.id), [promo.id])
+    const reviews = await computeAudience(prisma, { channelKind: 'SMS', purpose: 'REVIEW_REQUEST', audienceFilter: { contactIds: [promo.id, fb.id] } })
+    assert.deepStrictEqual(reviews.eligible.map((m) => m.id), [fb.id])
+  })
+
+  test('MM-12-AC3: approval keeps the people, criteria and cost; people who agree later wait for a new approval', async () => {
+    const saved = (await getSettings(prisma)).messageCostCents
+    await prisma.marketingSettings.update({ where: { id: 1 }, data: { messageCostCents: { SMS: 4 } } })
+    try {
+      const a = await contact({ optIn: ['SMS'] }); const b2 = await contact({ optIn: ['SMS'] }); const late = await contact()
+      const b = await approvedBroadcast([a.id, b2.id, late.id])
+      const row = await db(b.id)
+      assert.strictEqual(row.approvedCount, 2)
+      assert.strictEqual(row.approvedCostCents, 8)
+      assert.deepStrictEqual((row.approvedAudience as { criteria: unknown }).criteria, { contactIds: [a.id, b2.id, late.id] })
+      await recordConsent(prisma, late.id, { channel: 'SMS', status: 'OPTED_IN', method: 'texted JOIN' }, owner.username)
+      const d = await getBroadcastDetail(prisma, b.id)
+      assert.deepStrictEqual(d.approval && { count: d.approval.count, costCents: d.approval.costCents, willGet: d.approval.willGet, waiting: d.approval.waitingForApproval }, { count: 2, costCents: 8, willGet: 2, waiting: 1 })
+      assert.strictEqual(d.estimatedCostCents, 12)
+      const p = fakeProvider('SMS')
+      await broadcastAction(prisma, b.id, 'send', owner, depsFor(p.connector))
+      assert.deepStrictEqual(p.sent.map((m) => m.to).sort(), [a.phone, b2.phone].sort(), 'the person who agreed after approval is not messaged')
+      const audit = await prisma.marketingAuditLog.findFirst({ where: { entity: 'broadcast', entityId: b.id, action: 'broadcast.plan' }, orderBy: { id: 'desc' } })
+      assert.strictEqual((audit?.detail as { notApproved: number }).notApproved, 1)
+    } finally {
+      await prisma.marketingSettings.update({ where: { id: 1 }, data: { messageCostCents: saved as object } })
+    }
+  })
+
+  test('MM-12-AC3: a cost that is not known is shown as not known, never as 0', async () => {
+    const a = await contact({ optIn: ['SMS'] })
+    const b = await approvedBroadcast([a.id])
+    const saved = (await getSettings(prisma)).messageCostCents
+    assert.strictEqual((await db(b.id)).approvedCostCents, (saved as Record<string, number>).SMS === undefined ? null : Math.round((saved as Record<string, number>).SMS))
+  })
+
+  test('MM-12-AC3: changing the words or the audience after approval clears the approval', async () => {
+    const a = await contact({ optIn: ['SMS'] })
+    const b = await approvedBroadcast([a.id])
+    const c = await contact({ optIn: ['SMS'] })
+    await updateBroadcast(prisma, b.id, { audienceFilter: { contactIds: [a.id, c.id] } }, owner.username)
+    const row = await db(b.id)
+    assert.notStrictEqual(row.status, 'APPROVED')
+    assert.strictEqual(row.approvedCount, null)
+    assert.strictEqual(row.approvedAudience, null)
+    await rejects(() => broadcastAction(prisma, b.id, 'send', owner, depsFor(fakeProvider('SMS').connector)), 409)
+  })
+
+  test('MM-12-AC4: opting back in needs new evidence and does not bring back a skipped message', async () => {
+    const a = await contact({ optIn: ['SMS'] }); const c = await contact({ optIn: ['SMS'] })
+    const b = await approvedBroadcast([a.id, c.id])
+    const p = fakeProvider('SMS')
+    await broadcastAction(prisma, b.id, 'send', owner, depsFor(p.connector, { sleep: async () => { await recordConsent(prisma, c.id, { channel: 'SMS', status: 'OPTED_OUT', method: 'replied STOP' }, owner.username) } }))
+    await rejects(() => recordConsent(prisma, c.id, { channel: 'SMS', status: 'OPTED_IN', method: 'asked again' }, owner.username), 409, /new evidence/)
+    await recordConsent(prisma, c.id, { channel: 'SMS', status: 'OPTED_IN', method: 'asked again', evidence: 'texted JOIN on 27 Nov' }, owner.username)
+    const rows = await recipients(b.id)
+    assert.strictEqual(rows.find((x) => x.contactId === c.id)?.status, 'SKIPPED', 'the old message stays skipped')
+    await rejects(() => broadcastAction(prisma, b.id, 'retry', owner, depsFor(p.connector)), 409)
+    assert.deepStrictEqual(p.sent.map((m) => m.to), [a.phone])
+  })
+
+  test('MM-12-AC5: a review request asks for an honest review, with nothing offered for it', async () => {
+    const fb = await contact()
+    await recordConsent(prisma, fb.id, { channel: 'SMS', purpose: 'FEEDBACK', status: 'OPTED_IN', method: 'said yes to review requests' }, owner.username)
+    const bad = [
+      ['Please leave us a 5 star review!', /honest review/],
+      ['Leave a review and get 10% off your next order', /in return/],
+      ['Reply with your name and we will write a review for you', /never writes/],
+    ] as const
+    for (const [text, re] of bad) {
+      const b = await createBroadcast(prisma, { channelKind: 'SMS', purpose: 'REVIEW_REQUEST', name: 'ZP1117 review', text, audienceFilter: { contactIds: [fb.id] } }, owner.username)
+      broadcastIds.push(b.id)
+      await rejects(() => broadcastAction(prisma, b.id, 'submit', staff, depsFor(fakeProvider('SMS').connector)), 409, re)
+    }
+    const ok = await createBroadcast(prisma, { channelKind: 'SMS', purpose: 'REVIEW_REQUEST', name: 'ZP1117 review ok', text: 'Hi {name}, how was your dress? An honest review helps other shoppers: https://vyra.example/review', audienceFilter: { contactIds: [fb.id] } }, owner.username)
+    broadcastIds.push(ok.id)
+    await broadcastAction(prisma, ok.id, 'submit', staff, depsFor(fakeProvider('SMS').connector))
+    const a = await broadcastAction(prisma, ok.id, 'approve', owner, depsFor(fakeProvider('SMS').connector))
+    assert.strictEqual(a.broadcast.status, 'APPROVED')
+    assert.strictEqual((await db(ok.id)).approvedCount, 1)
+  })
+
+  test('STOP on a review request stops offers and review requests on that channel, and skips their other waiting message', async () => {
+    const c = await contact({ optIn: ['SMS'] })
+    await recordConsent(prisma, c.id, { channel: 'SMS', purpose: 'FEEDBACK', status: 'OPTED_IN', method: 'said yes to review requests' }, owner.username)
+    const offer = await approvedBroadcast([c.id])
+    const review = await createBroadcast(prisma, { channelKind: 'SMS', purpose: 'REVIEW_REQUEST', name: 'ZP1117 STOP review', text: 'Hi {name}, how was your dress? An honest review helps: https://vyra.example/review', audienceFilter: { contactIds: [c.id] } }, owner.username)
+    broadcastIds.push(review.id)
+    await broadcastAction(prisma, review.id, 'submit', staff, depsFor(fakeProvider('SMS').connector))
+    await broadcastAction(prisma, review.id, 'approve', owner, depsFor(fakeProvider('SMS').connector))
+    // The offer is part-sent and paused (as at the daily cap): its row for this person waits.
+    await prisma.marketingBroadcast.update({ where: { id: offer.id }, data: { status: 'SENDING' } })
+    await prisma.marketingBroadcastRecipient.create({ data: { broadcastId: offer.id, contactId: c.id } })
+    assert.strictEqual((await recipients(offer.id))[0]?.status, 'PENDING')
+    const stop = fakeProvider('SMS', () => ({ ok: false, error: 'stopped', retryable: false, code: 21610, optedOut: true }))
+    await broadcastAction(prisma, review.id, 'send', owner, depsFor(stop.connector))
+    const history = await prisma.marketingConsent.findMany({ where: { contactId: c.id, channel: 'SMS', status: 'OPTED_OUT' }, orderBy: { id: 'asc' } })
+    assert.deepStrictEqual(history.map((h) => [h.purpose, h.recordedBy]).sort(), [['FEEDBACK', 'system'], ['PROMOTION', 'system']])
+    for (const purpose of ['PROMOTION', 'REVIEW_REQUEST']) {
+      assert.strictEqual((await computeAudience(prisma, { channelKind: 'SMS', purpose, audienceFilter: { contactIds: [c.id] } })).eligible.length, 0, purpose)
+    }
+    const waiting = (await recipients(offer.id))[0]
+    assert.deepStrictEqual([waiting.status, waiting.error], ['SKIPPED', 'Opted out.'])
+  })
+
+  test('MM-12-AC6: a message the provider accepted is SENT with its id, never marked delivered', async () => {
+    const a = await contact({ optIn: ['SMS'] })
+    const b = await approvedBroadcast([a.id])
+    await broadcastAction(prisma, b.id, 'send', owner, depsFor(fakeProvider('SMS').connector))
+    const rows = await recipients(b.id)
+    assert.strictEqual(rows[0].status, 'SENT')
+    assert.ok(rows[0].externalId, 'SENT only with the provider id as evidence')
+    const statuses = await prisma.marketingBroadcastRecipient.findMany({ where: { broadcastId: { in: broadcastIds } }, select: { status: true }, distinct: ['status'] })
+    assert.ok(statuses.every((x) => ['PENDING', 'SENDING', 'SENT', 'FAILED', 'SKIPPED'].includes(x.status)))
   })
 })
 

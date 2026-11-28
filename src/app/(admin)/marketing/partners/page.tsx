@@ -35,7 +35,7 @@ function KitPanel({ partner }: { partner: Partner }) {
       {kit ? (
         <div className="rounded-lg border border-brand-olive-200 bg-brand-olive-50 p-4 space-y-3">
           <h4 className="font-semibold text-slate-900">Share kit{kit.productName ? `: ${kit.productName}` : ''}</h4>
-          <p className="text-sm text-slate-600">Their link (it carries the code <strong>{partner.code}</strong>, so visits and enquiries show up here):</p>
+          <p className="text-sm text-slate-600">Their link (it carries the code <strong>{partner.code}</strong>, so visits and message taps show up here):</p>
           <p className="break-all text-sm font-mono" data-testid="kit-link">{kit.link ?? 'The shop address is not set yet.'}</p>
           <pre className="whitespace-pre-wrap rounded bg-white border border-slate-200 p-3 text-sm" data-testid="kit-text">{kit.text}</pre>
           <div className="flex flex-wrap gap-2">
@@ -84,7 +84,7 @@ export default function PartnersPage() {
     <div className="space-y-6">
       <ErrorNote message={error} />
       <Card>
-        <p className="text-sm text-slate-600 mb-3">Give each influencer or reseller their own link. You see the visits and enquiries it brings. VYRA does not pay anyone: the commission is only a reminder of what you agreed.</p>
+        <p className="text-sm text-slate-600 mb-3">Give each influencer or reseller their own link. You see the visits and message taps it brings. VYRA does not pay anyone: the commission is only a reminder of what you agreed.</p>
         <form onSubmit={add} className="grid gap-3 sm:grid-cols-2" data-testid="partner-form">
           <div><label className="label" htmlFor="p-name">Name</label><input id="p-name" className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} maxLength={120} required data-testid="partner-name" /></div>
           <div>
@@ -115,7 +115,7 @@ export default function PartnersPage() {
                 <button type="button" className="btn btn-secondary" onClick={() => setOpen(open === p.id ? null : p.id)} aria-expanded={open === p.id}>{open === p.id ? 'Close' : 'Link and kit'}</button>
               </div>
             </div>
-            <p className="mt-2 text-sm" data-testid={`partner-results-${p.id}`}>Last {p.results?.days ?? 30} days: <strong>{p.results?.visits ?? 0}</strong> visits, <strong>{p.results?.enquiries ?? 0}</strong> visits that ended in a WhatsApp enquiry.</p>
+            <p className="mt-2 text-sm" data-testid={`partner-results-${p.id}`}>Last {p.results?.days ?? 30} days: <strong>{p.results?.visits ?? 0}</strong> visits, <strong>{p.results?.enquiries ?? 0}</strong> visits that tapped to message you on WhatsApp (a tap, not a confirmed conversation).</p>
             {open === p.id ? <KitPanel partner={p} /> : null}
           </li>
         ))}

@@ -1,5 +1,6 @@
 'use client';
 // ZP-1200: one message: who it would reach, why it cannot be sent yet, approve and send.
+// ZP-1117 (MM-12): what was approved (people, criteria, cost) and who would be left out until approved again.
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -8,7 +9,7 @@ import { mk } from '@/components/marketing/api';
 import { Card, ErrorNote, Loading } from '@/components/marketing/parts';
 import { BROADCAST_STATUS_CLASSES, BROADCAST_STATUS_LABELS, MESSAGE_CHANNEL_LABELS, broadcastButtons, progressLine, type BroadcastButton } from '@/lib/marketing/messages-ui';
 
-interface Broadcast { id: number; name: string; channelKind: string; subject: string | null; text: string; templateName: string | null; status: string; approvedBy: string | null; approvedAt: string | null; plannedCount: number; sentCount: number; failedCount: number; skippedCount: number; error: string | null; consentChannel: string }
+interface Broadcast { id: number; name: string; channelKind: string; subject: string | null; text: string; templateName: string | null; status: string; purpose: string; approvedBy: string | null; approvedAt: string | null; plannedCount: number; sentCount: number; failedCount: number; skippedCount: number; error: string | null; consentChannel: string }
 interface Detail {
   broadcast: Broadcast;
   audience: { eligible: number; matched: number; withheld: { noAddress: number; noConsent: number; optedOut: number } };
@@ -16,9 +17,19 @@ interface Detail {
   preview: { text: string; subject: string | null };
   sentToday: number;
   dailyCap: number;
+  approval: { count: number; costCents: number | null; criteria: { sources?: string[]; contactIds?: number[] } | null; purpose: string; willGet: number; waitingForApproval: number; noLongerEligible: number } | null;
+  estimatedCostCents: number | null;
 }
+const PURPOSE_LABELS: Record<string, string> = { PROMOTION: 'An offer or news (needs agreement to offers)', REVIEW_REQUEST: 'A request for an honest review (needs agreement to feedback requests)' };
+const cost = (c: number | null) => (c === null ? 'not known: set the cost per message in Settings' : `about US$${(c / 100).toFixed(2)}`);
+const criteriaLine = (c: { sources?: string[]; contactIds?: number[] } | null) => {
+  if (!c) return 'everyone who agreed';
+  const parts = [c.sources?.length ? `from ${c.sources.join(', ').toLowerCase()}` : null, c.contactIds?.length ? `${c.contactIds.length} chosen people` : null].filter(Boolean);
+  return parts.length ? parts.join(', ') : 'everyone who agreed';
+};
 interface Recipient { id: number; status: string; error: string | null; sentAt: string | null; contact: { id: number; name: string | null; phone: string | null; email: string | null } }
-const RECIPIENT_LABELS: Record<string, string> = { PENDING: 'Waiting', SENDING: 'Sending', SENT: 'Sent', FAILED: 'Did not go out', SKIPPED: 'Skipped' };
+// MM-12-AC6: SENT means the provider accepted it. Nothing here says delivered: the provider has not told us.
+const RECIPIENT_LABELS: Record<string, string> = { PENDING: 'Waiting', SENDING: 'Sending', SENT: 'Accepted by the provider (delivery not confirmed)', FAILED: 'Did not go out', SKIPPED: 'Skipped' };
 
 export default function MessagePage() {
   const { id } = useParams<{ id: string }>();
@@ -57,7 +68,7 @@ export default function MessagePage() {
 
   if (!d) return error ? <ErrorNote message={error} /> : <Loading />;
   const b = d.broadcast;
-  const buttons = broadcastButtons(b.status, d.audience.eligible);
+  const buttons = broadcastButtons(b.status, d.approval ? d.approval.willGet : d.audience.eligible);
   const editable = ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED'].includes(b.status);
   const w = d.audience.withheld;
 
@@ -73,6 +84,7 @@ export default function MessagePage() {
           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${BROADCAST_STATUS_CLASSES[b.status]}`} data-testid="message-status">{BROADCAST_STATUS_LABELS[b.status] ?? b.status}</span>
         </div>
         <p className="text-sm text-slate-500">{MESSAGE_CHANNEL_LABELS[b.channelKind]}{b.approvedBy ? ` · approved by ${b.approvedBy}` : ''}</p>
+        <p className="text-sm text-slate-600" data-testid="message-purpose">{PURPOSE_LABELS[b.purpose] ?? b.purpose}</p>
         <p className="text-sm" data-testid="message-progress">{progressLine(b)}</p>
         {b.error ? <p className="text-sm text-rose-700">{b.error}</p> : null}
       </Card>
@@ -84,8 +96,21 @@ export default function MessagePage() {
         {d.audience.matched - d.audience.eligible > 0 ? (
           <p className="text-sm text-slate-500">Left out: {w.noConsent} never said yes, {w.optedOut} stopped, {w.noAddress} have no {b.channelKind === 'EMAIL' ? 'email address' : 'phone number'}.</p>
         ) : null}
+        <p className="text-sm text-slate-600" data-testid="audience-cost">Estimated cost for them: {cost(d.estimatedCostCents)}.</p>
         <p className="text-xs text-slate-500">Checked again at the moment of sending. Today: {d.sentToday} of {d.dailyCap} messages allowed.</p>
       </Card>
+
+      {d.approval ? (
+        <Card className="space-y-2" data-testid="message-approval">
+          <h3 className="font-semibold text-slate-900">What was approved</h3>
+          <p className="text-sm text-slate-700"><strong>{d.approval.count}</strong> {d.approval.count === 1 ? 'person' : 'people'} ({criteriaLine(d.approval.criteria)}), estimated cost {cost(d.approval.costCents)}.</p>
+          <p className="text-sm text-slate-700" data-testid="approval-will-get">Sending now reaches <strong>{d.approval.willGet}</strong> of them.</p>
+          {d.approval.noLongerEligible > 0 ? <p className="text-sm text-slate-600">{d.approval.noLongerEligible} stopped or can no longer be messaged since, so they are left out.</p> : null}
+          {d.approval.waitingForApproval > 0 ? (
+            <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900" data-testid="approval-waiting">{d.approval.waitingForApproval} more {d.approval.waitingForApproval === 1 ? 'person agreed' : 'people agreed'} after approval. They are not included unless you send it for approval again.</p>
+          ) : null}
+        </Card>
+      ) : null}
 
       {d.blockedReasons.length > 0 ? (
         <Card className="space-y-2 border-amber-200 bg-amber-50" data-testid="message-blocked">
