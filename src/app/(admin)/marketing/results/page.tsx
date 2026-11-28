@@ -3,10 +3,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { mk } from '@/components/marketing/api';
 import { Card, ErrorNote, Loading } from '@/components/marketing/parts';
+import { TruthPanel } from '@/components/marketing/TruthPanel';
 import { getChannel } from '@/lib/marketing/channels';
 import { defaultRange, enquiryRate, REC_STATUS_LABELS, usd } from '@/lib/marketing/ui';
 
-interface Row { key: string; label: string; posts: number; ads: number; impressions: number; reach: number; clicks: number; visits: number; enquiries: number; spendCents: number }
+interface Row { key: string; label: string; posts: number; ads: number; impressions: number; reach: number; clicks: number; visits: number; enquiries: number; spendCents: number; reportedDays: number }
 interface Report {
   from: string; to: string;
   totals: Omit<Row, 'key' | 'label' | 'posts' | 'ads'>;
@@ -19,6 +20,11 @@ interface Rec { id: number; weekOf: string; kind: string; title: string; body: s
 
 const channelName = (k: string) => getChannel(k)?.label ?? k;
 
+/** A platform number is known only when a platform reported it for this row; otherwise it is unknown, never 0. */
+function Platform({ r, n }: { r: Row; n: number }) {
+  return r.reportedDays > 0 ? <>{n}</> : <span className="text-slate-400" data-state="UNKNOWN">Unknown</span>;
+}
+
 function Table({ title, rows, labelOf, testId }: { title: string; rows: Row[]; labelOf?: (r: Row) => string; testId: string }) {
   return (
     <Card>
@@ -29,8 +35,9 @@ function Table({ title, rows, labelOf, testId }: { title: string; rows: Row[]; l
             <thead>
               <tr className="text-left text-xs uppercase text-slate-500">
                 <th className="py-2 pr-3 font-medium">Name</th>
-                <th className="py-2 pr-3 font-medium text-right">Seen</th>
-                <th className="py-2 pr-3 font-medium text-right">Clicks</th>
+                <th className="py-2 pr-3 font-medium text-right">Summed reported reach</th>
+                <th className="py-2 pr-3 font-medium text-right">Times shown (reported)</th>
+                <th className="py-2 pr-3 font-medium text-right">Clicks (reported)</th>
                 <th className="py-2 pr-3 font-medium text-right">Visits</th>
                 <th className="py-2 pr-3 font-medium text-right">Message taps</th>
                 <th className="py-2 pr-3 font-medium text-right">Tap rate</th>
@@ -41,8 +48,9 @@ function Table({ title, rows, labelOf, testId }: { title: string; rows: Row[]; l
               {rows.map((r) => (
                 <tr key={r.key}>
                   <td className="py-2 pr-3 text-slate-900">{labelOf ? labelOf(r) : r.label}</td>
-                  <td className="py-2 pr-3 text-right">{r.impressions || r.reach}</td>
-                  <td className="py-2 pr-3 text-right">{r.clicks}</td>
+                  <td className="py-2 pr-3 text-right"><Platform r={r} n={r.reach} /></td>
+                  <td className="py-2 pr-3 text-right"><Platform r={r} n={r.impressions} /></td>
+                  <td className="py-2 pr-3 text-right"><Platform r={r} n={r.clicks} /></td>
                   <td className="py-2 pr-3 text-right">{r.visits}</td>
                   <td className="py-2 pr-3 text-right">{r.enquiries}</td>
                   <td className="py-2 pr-3 text-right">{enquiryRate(r.visits, r.enquiries)}</td>
@@ -106,7 +114,6 @@ export default function ResultsPage() {
 
   const fresh = recs?.filter((r) => r.status === 'NEW') ?? [];
   const older = recs?.filter((r) => r.status !== 'NEW') ?? [];
-  const t = report?.totals;
 
   return (
     <div className="space-y-6">
@@ -127,25 +134,13 @@ export default function ResultsPage() {
             {busy === 'sync' ? 'Updating…' : 'Update the numbers'}
           </button>
         </div>
-        <p className="mt-2 text-xs text-slate-500">Visits and message taps come from your own website. A tap opens WhatsApp: it is not a conversation. Conversations are under Enquiries. Seen and clicks come from Facebook, Instagram and Meta ads once they are connected.</p>
+        <p className="mt-2 text-xs text-slate-500">Visits and message taps come from your own website. A tap opens WhatsApp: it is not a conversation. Conversations are under Enquiries. Reach, times shown and clicks come from Facebook, Instagram and Meta ads once they are connected. Until a platform reports them for a row, they show as Unknown.</p>
       </Card>
 
       {!report ? <Loading /> : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5" data-testid="results-totals">
-            {[
-              ['Seen', t!.impressions || t!.reach],
-              ['Clicks', t!.clicks],
-              ['Visits', t!.visits],
-              ['Message taps', t!.enquiries],
-              ['Ad spend', usd(report.spendCents)],
-            ].map(([label, value]) => (
-              <div key={String(label)} className="card">
-                <p className="text-xs uppercase text-slate-500">{label}</p>
-                <p className="text-2xl font-semibold text-slate-900">{value}</p>
-              </div>
-            ))}
-          </div>
+          {/* ZP-1119 (MM-14): totals with their meaning; unknown is never shown as 0. */}
+          <TruthPanel from={range.from} to={range.to} />
           <Table title="By channel" rows={report.perChannel} labelOf={(r) => channelName(r.key)} testId="results-channels" />
           <Table title="By post" rows={report.perPost} labelOf={(r) => `${r.label} · ${channelName((r as Report['perPost'][number]).channelKind)}`} testId="results-posts" />
           <Table title="By product" rows={report.perProduct} testId="results-products" />

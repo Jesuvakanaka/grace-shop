@@ -27,8 +27,10 @@ export interface Totals {
   visits: number
   enquiries: number
   spendCents: number
+  /** Daily rows a platform actually reported (raw is set). 0 means reach, times shown and clicks are unknown, not 0. */
+  reportedDays: number
 }
-export const zeroTotals = (): Totals => ({ impressions: 0, reach: 0, clicks: 0, visits: 0, enquiries: 0, spendCents: 0 })
+export const zeroTotals = (): Totals => ({ impressions: 0, reach: 0, clicks: 0, visits: 0, enquiries: 0, spendCents: 0, reportedDays: 0 })
 const addTo = (t: Totals, m: Partial<Totals>) => {
   t.impressions += m.impressions ?? 0
   t.reach += m.reach ?? 0
@@ -36,6 +38,7 @@ const addTo = (t: Totals, m: Partial<Totals>) => {
   t.visits += m.visits ?? 0
   t.enquiries += m.enquiries ?? 0
   t.spendCents += m.spendCents ?? 0
+  t.reportedDays += m.reportedDays ?? 0
 }
 
 export interface ResultsDeps {
@@ -199,11 +202,11 @@ function bump(map: Acc, key: string, label: string, m: Partial<Totals>, kind: 'p
   map.set(key, row)
   return row
 }
-const sumMetrics = (rows: { entityId: number; impressions: number; reach: number; clicks: number; spendCents: number; enquiries: number; visits: number }[]) => {
+const sumMetrics = (rows: { entityId: number; impressions: number; reach: number; clicks: number; spendCents: number; enquiries: number; visits: number; raw: unknown }[]) => {
   const m = new Map<number, Totals>()
   for (const r of rows) {
     const t = m.get(r.entityId) ?? zeroTotals()
-    addTo(t, r)
+    addTo(t, { ...r, reportedDays: r.raw !== null ? 1 : 0 })
     m.set(r.entityId, t)
   }
   return m

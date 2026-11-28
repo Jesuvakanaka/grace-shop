@@ -91,16 +91,37 @@ describe('AI wording never invents numbers', () => {
     assert.strictEqual(inventsNumbers({ title: 'x', body: 'That is 50% more.' }, rule), true)
   })
   test('good rewording is used, an invented number keeps the rule text, unknown kinds are ignored', () => {
+    const big = ruleRecommendations(computeFacts(base({ posts: base().posts.map((p) => ({ ...p, visits: p.visits * 10, enquiries: p.enquiries * 10 })) })))
     const json = { items: [
-      { kind: 'best_channel', title: 'Instagram is your star', body: 'It sent 30 visits and 4 enquiries from 3 posts. Start there.' },
-      { kind: 'best_product', title: 'Rose Dress is a winner', body: 'It brought about 45 visits.' },
+      { kind: 'best_channel', title: 'Instagram brings the most visitors', body: 'It sent 300 visits and 40 enquiries from 3 posts. Start there.' },
+      { kind: 'best_product', title: 'Rose Dress draws people in', body: 'It brought about 450 visits.' },
       { kind: 'made_up', title: 'Hello', body: 'World' },
     ] }
-    const { recs, reworded } = mergeAiWording(rules, json)
+    const { recs, reworded } = mergeAiWording(big, json)
     assert.strictEqual(reworded, 1)
-    assert.strictEqual(recs.find((r) => r.kind === 'best_channel')!.title, 'Instagram is your star')
-    assert.deepStrictEqual(recs.find((r) => r.kind === 'best_product'), rules.find((r) => r.kind === 'best_product'))
-    assert.strictEqual(recs.length, rules.length)
+    assert.strictEqual(recs.find((r) => r.kind === 'best_channel')!.title, 'Instagram brings the most visitors')
+    assert.deepStrictEqual(recs.find((r) => r.kind === 'best_product'), big.find((r) => r.kind === 'best_product'))
+    assert.strictEqual(recs.length, big.length)
+  })
+  // ZP-1119 (MM-14-AC6): a leader on a small sample is never called a winner, by the rules or by the AI.
+  test('a small-sample leader is qualified and keeps the rule text whatever the AI says', () => {
+    const ch = rules.find((r) => r.kind === 'best_channel')!
+    assert.match(ch.title, /so far/)
+    assert.match(ch.body, /only 30 visits, too few to be sure/)
+    assert.strictEqual(ch.data.smallSample, true)
+    const { recs, reworded } = mergeAiWording(rules, { items: [{ kind: 'best_channel', title: 'Instagram brings visitors', body: 'It sent 30 visits and 4 enquiries from 3 posts.' }] })
+    assert.strictEqual(reworded, 0)
+    assert.deepStrictEqual(recs.find((r) => r.kind === 'best_channel'), ch)
+  })
+  test('certainty words the rule text does not use are refused even on a large sample', () => {
+    const big = ruleRecommendations(computeFacts(base({ posts: base().posts.map((p) => ({ ...p, visits: p.visits * 10, enquiries: p.enquiries * 10 })) })))
+    const ch = big.find((r) => r.kind === 'best_channel')!
+    assert.strictEqual(ch.data.smallSample, false)
+    assert.doesNotMatch(ch.title, /so far/)
+    for (const title of ['Instagram is your star', 'Instagram is the winner', 'Instagram definitely works']) {
+      const { recs } = mergeAiWording(big, { items: [{ kind: 'best_channel', title, body: 'It sent 300 visits and 40 enquiries from 3 posts.' }] })
+      assert.deepStrictEqual(recs.find((r) => r.kind === 'best_channel'), ch, title)
+    }
   })
   test('a reply in the wrong shape throws', () => {
     assert.throws(() => mergeAiWording(rules, { nope: 1 }))
@@ -184,11 +205,14 @@ describe('generateRecommendations (database)', () => {
     const reply = { items: [
       { kind: 'best_channel', title: 'Instagram is your star', body: 'It sent 12 visits and 2 enquiries from 1 post.' },
       { kind: 'best_product', title: 'Rose Dress sells itself', body: 'It brought 99 visits.' },
+      { kind: 'unused_channels', title: 'Give Threads a go', body: 'Threads is connected and waiting for a first post.' },
     ] }
     const r = await generateRecommendations(prisma, 'zp1200-rec-owner', { now: NOW, ai: { client: fakeClaude(reply, calls) } })
     assert.strictEqual(r.usedAi, true)
     assert.ok(r.costCents > 0)
-    assert.strictEqual(r.recommendations.find((x) => x.kind === 'best_channel')!.title, 'Instagram is your star')
+    assert.strictEqual(r.recommendations.find((x) => x.kind === 'unused_channels')!.title, 'Give Threads a go')
+    // 12 visits is too few to call Instagram a star (ZP-1119 MM-14-AC6): the qualified rule text stays.
+    assert.match(r.recommendations.find((x) => x.kind === 'best_channel')!.title, /so far/)
     assert.doesNotMatch(r.recommendations.find((x) => x.kind === 'best_product')!.body, /99/)
     assert.strictEqual(r.recommendations.reduce((s, x) => s + x.aiCostCents, 0), r.costCents)
     // The prompt carries only numbers the code worked out.
