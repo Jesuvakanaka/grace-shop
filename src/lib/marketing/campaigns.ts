@@ -71,12 +71,25 @@ export async function createCampaign(db: Db, body: unknown, actor: string): Prom
   return toDto(row)
 }
 
+/**
+ * ZP-1124 (MM-04-AC4): an ad already running on Meta or Google keeps spending on the platform whatever the
+ * hub says, and this slice does not pause it remotely (that is MM-04-AC5). So a campaign with a running ad
+ * cannot be archived or ended here: the owner pauses the ad first.
+ */
+async function assertNoRunningAd(db: Db, campaignId: number, what: 'archive' | 'end'): Promise<void> {
+  const running = await db.marketingAd.findMany({ where: { campaignId, status: 'ACTIVE' }, select: { id: true, headline: true }, take: 3 })
+  if (running.length === 0) return
+  const names = running.map((a) => `"${a.headline}"`).join(', ')
+  throw new WebsiteError(409, `This campaign has an ad running on the platform (${names}). Pause the ad on the Ads screen first, then ${what} the campaign.`, { blocked: 'ad' })
+}
+
 export async function updateCampaign(db: Db, id: number, body: unknown, actor: string): Promise<CampaignDto> {
   const { d, productIds } = parse(asObject(body), false)
   if (Object.keys(d).length === 0 && !productIds) throw new WebsiteError(400, 'Nothing to change.')
   const existing = await db.marketingCampaign.findUnique({ where: { id } })
   if (!existing) throw new WebsiteError(404, 'Campaign not found')
   if (existing.status === 'ARCHIVED') throw new WebsiteError(409, 'This campaign is archived and can no longer be changed.')
+  if (d.status === 'ENDED' && existing.status !== 'ENDED') await assertNoRunningAd(db, id, 'end')
   checkDates((d.startsAt as Date | null | undefined) ?? existing.startsAt, (d.endsAt as Date | null | undefined) ?? existing.endsAt)
   if (productIds) {
     await checkProducts(db, productIds)
@@ -105,6 +118,7 @@ export async function archiveCampaign(db: Db, id: number, actor: string): Promis
   const existing = await db.marketingCampaign.findUnique({ where: { id }, include })
   if (!existing) throw new WebsiteError(404, 'Campaign not found')
   if (existing.status === 'ARCHIVED') return toDto(existing)
+  await assertNoRunningAd(db, id, 'archive')
   const res = await db.marketingCampaign.updateMany({ where: { id, status: existing.status }, data: { status: 'ARCHIVED' } })
   if (res.count === 0) throw new WebsiteError(409, 'Someone else just changed this campaign. Reload and try again.')
   const posts = await db.marketingPost.findMany({ where: { status: { in: ['APPROVED', 'SCHEDULED'] }, content: { campaignId: id } }, select: { id: true, status: true } })

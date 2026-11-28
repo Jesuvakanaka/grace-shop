@@ -7,7 +7,9 @@ import assert from 'node:assert'
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'zp1124-test-secret-0123456789abcdef0123'
 
 import prisma from '../src/lib/db'
-import { archiveCampaign } from '../src/lib/marketing/campaigns'
+import { archiveCampaign, updateCampaign } from '../src/lib/marketing/campaigns'
+import { transitionAdAction } from '../src/lib/marketing/ads'
+import { NotSentError } from '../src/lib/marketing/connectors/common'
 import { shopDay } from '../src/lib/marketing/campaign-window'
 import { markStalePublishing, publishPost, runDuePosts, PUBLISH_LEASE_MS, type PublishDeps } from '../src/lib/marketing/publish'
 import { transitionPost } from '../src/lib/marketing/posts'
@@ -26,6 +28,7 @@ let channelId = 0
 const campaignIds: number[] = []
 const contentIds: number[] = []
 const postIds: number[] = []
+const adIds: number[] = []
 
 /** UTC midnight of the shop day `offset` days from today, the way the campaign page stores a chosen day. */
 const day = (offset: number) => new Date(new Date(`${shopDay(new Date())}T00:00:00Z`).getTime() + offset * DAY)
@@ -85,6 +88,8 @@ before(async () => {
 })
 
 after(async () => {
+  await prisma.marketingAd.deleteMany({ where: { id: { in: adIds } } })
+  await prisma.marketingAuditLog.deleteMany({ where: { entity: 'ad', entityId: { in: adIds } } })
   await prisma.marketingPost.deleteMany({ where: { id: { in: postIds } } })
   await prisma.marketingContent.deleteMany({ where: { id: { in: contentIds } } })
   await prisma.marketingCampaign.deleteMany({ where: { id: { in: campaignIds } } })
@@ -222,5 +227,77 @@ describe('AT-05: an unknown outcome is never retried blind (MM-09-AC1 to AC3)', 
     assert.strictEqual(row.status, 'UNCERTAIN')
     assert.match(row.error ?? '', /stopped before Facebook Page answered/)
     assert.strictEqual(await prisma.marketingAuditLog.count({ where: { entity: 'post', entityId: p.id, action: 'post.uncertain' } }), 1)
+  })
+})
+
+describe('review fixes (PR 73)', () => {
+  test('a paused campaign with more overdue posts than the batch does not stop other campaigns', async () => {
+    const paused = await newCampaign({ status: 'PAUSED' })
+    const overdue = new Date(Date.now() - 2 * 3_600_000)
+    const stuck: number[] = []
+    for (let i = 0; i < 12; i++) stuck.push((await newPost(paused.contentId, { status: 'SCHEDULED', scheduledFor: overdue })).id)
+    const active = await newCampaign()
+    const due = await newPost(active.contentId, { status: 'SCHEDULED', scheduledFor: new Date(Date.now() - 60_000) })
+    const s = stub({ ok: true, externalId: 'fb_123', externalUrl: null })
+    const r = await runDuePosts(prisma, new Date(), s.deps, { max: 10 })
+    assert.ok(r.published.includes(due.id), JSON.stringify(r))
+    assert.ok(s.sent.includes(due.id))
+    assert.ok(!s.sent.some((id) => stuck.includes(id)))
+    for (const id of stuck) assert.strictEqual(await statusOf(id), 'SCHEDULED')
+    assert.ok(stuck.every((id) => r.blocked.some((b) => b.postId === id && /paused/.test(b.reason))))
+  })
+
+  test('a connector that refuses before sending (its own gate, a photo it could not fetch) leaves a plain failure, not uncertain', async () => {
+    const { contentId } = await newCampaign()
+    const a = await newPost(contentId)
+    const b = await newPost(contentId)
+    const gate = await publishPost(prisma, a.id, owner, stub(new WebsiteError(409, 'Live posting is switched off.')).deps)
+    assert.strictEqual(gate.status, 'FAILED')
+    const photo = await publishPost(prisma, b.id, owner, stub(new NotSentError('Could not download the file https://x/1.jpg (HTTP 404).')).deps)
+    assert.strictEqual(photo.status, 'FAILED')
+    assert.match(photo.error ?? '', /download/)
+  })
+
+  async function newAd(campaignId: number, status: string) {
+    const ad = await prisma.marketingAd.create({
+      data: {
+        campaignId, headline: `ZP1124 ad ${adIds.length + 1}`, primaryText: 'Pink dress', trackingTag: generateTrackingTag(), status,
+        dailyBudgetCents: 200, startsAt: day(-1), endsAt: day(1), approvedBy: owner.username, approvedAt: new Date(),
+        externalCampaignId: status === 'APPROVED' ? null : 'c1', externalAdSetId: status === 'APPROVED' ? null : 's1', externalCreativeId: status === 'APPROVED' ? null : 'k1', externalAdId: status === 'APPROVED' ? null : 'a1',
+        createdBy: owner.username,
+      },
+    })
+    adIds.push(ad.id)
+    return ad
+  }
+  const noFetch = () => {
+    const calls: string[] = []
+    return { calls, deps: { fetch: async (u: string) => { calls.push(u); throw new Error('no request may be made') } } }
+  }
+
+  test('ads follow the campaign: no create or start in a paused, ended, archived or not-started campaign, and no request is made', async () => {
+    for (const o of [{ status: 'PAUSED' }, { status: 'ENDED' }, { status: 'ARCHIVED' }, { startsAt: day(2), endsAt: day(4) }, { startsAt: day(-4), endsAt: day(-2) }]) {
+      const { campaign } = await newCampaign(o)
+      const f = noFetch()
+      const create = await newAd(campaign.id, 'APPROVED')
+      await rejects(() => transitionAdAction(prisma, create.id, 'create_on_platform', owner, f.deps), 409, /campaign/)
+      const start = await newAd(campaign.id, 'PAUSED_ON_PLATFORM')
+      await rejects(() => transitionAdAction(prisma, start.id, 'start', owner, f.deps), 409, /campaign/)
+      assert.strictEqual(f.calls.length, 0, JSON.stringify(o))
+      assert.strictEqual((await prisma.marketingAd.findUniqueOrThrow({ where: { id: create.id } })).status, 'APPROVED')
+      assert.strictEqual((await prisma.marketingAd.findUniqueOrThrow({ where: { id: start.id } })).status, 'PAUSED_ON_PLATFORM')
+    }
+  })
+
+  test('a campaign with an ad running on the platform cannot be archived or ended until the ad is paused', async () => {
+    const { campaign, contentId } = await newCampaign()
+    const waiting = await newPost(contentId)
+    const ad = await newAd(campaign.id, 'ACTIVE')
+    await rejects(() => archiveCampaign(prisma, campaign.id, owner.username), 409, /Pause the ad/)
+    await rejects(() => updateCampaign(prisma, campaign.id, { status: 'ENDED' }, owner.username), 409, /Pause the ad/)
+    assert.strictEqual((await prisma.marketingCampaign.findUniqueOrThrow({ where: { id: campaign.id } })).status, 'ACTIVE')
+    assert.strictEqual(await statusOf(waiting.id), 'APPROVED')
+    await prisma.marketingAd.update({ where: { id: ad.id }, data: { status: 'PAUSED_ON_PLATFORM' } })
+    assert.strictEqual((await archiveCampaign(prisma, campaign.id, owner.username)).status, 'ARCHIVED')
   })
 })

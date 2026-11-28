@@ -133,7 +133,7 @@ export const xConnector: Connector = {
       if (mediaIds.length) payload.media = { media_ids: mediaIds }
       const out = await xJson(ctx.fetch, `${X_API}/tweets`, t, payload)
       const id = out.data?.id
-      if (typeof id !== 'string') return { ok: false, error: 'X did not say whether the post went out. Check the account before trying again.', retryable: false }
+      if (typeof id !== 'string') return { ok: false, error: 'X did not say whether the post went out. Check the account before trying again.', retryable: false, uncertain: true }
       const message = expectedCostText(hasLink)
       console.info(`[marketing] X post ${id} created. ${message}`)
       return { ok: true, externalId: id, externalUrl: `https://x.com/i/status/${id}`, message }

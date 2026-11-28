@@ -1,7 +1,7 @@
 // VYRA Marketing hub (ZP-1200): publish approved posts through their connector. Server only.
 // The gate (assertCanGoLive) runs in transitionPost AND again before any request. Nothing here
 // is called by a page load: only the owner's Publish / Retry and the scheduled runner (npm run marketing:run).
-import type { MarketingChannel } from '@prisma/client'
+import type { MarketingChannel, MarketingPost } from '@prisma/client'
 import { hostRoutingConfigFromEnv } from '@/lib/host-routing'
 import { isValidImageKey, PRODUCT_IMAGE_PREFIX } from '@/lib/storage/keys'
 import { primaryStorefrontHost } from '@/lib/storefront/public-url'
@@ -11,6 +11,7 @@ import { campaignBlockReason, campaignHasEnded, shopDayLabel } from './campaign-
 import { getChannel } from './channels'
 import { updateCredentials } from './connect'
 import { getConnector } from './connectors'
+import { NotSentError } from './connectors/common'
 import type { Connector, FetchLike } from './connectors/types'
 import { assertCanGoLive, checkCanGoLive } from './flags'
 import { assertInCampaignWindow, campaignOfPost, transitionPost, type PostDto } from './posts'
@@ -135,6 +136,9 @@ export async function publishPost(db: Db, postId: number, actorIn: Actor | strin
       },
     )
   } catch (e) {
+    // The connector's own gate check (a 409) or a step it knows came before any creating request
+    // (a photo it could not download): nothing was sent, so it is a plain failure, not "check the platform".
+    if (e instanceof WebsiteError || e instanceof NotSentError) return await fail(e.message)
     return await uncertain(e instanceof Error ? e.message : 'The request to the platform broke off.')
   }
   if (!result.ok) return result.uncertain ? await uncertain(result.error) : await fail(result.error, result.code)
@@ -165,6 +169,9 @@ export interface RunResult {
 
 /** How long a post may stay PUBLISHING before the run treats the attempt as lost (a crash mid-request). */
 export const PUBLISH_LEASE_MS = 10 * 60 * 1000
+
+/** How many pages of due posts one run looks through (blocked posts are skipped, not counted). */
+export const RUN_MAX_PAGES = 20
 
 /** Post statuses that have not gone out and are withdrawn when their campaign ends. */
 const UNSENT = ['APPROVED', 'SCHEDULED']
@@ -226,36 +233,53 @@ export async function runDuePosts(db: Db, now: Date, deps: PublishDeps, opts: { 
   const max = Math.min(Math.max(Math.trunc(opts.max ?? 10) || 10, 1), 50)
   const closed = await closeEndedCampaigns(db, now)
   const stale = await markStalePublishing(db, now)
-  const due = await db.marketingPost.findMany({
-    where: { status: 'SCHEDULED', scheduledFor: { lte: now } },
-    orderBy: [{ scheduledFor: 'asc' }, { id: 'asc' }],
-    take: max,
-  })
-  const out: RunResult = { checked: due.length, published: [], failed: [], uncertain: [...stale], endedCampaigns: closed.ended, withdrawn: closed.withdrawn, blocked: [], reason: null }
-  if (due.length === 0) return out
-  const settings = await getSettings(db)
-  for (const p of due) {
-    const outside = campaignBlockReason(await campaignOfPost(db, p.contentId), now)
-    if (outside) {
-      out.blocked.push({ postId: p.id, reason: outside })
-      continue
+  const out: RunResult = { checked: 0, published: [], failed: [], uncertain: [...stale], endedCampaigns: closed.ended, withdrawn: closed.withdrawn, blocked: [], reason: null }
+  // Posts that are blocked (a paused campaign, a channel the gate refuses) stay SCHEDULED. They must not
+  // use up the batch, or a paused campaign with many overdue posts would stop every other post for ever:
+  // the run pages past them until `max` posts were actually tried (or nothing due is left).
+  let settings: Awaited<ReturnType<typeof getSettings>> | null = null
+  let after: { scheduledFor: Date; id: number } | null = null
+  let tried = 0
+  for (let page = 0; page < RUN_MAX_PAGES && tried < max; page++) {
+    const due: MarketingPost[] = await db.marketingPost.findMany({
+      where: {
+        status: 'SCHEDULED',
+        scheduledFor: { lte: now },
+        ...(after ? { OR: [{ scheduledFor: { gt: after.scheduledFor } }, { scheduledFor: after.scheduledFor, id: { gt: after.id } }] } : {}),
+      },
+      orderBy: [{ scheduledFor: 'asc' }, { id: 'asc' }],
+      take: max,
+    })
+    if (due.length === 0) break
+    const last = due[due.length - 1]
+    after = { scheduledFor: last.scheduledFor as Date, id: last.id }
+    settings ??= await getSettings(db)
+    for (const p of due) {
+      if (tried >= max) break
+      out.checked++
+      const outside = campaignBlockReason(await campaignOfPost(db, p.contentId), now)
+      if (outside) {
+        out.blocked.push({ postId: p.id, reason: outside })
+        continue
+      }
+      const channel = await channelFor(db, p)
+      const check = checkCanGoLive({ settings, channel, post: p })
+      if (!check.ok) {
+        out.blocked.push({ postId: p.id, reason: check.reason })
+        continue
+      }
+      tried++
+      try {
+        const r = await publishPost(db, p.id, SYSTEM_ACTOR, deps, now)
+        if (r.status === 'PUBLISHED') out.published.push(p.id)
+        else if (r.status === 'UNCERTAIN') out.uncertain.push(p.id)
+        else out.failed.push(p.id)
+      } catch (e) {
+        out.blocked.push({ postId: p.id, reason: e instanceof Error ? e.message : 'Could not publish.' })
+      }
     }
-    const channel = await channelFor(db, p)
-    const check = checkCanGoLive({ settings, channel, post: p })
-    if (!check.ok) {
-      out.blocked.push({ postId: p.id, reason: check.reason })
-      continue
-    }
-    try {
-      const r = await publishPost(db, p.id, SYSTEM_ACTOR, deps, now)
-      if (r.status === 'PUBLISHED') out.published.push(p.id)
-      else if (r.status === 'UNCERTAIN') out.uncertain.push(p.id)
-      else out.failed.push(p.id)
-    } catch (e) {
-      out.blocked.push({ postId: p.id, reason: e instanceof Error ? e.message : 'Could not publish.' })
-    }
+    if (due.length < max) break
   }
   out.reason = out.blocked[0]?.reason ?? null
   return out
 }
-
