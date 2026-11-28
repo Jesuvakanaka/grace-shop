@@ -3,6 +3,7 @@ import type { MarketingPost, Prisma } from '@prisma/client'
 import { WebsiteError } from '@/lib/website/http'
 import { hostRoutingConfigFromEnv } from '@/lib/host-routing'
 import { writeAudit, type Db } from './audit'
+import { campaignBlockReason, type WindowCampaign } from './campaign-window'
 import { getChannel, isChannelKind, type ChannelDef } from './channels'
 import { assertCanGoLive } from './flags'
 import { getSettings } from './settings'
@@ -148,6 +149,23 @@ export async function updatePost(db: Db, id: number, body: unknown, actor: Actor
 const fieldsOf = (t: ReturnType<typeof transition>) => ({ ...t })
 
 const GATED: readonly PostAction[] = ['publish', 'retry', 'start']
+/** ZP-1124 (MM-04-AC4): every way out also respects the campaign's dates and pause. */
+const IN_CAMPAIGN_WINDOW: readonly PostAction[] = ['publish', 'retry', 'start', 'share']
+
+/** The campaign a post belongs to (through its content), or null when the content is outside any campaign. */
+export async function campaignOfPost(db: Db, contentId: number): Promise<WindowCampaign | null> {
+  const content = await db.marketingContent.findUnique({
+    where: { id: contentId },
+    select: { campaign: { select: { id: true, name: true, status: true, startsAt: true, endsAt: true } } },
+  })
+  return content?.campaign ?? null
+}
+
+/** Throws a 409 with a plain reason when the post's campaign does not allow it to go out at `when`. */
+export async function assertInCampaignWindow(db: Db, contentId: number, when: Date): Promise<void> {
+  const reason = campaignBlockReason(await campaignOfPost(db, contentId), when)
+  if (reason) throw new WebsiteError(409, reason, { blocked: 'campaign' })
+}
 
 /**
  * Move a post through the status machine. Publishing actions also pass
@@ -171,6 +189,9 @@ export async function transitionPost(
     if (ch.limits.needsImage && keys.length === 0) throw new WebsiteError(409, `${ch.label} needs at least one photo.`)
   }
   const t = transition(post, action, a, opts)
+  if (IN_CAMPAIGN_WINDOW.includes(action)) await assertInCampaignWindow(db, post.contentId, opts.now ?? new Date())
+  // A scheduled time outside the campaign would only be refused later: refuse it now.
+  if (action === 'schedule' && t.scheduledFor) await assertInCampaignWindow(db, post.contentId, t.scheduledFor)
   if (GATED.includes(action)) {
     const settings = await getSettings(db)
     const channel = post.channelId

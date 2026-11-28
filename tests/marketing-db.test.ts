@@ -7,7 +7,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'zp1200-test-secret-012345678
 
 import prisma from '../src/lib/db'
 import { getSettings, updateSettings } from '../src/lib/marketing/settings'
-import { createCampaign, deleteCampaign, getCampaign, listCampaigns, updateCampaign } from '../src/lib/marketing/campaigns'
+import { archiveCampaign, createCampaign, getCampaign, listCampaigns, updateCampaign } from '../src/lib/marketing/campaigns'
 import { createContent, deleteContent, getContent, listContent, updateContent } from '../src/lib/marketing/content'
 import { getPost, listPosts, transitionPost, updatePost } from '../src/lib/marketing/posts'
 import { listChannels } from '../src/lib/marketing/channel-rows'
@@ -120,10 +120,18 @@ describe('campaigns and content', () => {
     assert.strictEqual(u.title, 'ZP1200 Pink dress 2')
     await rejects(() => createContent(prisma, { title: 'x', channels: ['MYSPACE'] }, owner.username), 400, /Unknown channel/)
     await rejects(() => createContent(prisma, { title: 'x', productId: 2147483000 }, owner.username), 400)
-    // deleting the campaign keeps the content
-    await deleteCampaign(prisma, camp.id, owner.username)
-    assert.strictEqual((await getContent(prisma, c.id))!.campaignId, null)
-    assert.strictEqual(await getCampaign(prisma, camp.id), null)
+    // ZP-1124: archiving replaces deleting. The campaign and its content stay linked for the record,
+    // the normal list hides it, and it can no longer be changed.
+    const archived = await archiveCampaign(prisma, camp.id, owner.username)
+    assert.strictEqual(archived.status, 'ARCHIVED')
+    assert.strictEqual((await getContent(prisma, c.id))!.campaignId, camp.id)
+    assert.strictEqual((await getCampaign(prisma, camp.id))!.status, 'ARCHIVED')
+    assert.ok(!(await listCampaigns(prisma)).some((x) => x.id === camp.id))
+    assert.ok((await listCampaigns(prisma, 'ARCHIVED')).some((x) => x.id === camp.id))
+    await rejects(() => updateCampaign(prisma, camp.id, { name: 'x' }, owner.username), 409, /archived/)
+    await rejects(() => updateCampaign(prisma, 2147483000, { status: 'ARCHIVED' }, owner.username), 400) // only through archiving
+    assert.strictEqual((await archiveCampaign(prisma, camp.id, owner.username)).status, 'ARCHIVED') // twice is harmless
+    assert.ok((await audit('campaign', camp.id)).some((l) => l.action === 'campaign.archive'))
   })
 
   test('content that has gone out cannot be deleted; draft content can', async () => {

@@ -68,7 +68,7 @@ async function call<T>(fetchFn: FetchLike, method: 'GET' | 'POST', path: string,
 
 const failure = (e: unknown) =>
   e instanceof ThreadsError
-    ? { ok: false as const, error: e.message, retryable: e.retryable, ...(e.code !== null ? { code: e.code } : {}) }
+    ? { ok: false as const, error: e.message, retryable: e.retryable, ...(e.code !== null ? { code: e.code } : {}), ...(e.httpStatus === 0 ? { uncertain: true } : {}) }
     : { ok: false as const, error: e instanceof Error ? e.message : 'Publishing failed.', retryable: false }
 
 export interface ThreadsOptions {

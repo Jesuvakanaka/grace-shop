@@ -7,12 +7,13 @@ import { isValidImageKey, PRODUCT_IMAGE_PREFIX } from '@/lib/storage/keys'
 import { primaryStorefrontHost } from '@/lib/storefront/public-url'
 import { WebsiteError } from '@/lib/website/http'
 import { writeAudit, type Db } from './audit'
+import { campaignBlockReason, campaignHasEnded, shopDayLabel } from './campaign-window'
 import { getChannel } from './channels'
 import { updateCredentials } from './connect'
 import { getConnector } from './connectors'
 import type { Connector, FetchLike } from './connectors/types'
 import { assertCanGoLive, checkCanGoLive } from './flags'
-import { transitionPost, type PostDto } from './posts'
+import { assertInCampaignWindow, campaignOfPost, transitionPost, type PostDto } from './posts'
 import { decryptJson } from './secrets'
 import { getSettings } from './settings'
 import type { Actor } from './state'
@@ -71,6 +72,7 @@ export async function publishPost(db: Db, postId: number, actorIn: Actor | strin
   const channel = await channelFor(db, post)
   const gate = { settings, channel, post }
   assertCanGoLive(gate) // before anything changes or any request is made
+  await assertInCampaignWindow(db, post.contentId, now) // ZP-1124: never outside the campaign's dates, never while it is paused
 
   // Moves to PUBLISHING (compare-and-set), checks the gate again and writes the audit row.
   await transitionPost(db, postId, action, actor, { now })
@@ -89,8 +91,20 @@ export async function publishPost(db: Db, postId: number, actorIn: Actor | strin
     return failed
   }
 
+  // ZP-1124 (MM-09-AC2): the request may have reached the platform but no clear answer came back.
+  // The post may be out, so it is never retried by itself: the owner checks and says which.
+  const uncertain = async (why: string): Promise<PostDto> => {
+    const error = `${why.trim().replace(/[.\s]*$/, '.')} It may already be on ${def.label}: check there, then press "It went out" or "It did not go out".`
+    const out = await transitionPost(db, postId, 'uncertain', SYSTEM_ACTOR, { error })
+    if (channel) await db.marketingChannel.update({ where: { id: channel.id }, data: { lastError: why.slice(0, 500) } })
+    return out
+  }
+
+  // Before the request: anything that goes wrong here means nothing was sent, so it is a plain failure.
+  let credentials: Record<string, string>
+  let imageUrls: string[]
   try {
-    let credentials = decryptJson<Record<string, string>>((channel as MarketingChannel).credentialsEnc as string)
+    credentials = decryptJson<Record<string, string>>((channel as MarketingChannel).credentialsEnc as string)
     // Short-lived tokens (X): renew first, and save the new tokens before they are used (a refresh token can be single-use).
     if (connector.refreshCredentials) {
       const r = await connector.refreshCredentials(credentials, deps.fetch)
@@ -101,8 +115,16 @@ export async function publishPost(db: Db, postId: number, actorIn: Actor | strin
       }
     }
     const keys = Array.isArray(post.imageKeys) ? (post.imageKeys as unknown[]).filter((k): k is string => typeof k === 'string') : []
-    const imageUrls = publicImageUrls(keys, publicOrigin(deps), def.limits.imageFormat === 'jpeg')
-    const result = await connector.publish(
+    imageUrls = publicImageUrls(keys, publicOrigin(deps), def.limits.imageFormat === 'jpeg')
+  } catch (e) {
+    // Never include anything but the message: credentials are not part of it.
+    return await fail(e instanceof Error ? e.message : 'Publishing failed.')
+  }
+
+  // The request itself. A crash or a broken connection here leaves the outcome unknown.
+  let result: Awaited<ReturnType<Connector['publish']>>
+  try {
+    result = await connector.publish(
       { id: post.id, text: post.text, imageUrls, link: post.link, format: post.format, trackingTag: post.trackingTag },
       {
         credentials,
@@ -112,40 +134,112 @@ export async function publishPost(db: Db, postId: number, actorIn: Actor | strin
         gate,
       },
     )
-    if (!result.ok) return await fail(result.error, result.code)
-    const published = await transitionPost(db, postId, 'published', SYSTEM_ACTOR, { externalId: result.externalId, externalUrl: result.externalUrl, now })
-    if (channel) await db.marketingChannel.update({ where: { id: channel.id }, data: { lastError: null } })
-    // Extra words from the platform connector (X cost, "sent to your TikTok inbox") go on the activity log.
-    if (result.message) await writeAudit(db, { actor: SYSTEM_ACTOR.username, action: 'post.publish_note', entity: 'post', entityId: postId, detail: { message: result.message.slice(0, 300) } })
-    return published
   } catch (e) {
-    // Never include anything but the message: credentials are not part of it.
-    return await fail(e instanceof Error ? e.message : 'Publishing failed.')
+    return await uncertain(e instanceof Error ? e.message : 'The request to the platform broke off.')
   }
+  if (!result.ok) return result.uncertain ? await uncertain(result.error) : await fail(result.error, result.code)
+  // MM-09-AC3: published needs the platform's ID for the post.
+  if (!result.externalId || !String(result.externalId).trim()) return await uncertain(`${def.label} answered without the post's ID.`)
+  const published = await transitionPost(db, postId, 'published', SYSTEM_ACTOR, { externalId: result.externalId, externalUrl: result.externalUrl, now })
+  if (channel) await db.marketingChannel.update({ where: { id: channel.id }, data: { lastError: null } })
+  // Extra words from the platform connector (X cost, "sent to your TikTok inbox") go on the activity log.
+  if (result.message) await writeAudit(db, { actor: SYSTEM_ACTOR.username, action: 'post.publish_note', entity: 'post', entityId: postId, detail: { message: result.message.slice(0, 300) } })
+  return published
 }
 
 export interface RunResult {
   checked: number
   published: number[]
   failed: number[]
+  /** ZP-1124: posts whose outcome is unknown (the owner must check the platform). */
+  uncertain: number[]
+  /** ZP-1124: campaigns closed by this run because their last day is over. */
+  endedCampaigns: number[]
+  /** ZP-1124: unsent posts withdrawn because their campaign ended. */
+  withdrawn: number[]
   /** Posts left SCHEDULED because the gate said no (or the channel has no connector). */
   blocked: { postId: number; reason: string }[]
   /** The first reason a post was left alone, if any. */
   reason: string | null
 }
 
-/** Publish SCHEDULED posts that are due. Posts are only touched when checkCanGoLive passes; otherwise they stay SCHEDULED. */
+/** How long a post may stay PUBLISHING before the run treats the attempt as lost (a crash mid-request). */
+export const PUBLISH_LEASE_MS = 10 * 60 * 1000
+
+/** Post statuses that have not gone out and are withdrawn when their campaign ends. */
+const UNSENT = ['APPROVED', 'SCHEDULED']
+
+/**
+ * ZP-1124 (MM-04-AC3, MM-04-AC6): close campaigns whose last day is over BEFORE any post is processed.
+ * Running and paused campaigns become ENDED; every unsent post of an ended campaign (including drafts
+ * of campaigns never started) is withdrawn with a plain reason. History is kept.
+ */
+export async function closeEndedCampaigns(db: Db, now: Date): Promise<{ ended: number[]; withdrawn: number[] }> {
+  const out = { ended: [] as number[], withdrawn: [] as number[] }
+  const candidates = await db.marketingCampaign.findMany({
+    where: { status: { in: ['DRAFT', 'ACTIVE', 'PAUSED'] }, endsAt: { not: null, lt: now } },
+    select: { id: true, name: true, status: true, endsAt: true },
+  })
+  for (const c of candidates) {
+    if (!campaignHasEnded(c, now)) continue // the end day is not over yet in shop time
+    if (c.status !== 'DRAFT') {
+      const res = await db.marketingCampaign.updateMany({ where: { id: c.id, status: c.status }, data: { status: 'ENDED' } })
+      if (res.count === 1) {
+        out.ended.push(c.id)
+        await writeAudit(db, { actor: SYSTEM_ACTOR.username, action: 'campaign.ended', entity: 'campaign', entityId: c.id, detail: { from: c.status, reason: 'last day passed' } })
+      }
+    }
+    const error = `Withdrawn: the campaign ended on ${shopDayLabel(c.endsAt as Date)} before this went out.`
+    const posts = await db.marketingPost.findMany({ where: { status: { in: UNSENT }, content: { campaignId: c.id } }, select: { id: true, status: true } })
+    for (const p of posts) {
+      const res = await db.marketingPost.updateMany({ where: { id: p.id, status: p.status }, data: { status: 'CANCELLED', scheduledFor: null, error } })
+      if (res.count === 1) {
+        out.withdrawn.push(p.id)
+        await writeAudit(db, { actor: SYSTEM_ACTOR.username, action: 'post.withdrawn', entity: 'post', entityId: p.id, detail: { from: p.status, to: 'CANCELLED', campaignId: c.id } })
+      }
+    }
+  }
+  return out
+}
+
+/** ZP-1124 (MM-09-AC1): a post left PUBLISHING past the lease (the run died mid-request) becomes UNCERTAIN, never retried blind. */
+export async function markStalePublishing(db: Db, now: Date, leaseMs: number = PUBLISH_LEASE_MS): Promise<number[]> {
+  const stale = await db.marketingPost.findMany({ where: { status: 'PUBLISHING', updatedAt: { lt: new Date(now.getTime() - leaseMs) } }, select: { id: true, channelKind: true } })
+  const out: number[] = []
+  for (const p of stale) {
+    const label = getChannel(p.channelKind)?.label ?? 'the platform'
+    const error = `The run that was posting this stopped before ${label} answered. It may already be on ${label}: check there, then press "It went out" or "It did not go out".`
+    const res = await db.marketingPost.updateMany({ where: { id: p.id, status: 'PUBLISHING' }, data: { status: 'UNCERTAIN', error } })
+    if (res.count === 1) {
+      out.push(p.id)
+      await writeAudit(db, { actor: SYSTEM_ACTOR.username, action: 'post.uncertain', entity: 'post', entityId: p.id, detail: { from: 'PUBLISHING', to: 'UNCERTAIN', reason: 'lease expired' } })
+    }
+  }
+  return out
+}
+
+/**
+ * Publish SCHEDULED posts that are due. Ended campaigns are closed first, and lost attempts are marked
+ * uncertain. Posts are only touched when the campaign allows it and checkCanGoLive passes; otherwise they stay SCHEDULED.
+ */
 export async function runDuePosts(db: Db, now: Date, deps: PublishDeps, opts: { max?: number } = {}): Promise<RunResult> {
   const max = Math.min(Math.max(Math.trunc(opts.max ?? 10) || 10, 1), 50)
+  const closed = await closeEndedCampaigns(db, now)
+  const stale = await markStalePublishing(db, now)
   const due = await db.marketingPost.findMany({
     where: { status: 'SCHEDULED', scheduledFor: { lte: now } },
     orderBy: [{ scheduledFor: 'asc' }, { id: 'asc' }],
     take: max,
   })
-  const out: RunResult = { checked: due.length, published: [], failed: [], blocked: [], reason: null }
+  const out: RunResult = { checked: due.length, published: [], failed: [], uncertain: [...stale], endedCampaigns: closed.ended, withdrawn: closed.withdrawn, blocked: [], reason: null }
   if (due.length === 0) return out
   const settings = await getSettings(db)
   for (const p of due) {
+    const outside = campaignBlockReason(await campaignOfPost(db, p.contentId), now)
+    if (outside) {
+      out.blocked.push({ postId: p.id, reason: outside })
+      continue
+    }
     const channel = await channelFor(db, p)
     const check = checkCanGoLive({ settings, channel, post: p })
     if (!check.ok) {
@@ -155,6 +249,7 @@ export async function runDuePosts(db: Db, now: Date, deps: PublishDeps, opts: { 
     try {
       const r = await publishPost(db, p.id, SYSTEM_ACTOR, deps, now)
       if (r.status === 'PUBLISHED') out.published.push(p.id)
+      else if (r.status === 'UNCERTAIN') out.uncertain.push(p.id)
       else out.failed.push(p.id)
     } catch (e) {
       out.blocked.push({ postId: p.id, reason: e instanceof Error ? e.message : 'Could not publish.' })

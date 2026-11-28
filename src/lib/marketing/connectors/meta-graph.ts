@@ -118,7 +118,8 @@ export async function lookupPage(fetchFn: FetchLike, token: string, pageId: stri
 }
 
 /** Failure of a connector call as a PublishResult-shaped object. */
-export function failureOf(e: unknown): { ok: false; error: string; retryable: boolean; code?: number } {
-  if (e instanceof MetaGraphError) return { ok: false, error: e.message, retryable: e.retryable, ...(e.code !== null ? { code: e.code } : {}) }
+export function failureOf(e: unknown): { ok: false; error: string; retryable: boolean; code?: number; uncertain?: boolean } {
+  // httpStatus 0 = Meta could not be reached or the connection broke: the request may have arrived.
+  if (e instanceof MetaGraphError) return { ok: false, error: e.message, retryable: e.retryable, ...(e.code !== null ? { code: e.code } : {}), ...(e.httpStatus === 0 ? { uncertain: true } : {}) }
   return { ok: false, error: e instanceof Error ? e.message : 'Publishing failed.', retryable: false }
 }

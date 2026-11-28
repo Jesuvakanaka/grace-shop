@@ -76,7 +76,7 @@ export default function CampaignPage() {
       await mk(`/api/marketing/campaigns/${id}`, { method: 'DELETE' });
       router.push('/marketing/campaigns');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not delete.');
+      setError(e instanceof Error ? e.message : 'Could not archive.');
     }
   };
 
@@ -86,6 +86,7 @@ export default function CampaignPage() {
   return (
     <div className="space-y-6 max-w-3xl">
       <ErrorNote message={error} />
+      {c.status === 'ARCHIVED' ? <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700" data-testid="campaign-archived">This campaign is archived. It is kept for the record and can no longer be changed.</p> : null}
       <Card className="space-y-4">
         <div><label className="label" htmlFor="f-name">Name</label><input id="f-name" className="input" value={form.name} onChange={set('name')} maxLength={120} data-testid="campaign-edit-name" /></div>
         <div><label className="label" htmlFor="f-goal">Goal, in plain words</label><input id="f-goal" className="input" value={form.goal} onChange={set('goal')} maxLength={500} placeholder="For example: sell the new school range before term starts" /></div>
@@ -116,7 +117,7 @@ export default function CampaignPage() {
 
       <div className="flex flex-wrap gap-2">
         <button type="button" className="btn btn-primary" onClick={save} disabled={busy || form.name.trim() === ''} data-testid="campaign-save">Save campaign</button>
-        <button type="button" className="btn btn-danger" onClick={() => setConfirmDelete(true)}>Delete</button>
+        {c.status === 'ARCHIVED' ? null : <button type="button" className="btn btn-danger" onClick={() => setConfirmDelete(true)} data-testid="campaign-archive">Archive</button>}
       </div>
 
       <Card className="space-y-3">
@@ -135,7 +136,7 @@ export default function CampaignPage() {
         )}
       </Card>
 
-      <ConfirmDialog open={confirmDelete} title="Delete this campaign?" message="The campaign is removed. Its content and posts are kept." confirmText="Delete" variant="danger" onCancel={() => setConfirmDelete(false)} onConfirm={remove} />
+      <ConfirmDialog open={confirmDelete} title="Archive this campaign?" message="The campaign, its content and its results are kept for the record. Posts that have not gone out are withdrawn, and nothing more from it goes out." confirmText="Archive" variant="danger" onCancel={() => setConfirmDelete(false)} onConfirm={remove} />
     </div>
   );
 }

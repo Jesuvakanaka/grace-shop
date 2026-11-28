@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { marketingAuth } from '@/lib/marketing/guard'
-import { deleteCampaign, getCampaign, updateCampaign } from '@/lib/marketing/campaigns'
+import { archiveCampaign, getCampaign, updateCampaign } from '@/lib/marketing/campaigns'
 import { badRequest, errorResponse, notFound, readJson } from '@/lib/website/http'
 import { parseIdParam } from '@/lib/website/validation'
 
@@ -33,15 +33,16 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
 }
 
+/** DELETE archives the campaign (ZP-1124): nothing is removed, unsent posts are withdrawn. */
 export async function DELETE(request: Request, { params }: Ctx) {
   const auth = await marketingAuth(request)
   if (!auth.ok) return auth.response
   const id = parseIdParam((await params).id)
   if (!id) return badRequest('Invalid campaign id')
   try {
-    await deleteCampaign(prisma, id, auth.session.username)
-    return NextResponse.json({ ok: true })
+    const campaign = await archiveCampaign(prisma, id, auth.session.username)
+    return NextResponse.json({ ok: true, campaign })
   } catch (error) {
-    return errorResponse(error, 'delete campaign')
+    return errorResponse(error, 'archive campaign')
   }
 }

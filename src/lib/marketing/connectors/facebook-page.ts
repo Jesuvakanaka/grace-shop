@@ -64,7 +64,7 @@ export const facebookPageConnector: Connector = {
         id = r.id
         postId = r.id
       }
-      if (!id || !postId) return { ok: false, error: 'Facebook did not say whether the post went out. Check the Page before trying again.', retryable: false }
+      if (!id || !postId) return { ok: false, error: 'Facebook did not say whether the post went out. Check the Page before trying again.', retryable: false, uncertain: true }
       return { ok: true, externalId: postId, externalUrl: `https://www.facebook.com/${postId}` }
     } catch (e) {
       return failureOf(e)

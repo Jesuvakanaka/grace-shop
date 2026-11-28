@@ -83,8 +83,9 @@ export async function googleJson<T = Record<string, unknown>>(
   throw new GoogleApiError(`Google did not accept the request.${detail}`, res.status, false)
 }
 
-export const failureOfGoogle = (e: unknown): { ok: false; error: string; retryable: boolean; code?: number } =>
+export const failureOfGoogle = (e: unknown): { ok: false; error: string; retryable: boolean; code?: number; uncertain?: boolean } =>
   e instanceof GoogleApiError
     // code 190 = "the saved credentials no longer work": publishPost then moves the channel to ERROR (same meaning as Meta's 190).
-    ? { ok: false, error: e.message, retryable: e.retryable, ...(e.credentialsRejected ? { code: 190 } : {}) }
+    // httpStatus 0 = Google could not be reached or the connection broke: the request may have arrived.
+    ? { ok: false, error: e.message, retryable: e.retryable, ...(e.credentialsRejected ? { code: 190 } : {}), ...(e.httpStatus === 0 ? { uncertain: true } : {}) }
     : { ok: false, error: e instanceof Error ? e.message : 'The request to Google failed.', retryable: false }

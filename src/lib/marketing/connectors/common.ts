@@ -57,10 +57,13 @@ export async function download(fetchFn: FetchLike, url: string): Promise<{ bytes
   return { bytes: await res.arrayBuffer(), type: res.headers.get('content-type')?.split(';')[0].trim() || 'application/octet-stream' }
 }
 
-/** A network-level failure (fetch threw): retryable, no secrets in the text. */
+/**
+ * A network-level failure (fetch threw): no secrets in the text. The request may have reached the
+ * platform before the connection broke, so for a post it is `uncertain` (the post may be out).
+ */
 export function networkFailure(platform: string, e: unknown): Failure {
   const msg = e instanceof Error ? e.message : 'unknown error'
-  return { ok: false, retryable: true, error: `Could not reach ${platform}: ${msg.slice(0, 160)}` }
+  return { ok: false, retryable: true, uncertain: true, error: `Could not reach ${platform}: ${msg.slice(0, 160)}` }
 }
 
 /** First line (trimmed, max n characters) used as a title; the rest as a body. */
