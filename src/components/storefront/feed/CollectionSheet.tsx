@@ -51,7 +51,7 @@ export function CollectionSheet({ dialogRef, id, tabs, current, onPick, onClose 
       onClose={onClose}
       onPointerDown={onPointerDown}
       onClick={onDialogClick}
-      className="fixed inset-x-0 bottom-0 top-auto mx-auto my-0 w-full max-w-full rounded-t-[14px] border-0 bg-brand-cream p-0 text-brand-ink backdrop:bg-[rgba(20,20,18,0.45)] md:max-w-[calc((100svh-32px)*9/16)]"
+      className="fixed inset-x-0 bottom-0 top-auto mx-auto my-0 w-full max-w-full rounded-t-[14px] border-0 bg-brand-cream p-0 text-brand-ink backdrop:bg-[rgba(20,20,18,0.45)] desk:max-w-[calc((100svh-32px)*9/16)] tablet:landscape:max-w-[640px]"
     >
       <div className="flex flex-col px-6 pb-7 pt-2.5">
         <span aria-hidden="true" className="mb-3.5 h-1 w-10 self-center rounded-[2px] bg-brand-ink/25" />

@@ -275,7 +275,7 @@ export function DetailsSheet({
         transform: drag > 0 ? `translateY(${drag}px)` : undefined,
         transition: drag > 0 ? "none" : "transform 0.2s ease",
       }}
-      className="vy-details-sheet fixed inset-x-0 bottom-0 top-auto mx-auto my-0 w-full max-w-full overflow-hidden rounded-t-[16px] border-0 bg-brand-cream-50 p-0 text-brand-ink shadow-[0_-10px_30px_rgba(0,0,0,0.25)] backdrop:bg-[rgba(20,20,18,0.18)] md:bottom-4 md:max-w-[calc((100svh-32px)*9/16)]"
+      className="vy-details-sheet fixed inset-x-0 bottom-0 top-auto mx-auto my-0 w-full max-w-full overflow-hidden rounded-t-[16px] border-0 bg-brand-cream-50 p-0 text-brand-ink shadow-[0_-10px_30px_rgba(0,0,0,0.25)] backdrop:bg-[rgba(20,20,18,0.18)] desk:bottom-4 desk:max-w-[calc((100svh-32px)*9/16)] tablet:landscape:max-w-[640px]"
     >
       <style href="vyra-details-sheet" precedence="default">
         {SHEET_CSS}

@@ -453,8 +453,16 @@ scrolled to the anchor before hydration, which fires no scroll event).
   pinch-zoomed; checked on mount and on resize only). The document never scrolls (the feed scrolls inside itself and the page locks
   `html` overflow while mounted), so on iOS the URL bar does not collapse
   and nothing jumps.
-- md (768px) and up: the same feed in a centred phone-shaped column (9:16,
-  viewport height minus 32px) on cream, with up/down buttons beside it.
+- Touch tablets (768px and up, touch as the main pointer, e.g. iPad): the
+  feed fills the screen like on a phone, in portrait and landscape; no
+  up/down buttons (swipe). In landscape a portrait photo is shown whole in the
+  middle over a blurred copy of itself (ZP-515 photo fit), the info panel's
+  content keeps to a 640px column in the middle, and the details and
+  collection sheets are at most 640px wide.
+- Computers (768px and up with a mouse or trackpad, `desk:` variant,
+  `(min-width: 768px) and (pointer: fine)`): the same feed in a centred
+  phone-shaped column (9:16, viewport height minus 32px) on cream, with
+  up/down buttons beside it.
 - Scroll snap: `scroll-snap-type: y mandatory` with
   `scroll-snap-stop: always` (one look per flick, wheel or trackpad).
 - Keyboard: the feed is focusable (`tabindex=0`, labelled region) and is
